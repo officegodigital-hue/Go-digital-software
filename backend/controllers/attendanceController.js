@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const staff = require('../lib/staffDirectory');
 const policy = require('../lib/attendancePolicy');
+const dashboardWorkTime = require('../lib/dashboardWorkTime');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
 const payroll = require('./hrmsPayrollController');
 const { isWorkingDay } = require('../jobs/auto-absence');
@@ -190,14 +191,6 @@ async function ensureAttendanceSafetyTables() {
   }
 }
 
-async function persistedWorkedMinutes(record) {
-  const stored = Number(record && record.working_minutes || 0);
-  if (!record || !record.check_in_at || !record.check_out_at || stored > 0) return stored;
-  const completedBreakMinutes = await breakMinutes(record.id);
-  return Math.max(0,
-    policy.minutesBetween(sqlDateTime(record.check_in_at), sqlDateTime(record.check_out_at)) - completedBreakMinutes);
-}
-
 async function getRecord(employeeId, date, executor = db, lock = false) {
   const [rows] = await executor.query(
     'SELECT * FROM attendance_records WHERE employee_id = ? AND attendance_date = ? LIMIT 1' + (lock ? ' FOR UPDATE' : ''),
@@ -206,17 +199,16 @@ async function getRecord(employeeId, date, executor = db, lock = false) {
   return rows[0] || null;
 }
 
-function computeStatus(record) {
-  if (record && record.admin_status_override) return record.admin_status_override;
-  if (!record || !record.check_in_at) {
-    return record && record.attendance_status === 'on_leave' ? 'on_leave' : 'absent';
-  }
-  // Employee physically checked in — 'absent' stored at clock-in means they
-  // arrived after the absent threshold; treat as 'late' since they did attend.
-  const worked = Number(record.working_minutes || 0);
-  if (record.check_out_at && policy.isEarlyExit(worked)) return 'early_exit';
-  if (record.is_late || record.attendance_status === 'absent') return 'late';
-  return 'present';
+function computeStatus(record, rules) {
+  const row = record || {};
+  return policy.displayStatus({
+    adminOverride: row.admin_status_override,
+    status: row.attendance_status,
+    attendanceDate: sqlDate(row.attendance_date),
+    checkInAt: sqlDateTime(row.check_in_at),
+    checkOutAt: sqlDateTime(row.check_out_at),
+    isLate: Number(row.is_late),
+  }, rules).toLowerCase().replace(/ /g, '_');
 }
 
 function capitalize(value) {
@@ -224,7 +216,7 @@ function capitalize(value) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function serializeRecord(row, person) {
+function serializeRecord(row, person, rules) {
   const worked = Number(row.working_minutes || 0);
   return {
     id: row.id,
@@ -238,20 +230,26 @@ function serializeRecord(row, person) {
     checkInAt: sqlDateTime(row.check_in_at),
     checkOutAt: sqlDateTime(row.check_out_at),
     method: row.check_in_method,
-    isLate: Boolean(Number(row.is_late)),
+    isLate: !row.admin_status_override && policy.displayStatus({
+      checkInAt: sqlDateTime(row.check_in_at),
+      attendanceDate: sqlDate(row.attendance_date),
+    }, rules) === 'Late',
     workingMinutes: worked,
     status: policy.displayStatus({
       status: row.attendance_status,
       adminOverride: row.admin_status_override,
       isLate: Number(row.is_late),
-      checkInAt: row.check_in_at,
-      checkOutAt: row.check_out_at
-    })
+      workingMinutes: worked > 0 ? worked : undefined,
+      attendanceDate: sqlDate(row.attendance_date),
+      checkInAt: sqlDateTime(row.check_in_at),
+      checkOutAt: sqlDateTime(row.check_out_at)
+    }, rules)
   };
 }
 
 async function dashboard(req, res) {
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     const date = parseDateParam(req.query.date);
     if (!date) return fail(res, 400, 'date must be YYYY-MM-DD');
 
@@ -290,7 +288,7 @@ async function dashboard(req, res) {
       // 'absent' stored on check_in_at records means post-threshold arrival — still attended.
       const trulyAbsent = Boolean(record && (record.admin_status_override === 'absent' ||
         (record.attendance_status === 'absent' && !record.check_in_at))) || (!record && !onLeave.has(person.id));
-      const isLate = checkedIn && !record.admin_status_override && (Number(record.is_late) || record.attendance_status === 'absent');
+      const isLate = checkedIn && serializeRecord(record, undefined, attendanceRules).isLate;
       if (record && record.check_in_method === 'wifi') wifi += 1;
       if (checkedIn && isLate) lateLogins += 1;
       if (trulyAbsent) {
@@ -410,7 +408,7 @@ async function dashboard(req, res) {
       }),
       log: records.map(function (row) {
         const person = employees.find(function (p) { return p.id === row.employee_id; });
-        return serializeRecord(row, person);
+        return serializeRecord(row, person, attendanceRules);
       })
     });
   } catch (error) {
@@ -421,6 +419,7 @@ async function dashboard(req, res) {
 
 async function clockLogs(req, res) {
   try {
+    const rules = await policy.getTimeSettings(db);
     await ensureAttendanceSafetyTables();
     const view = req.query.view === 'day' ? 'day' : 'month';
     let start, end;
@@ -499,7 +498,7 @@ async function clockLogs(req, res) {
     const items = records
       .map(function (row) {
         const person = scopedEmployees.find(function (p) { return p.id === row.employee_id; });
-        const item = serializeRecord(row, person);
+        const item = serializeRecord(row, person, rules);
         const breaks = breaksByAttendanceId.get(Number(row.id)) || [];
         const completed = breaks.filter(function (entry) { return entry.endAt; });
         item.breakStart = breaks.length ? breaks[0].start : '-';
@@ -507,7 +506,8 @@ async function clockLogs(req, res) {
         item.breaks = breaks;
         item.breakMinutes = breaks.reduce(function (total, entry) {
           if (entry.endAt) return total + Number(entry.durationMinutes || 0);
-          return total + Math.max(0, policy.minutesBetween(entry.startAt, policy.nowIstDateTime()));
+          return total + Math.max(0, policy.minutesBetween(entry.startAt,
+            sqlDateTime(row.check_out_at) || policy.nowIstDateTime()));
         }, 0);
         // An active shift has no final stored duration yet. Calculate its
         // current duration on every request so Clock Logs stays live without
@@ -522,6 +522,19 @@ async function clockLogs(req, res) {
             policy.minutesBetween(sqlDateTime(row.check_in_at), now) - breakMinutesSoFar);
         }
         item.profileId = profileIdByUserId.get(Number(row.employee_id)) || null;
+        if (row.check_in_at && row.check_out_at) {
+          item.workingMinutes = Math.max(0,
+            policy.minutesBetween(sqlDateTime(row.check_in_at), sqlDateTime(row.check_out_at)) - item.breakMinutes);
+        }
+        item.status = policy.displayStatus({
+          status: row.attendance_status,
+          adminOverride: row.admin_status_override,
+          isLate: Number(row.is_late),
+          checkInAt: sqlDateTime(row.check_in_at),
+          checkOutAt: sqlDateTime(row.check_out_at),
+          workingMinutes: item.workingMinutes,
+          attendanceDate: sqlDate(row.attendance_date),
+        }, rules);
         item.workMode = row.work_mode_snapshot || workModeByUserId.get(Number(row.employee_id)) || 'Not set';
         item.adminReason = row.admin_override_reason || null;
         return item;
@@ -555,6 +568,7 @@ async function employeeCalendar(req, res) {
     return fail(res, 400, 'Valid employeeId and month (YYYY-MM) are required.');
   }
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     const people = await staff.listActiveStaff(db);
     const person = people.find(function (entry) { return Number(entry.id) === employeeId; });
     if (!person) return fail(res, 404, 'Active employee not found.');
@@ -584,7 +598,7 @@ async function employeeCalendar(req, res) {
       });
       const status = date > today ? 'Future' : off === 'H' ? 'Holiday' :
         off === 'OFF' ? 'Weekly Off' : leave ? 'Leave' :
-        row ? serializeRecord(row, person).status : 'No record';
+        row ? serializeRecord(row, person, attendanceRules).status : 'No record';
       days.push({ date, day, status, editable: date <= today && !off && !leave,
         hasRecord: Boolean(row), checkIn: row ? policy.formatDisplayTime(sqlDateTime(row.check_in_at)) : '-',
         checkOut: row ? policy.formatDisplayTime(sqlDateTime(row.check_out_at)) : '-',
@@ -614,6 +628,7 @@ async function correctStatus(req, res) {
   if (date > policy.todayIstDate()) return fail(res, 400, 'Future attendance cannot be corrected.');
   let connection;
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     const people = await staff.listActiveStaff(db);
     const person = people.find(function (entry) { return Number(entry.id) === employeeId; });
     if (!person) return fail(res, 404, 'Active employee not found.');
@@ -656,9 +671,9 @@ async function correctStatus(req, res) {
     }
     const previousStatus = row ? policy.displayStatus({
       status: row.attendance_status, adminOverride: row.admin_status_override,
-      isLate: Number(row.is_late), checkInAt: row.check_in_at,
-      checkOutAt: row.check_out_at
-    }) : 'No record';
+      isLate: Number(row.is_late), attendanceDate: sqlDate(row.attendance_date), checkInAt: sqlDateTime(row.check_in_at),
+      checkOutAt: sqlDateTime(row.check_out_at)
+    }, attendanceRules) : 'No record';
     if (row && previousStatus.toLowerCase() === status) {
       await connection.rollback();
       return fail(res, 409, `The day is already ${previousStatus}.`);
@@ -701,6 +716,7 @@ async function correctStatus(req, res) {
 
 async function myHistory(req, res) {
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     const month = parseMonthParam(req.query.month);
     if (!month) return fail(res, 400, 'month must be YYYY-MM');
     const employeeId = req.user.id;
@@ -718,7 +734,7 @@ async function myHistory(req, res) {
 
     const calendarData = {};
     const records = rows.map(function (row) {
-      const item = serializeRecord(row);
+      const item = serializeRecord(row, undefined, attendanceRules);
       if (item.status === 'Present') present += 1;
       if (item.status === 'Absent') absentCount += 1;
       if (item.status === 'Late') late += 1;
@@ -763,6 +779,7 @@ async function myHistory(req, res) {
 
 async function employeeDashboard(req, res) {
   try {
+    const timeSettings = await policy.getTimeSettings(db);
     await ensureAttendanceBreakTable();
     await ensureAttendanceSafetyTables();
     const employeeId = req.user.id;
@@ -820,14 +837,14 @@ async function employeeDashboard(req, res) {
     }).length;
 
     const lateDays = displayRows.filter(function (row) {
-      return !row.admin_status_override && Boolean(Number(row.is_late)) && String(row.attendance_status) !== 'absent';
+      return serializeRecord(row, undefined, timeSettings).isLate;
     }).length;
 
     const absentDays = displayRows.filter(function (row) {
       return String(row.attendance_status) === 'absent';
     }).length;
 
-    const timeSettings = await policy.getTimeSettings(db);
+
     const breakPolicy = {
       break_calculation_mode: 'actual_break',
       fixed_break_minutes: Number(timeSettings.breakMinutes || 60),
@@ -836,10 +853,6 @@ async function employeeDashboard(req, res) {
     const dailyTargetMinutes = shiftDurationMinutes(timeSettings.shiftStart, timeSettings.shiftEnd);
     const monthlyWorkingDays = schedule.workingDays;
     const targetMinutes = dailyTargetMinutes * monthlyWorkingDays;
-    const completedMinutes = await Promise.all(displayRows.map(persistedWorkedMinutes));
-    let actualMinutes = completedMinutes.reduce(function (sum, minutes, index) {
-      return sum + (displayRows[index].admin_status_override === 'absent' ? 0 : minutes);
-    }, 0);
 
     // Fetch breaks for all attendance records in this month in one query.
     const attendanceIds = displayRows.map(function (row) { return row.id; }).filter(Boolean);
@@ -855,6 +868,22 @@ async function employeeDashboard(req, res) {
         breaksByAttendance[aid].push(brk);
       });
     }
+    const nowForWork = policy.nowIstDateTime();
+    const minutesFor = function (row, live) {
+      return dashboardWorkTime.workedMinutes({
+        ...row,
+        check_in_at: sqlDateTime(row.check_in_at),
+        check_out_at: sqlDateTime(row.check_out_at),
+      }, (breaksByAttendance[row.id] || []).map(brk => ({
+        ...brk, started_at: sqlDateTime(brk.started_at), ended_at: sqlDateTime(brk.ended_at),
+      })), nowForWork, live);
+    };
+    const actualMinutes = displayRows.reduce(function (sum, row) {
+      // Monthly totals post completed attendance on the following local day.
+      // Today's session timer is calculated independently below.
+      if (sqlDate(row.attendance_date) >= date) return sum;
+      return sum + minutesFor(row, false);
+    }, 0);
 
     // Keep a date-keyed representation as well as the list. Older employee
     // clients use the keyed form, while newer ones use month_records.
@@ -874,9 +903,9 @@ async function employeeDashboard(req, res) {
         work_date: sqlDate(row.attendance_date),
         clock_in_at: row.check_in_at ? sqlDateTime(row.check_in_at) : null,
         clock_out_at: row.check_out_at ? sqlDateTime(row.check_out_at) : null,
-        is_late: Boolean(Number(row.is_late)),
+        is_late: serializeRecord(row, undefined, timeSettings).isLate,
         admin_status_override: row.admin_status_override,
-        attendance_status: row.attendance_status || (row.check_in_at ? 'present' : 'absent'),
+        attendance_status: computeStatus(row, timeSettings),
         break_in_at: firstBreak ? sqlDateTime(firstBreak.started_at) : null,
         break_out_at: firstBreak && firstBreak.ended_at ? sqlDateTime(firstBreak.ended_at) : null,
         break_overdue_minutes: firstBreak ? Number(firstBreak.overdue_minutes || 0) : 0,
@@ -890,18 +919,15 @@ async function employeeDashboard(req, res) {
       return item;
     });
 
-    let workedSeconds = Number(record && record.working_minutes || 0) * 60;
+    let workedSeconds = record ? minutesFor(record, checkedIn) * 60 : 0;
     let breakSeconds = record ? (await breakMinutes(record.id)) * 60 : 0;
     if (checkedIn) {
       const completedBreakMinutes = await breakMinutes(record.id);
       const activeBreakMinutes = activeBreak
         ? policy.minutesBetween(sqlDateTime(activeBreak.started_at), policy.nowIstDateTime())
         : 0;
-      const liveMinutes = Math.max(0,
-        policy.minutesBetween(sqlDateTime(record.check_in_at), policy.nowIstDateTime()) - completedBreakMinutes - activeBreakMinutes);
-      workedSeconds = liveMinutes * 60;
+      workedSeconds = minutesFor(record, true) * 60;
       breakSeconds = (completedBreakMinutes + activeBreakMinutes) * 60;
-      if (month === date.slice(0, 7)) actualMinutes += liveMinutes;
     }
 
     return ok(res, {
@@ -918,7 +944,7 @@ async function employeeDashboard(req, res) {
         worked_seconds: workedSeconds,
         break_seconds: breakSeconds,
         work_mode: record.work_mode_snapshot || currentWorkMode,
-        is_late: Boolean(Number(record.is_late))
+        is_late: serializeRecord(record, undefined, timeSettings).isLate
       } : null,
       actions: { can_clock_in: !record || !record.check_in_at, can_clock_out: checkedIn, has_pending_correction: hasPendingCorrection },
       break: activeBreak ? { active: true, id: activeBreak.id, started_at: sqlDateTime(activeBreak.started_at) } : { active: false },
@@ -938,7 +964,7 @@ async function employeeDashboard(req, res) {
           remaining_minutes: Math.max(0, targetMinutes - actualMinutes),
           shift_start: timeSettings.shiftStart,
           shift_end: timeSettings.shiftEnd,
-          is_live: checkedIn && month === date.slice(0, 7)
+          is_live: false
         }
       },
       month_records: monthRecords,
@@ -975,13 +1001,14 @@ async function checkInPolicy(req, res) {
 async function checkIn(req, res) {
   let connection;
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     await ensureAttendanceSafetyTables();
     if (!req.user || !req.user.id) return fail(res, 401, 'Unauthorized');
     const employeeId = req.user.id;
     const date = policy.todayIstDate();
     const at = policy.nowIstDateTime();
     const method = normalizeMethod((req.body && (req.body.method || req.body.check_in_method)));
-    const late = policy.isLateCheckIn(at);
+    const late = policy.displayStatus({checkInAt: at, attendanceDate: date}, attendanceRules) === 'Late';
     const absent = policy.isAbsentCheckIn(at);
     connection = await db.getConnection();
     await connection.beginTransaction();
@@ -1037,7 +1064,7 @@ async function checkIn(req, res) {
         console.error('Payroll refresh after real check-in failed', error);
       }
     }
-    return ok(res, serializeRecord(record), 'Checked in');
+    return ok(res, serializeRecord(record, undefined, attendanceRules), 'Checked in');
   } catch (error) {
     if (connection) await connection.rollback();
     if (error instanceof locationPolicy.LocationPolicyError) return fail(res, error.status, error.message);
@@ -1050,6 +1077,7 @@ async function checkIn(req, res) {
 
 async function checkOut(req, res) {
   try {
+    const rules = await policy.getTimeSettings(db);
     await ensureAttendanceSafetyTables();
     const employeeId = req.user.id;
     const date = policy.todayIstDate();
@@ -1064,10 +1092,11 @@ async function checkOut(req, res) {
     const status = computeStatus({
       check_in_at: record.check_in_at,
       check_out_at: at,
+      attendance_date: record.attendance_date,
       working_minutes: rawMinutes,
       is_late: record.is_late,
       attendance_status: record.attendance_status
-    });
+    }, rules);
 
     await db.query(
       "UPDATE attendance_records SET check_out_at = ?, working_minutes = ?, attendance_status = ?, session_status = 'completed' WHERE id = ?",
@@ -1089,7 +1118,7 @@ async function checkOut(req, res) {
 
     const updated = await getRecord(employeeId, date);
     return ok(res, {
-      ...serializeRecord(updated),
+      ...serializeRecord(updated, undefined, rules),
       completed_break_minutes: breaks,
     }, 'Checked out');
   } catch (error) {
@@ -1181,7 +1210,7 @@ async function requestCheckoutCorrection(req, res) {
 
 function correctionTime(date, time) {
   const value = String(time || '').trim();
-  if (!/^\d{2}:\d{2}$/.test(value)) return null;
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return null;
   return `${date} ${value}:00`;
 }
 
@@ -1220,6 +1249,7 @@ async function requestAttendanceCorrection(req, res) {
 
 async function heartbeat(req, res) {
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     await ensureAttendanceSafetyTables();
     const employeeId = req.user.id;
     const record = await getRecord(employeeId, policy.todayIstDate());
@@ -1284,7 +1314,8 @@ async function heartbeat(req, res) {
               working_minutes: rawMinutes,
               is_late: record.is_late,
               attendance_status: record.attendance_status,
-            });
+              attendance_date: record.attendance_date,
+            }, attendanceRules);
             await db.query("UPDATE attendance_records SET check_out_at=?, working_minutes=?, attendance_status=?, session_status='completed' WHERE id=? AND check_out_at IS NULL", [now, workingMinutes, status, record.id]);
             await db.query("UPDATE hrms_attendance_radius_departures SET status='auto_checked_out' WHERE attendance_id=?", [record.id]);
             await db.query("UPDATE hrms_field_tracking_sessions SET is_active=0, stopped_at=? WHERE employee_user_id=? AND is_active=1", [now, employeeId]);
@@ -1461,6 +1492,7 @@ async function reviewPermission(req, res) {
 
 async function exportCsv(req, res) {
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     const date = parseDateParam(req.query.date);
     if (!date) return fail(res, 400, 'date must be YYYY-MM-DD');
     const employees = await staff.listActiveStaff(db);
@@ -1469,7 +1501,7 @@ async function exportCsv(req, res) {
     const lines = ['Employee,Staff ID,Role,Check In,Check Out,Method,Status,Working Minutes'];
     employees.forEach(function (person) {
       const row = byId.get(person.id);
-      const item = row ? serializeRecord(row, person) : {
+      const item = row ? serializeRecord(row, person, attendanceRules) : {
         checkIn: '-', checkOut: '-', method: '', status: 'Absent', workingMinutes: 0
       };
       const cols = [person.full_name, person.staff_id, person.role, item.checkIn, item.checkOut, item.method || '', item.status, item.workingMinutes];
@@ -1488,6 +1520,7 @@ async function exportCsv(req, res) {
 
 async function myExport(req, res) {
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     const month = parseMonthParam(req.query.month);
     if (!month) return fail(res, 400, 'month must be YYYY-MM');
     const [rows] = await db.query(
@@ -1496,7 +1529,7 @@ async function myExport(req, res) {
     );
     const lines = ['Date,Check In,Check Out,Status'];
     rows.forEach(function (row) {
-      const item = serializeRecord(row);
+      const item = serializeRecord(row, undefined, attendanceRules);
       lines.push([item.date, item.checkIn, item.checkOut, item.status].join(','));
     });
     res.setHeader('Content-Type', 'text/csv');
@@ -1554,7 +1587,20 @@ async function listCorrectionRequests(req, res) {
       JOIN attendance_records a ON a.id = r.attendance_id
       ORDER BY r.created_at DESC
     `);
-    return ok(res, { items: rows });
+    // DATETIME fields are attendance wall-clock values, just like Clock Logs.
+    // Do not let JSON.stringify turn driver Date objects into UTC ISO strings.
+    return ok(res, {
+      timezone: policy.TIME_ZONE,
+      items: rows.map(row => ({
+        ...row,
+        attendance_date: sqlDate(row.attendance_date),
+        check_in_at: sqlDateTime(row.check_in_at),
+        check_out_at: sqlDateTime(row.check_out_at),
+        requested_check_in_at: sqlDateTime(row.requested_check_in_at),
+        requested_check_out_at: sqlDateTime(row.requested_check_out_at),
+        created_at: sqlDateTime(row.created_at),
+      })),
+    });
   } catch (error) { return fail(res, 500, error.message); }
 }
 
@@ -1566,20 +1612,25 @@ async function approveCorrectionRequest(req, res) {
     if (req_row.request_type === 'checkout_correction') {
       await db.query('UPDATE attendance_records SET check_out_at = NULL, working_minutes = 0 WHERE id = ?', [req_row.attendance_id]);
     } else {
-      const [records] = await db.query('SELECT check_in_at, check_out_at FROM attendance_records WHERE id=?', [req_row.attendance_id]);
+      const [records] = await db.query('SELECT check_in_at, check_out_at, attendance_date FROM attendance_records WHERE id=?', [req_row.attendance_id]);
       const record = records[0];
-      const checkIn = req_row.requested_check_in_at || record.check_in_at;
-      const checkOut = req_row.requested_check_out_at || record.check_out_at;
-      // A correction uses the same current admin-configured thresholds as a
-      // normal check-in.  The time is retained even when the result is Absent.
-      await policy.getTimeSettings(db);
-      const status = !checkIn ? 'absent' : policy.isAbsentCheckIn(sqlDateTime(checkIn))
-        ? 'absent' : policy.isLateCheckIn(sqlDateTime(checkIn)) ? 'late' : 'present';
+      if (!record) return fail(res, 404, 'Attendance record not found');
+      const checkIn = sqlDateTime(req_row.requested_check_in_at || record.check_in_at);
+      const checkOut = sqlDateTime(req_row.requested_check_out_at || record.check_out_at);
+      const rules = await policy.getTimeSettings(db);
+      const status = computeStatus({
+        check_in_at: checkIn, check_out_at: checkOut,
+        attendance_date: record.attendance_date,
+      }, rules);
+      const isLate = policy.displayStatus({
+        checkInAt: checkIn, attendanceDate: sqlDate(record.attendance_date),
+      }, rules) === 'Late';
+      const completedBreakMinutes = await breakMinutes(req_row.attendance_id);
       const workingMinutes = checkIn && checkOut
-        ? policy.minutesBetween(sqlDateTime(checkIn), sqlDateTime(checkOut)) : 0;
+        ? Math.max(0, policy.minutesBetween(checkIn, checkOut) - completedBreakMinutes) : 0;
       await db.query(`UPDATE attendance_records SET check_in_at=?, check_out_at=?, attendance_status=?,
         session_status=?, is_late=?, working_minutes=? WHERE id=?`, [
-        checkIn, checkOut, status, checkOut ? 'completed' : 'closed', status === 'late' ? 1 : 0,
+        checkIn, checkOut, status, checkOut ? 'completed' : 'closed', isLate ? 1 : 0,
         workingMinutes, req_row.attendance_id
       ]);
     }
@@ -1601,6 +1652,7 @@ async function rejectCorrectionRequest(req, res) {
 
 async function dayDetail(req, res) {
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     const date = parseDateParam(req.query.date);
     if (!date) return fail(res, 400, 'date must be YYYY-MM-DD');
     const employeeId = req.user.id;
@@ -1631,15 +1683,15 @@ async function dayDetail(req, res) {
       status: row.attendance_status,
       adminOverride: row.admin_status_override,
       isLate: Number(row.is_late),
-      checkInAt: row.check_in_at,
-      checkOutAt: row.check_out_at
-    });
+      attendanceDate: sqlDate(row.attendance_date), checkInAt: sqlDateTime(row.check_in_at),
+      checkOutAt: sqlDateTime(row.check_out_at)
+    }, attendanceRules);
 
     return ok(res, {
       date: sqlDate(row.attendance_date),
       status: row.admin_status_override === 'present' ? 'P' :
         row.admin_status_override === 'absent' ? 'A' :
-        row.is_late ? 'LT' : (row.check_in_at ? 'P' : 'A'),
+        statusLabel === 'Late' ? 'LT' : (row.check_in_at ? 'P' : 'A'),
       statusLabel: statusLabel,
       checkInAt: sqlDateTime(row.check_in_at),
       checkOutAt: sqlDateTime(row.check_out_at),

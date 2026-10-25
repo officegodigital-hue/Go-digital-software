@@ -388,6 +388,12 @@ class AdminMobileBottomNav extends StatelessWidget {
             ),
             _dockItem(
               context,
+              icon: Icons.account_balance_wallet_rounded,
+              label: 'Payroll',
+              route: '/admin/payroll',
+            ),
+            _dockItem(
+              context,
               icon: Icons.near_me_rounded,
               label: 'Tracking',
               route: '/admin/tracking',
@@ -417,10 +423,8 @@ class AdminMobileBottomNav extends StatelessWidget {
         child: InkWell(
           onTap: () => _open(context, route),
           borderRadius: BorderRadius.circular(25),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
+          child: Center(
+            child: Container(
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
@@ -429,18 +433,6 @@ class AdminMobileBottomNav extends StatelessWidget {
                 ),
                 child: Icon(icon, color: Colors.white, size: 21),
               ),
-              const SizedBox(height: 2),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 8,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -454,11 +446,13 @@ class AdminPageHeader extends StatelessWidget {
     required this.title,
     this.breadcrumb,
     this.trailing,
+    this.fitBreadcrumb = false,
   });
 
   final String title;
   final String? breadcrumb;
   final Widget? trailing;
+  final bool fitBreadcrumb;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -486,10 +480,22 @@ class AdminPageHeader extends StatelessWidget {
                 padding: EdgeInsets.symmetric(horizontal: 10),
                 child: Icon(Icons.chevron_right, color: _blue, size: 18),
               ),
-              Text(
-                breadcrumb ?? title,
-                style: const TextStyle(color: _blue, fontSize: 15),
-              ),
+              if (fitBreadcrumb)
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      breadcrumb ?? title,
+                      style: const TextStyle(color: _blue, fontSize: 15),
+                    ),
+                  ),
+                )
+              else
+                Text(
+                  breadcrumb ?? title,
+                  style: const TextStyle(color: _blue, fontSize: 15),
+                ),
             ],
           ),
         ],

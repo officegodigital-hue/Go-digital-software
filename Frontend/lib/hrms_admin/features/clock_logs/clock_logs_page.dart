@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
-import '../../../../services/hrms_clock_logs_api.dart';
+import '../../../services/hrms_clock_logs_api.dart';
 import 'employee_clock_calendar_drawer.dart';
 import '../employees/employee_profile_page.dart';
 
@@ -158,12 +158,14 @@ class _MobileClockLogs extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(width: double.infinity,
+                  SizedBox(
+                    width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: onOpenCalendar,
                       icon: const Icon(Icons.calendar_month_outlined),
                       label: const Text('Employee attendance calendar'),
-                    )),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -252,8 +254,13 @@ class _MobileMetric extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Color(0xFF50649E), fontSize: 11),
           ),
-          const Spacer(),
-          Text(
+          Expanded(
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.bottomLeft,
+                  child: Text(
             value,
             style: TextStyle(
               color: color,
@@ -261,6 +268,9 @@ class _MobileMetric extends StatelessWidget {
               fontSize: 25,
             ),
           ),
+                ),
+              ),
+            ),
         ],
       ),
     ),
@@ -320,14 +330,14 @@ class _MobileLogCard extends StatelessWidget {
     final lower = status.toLowerCase();
     final color = lower.contains('absent')
         ? const Color(0xFFF04438)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFF9200)
         : lower == 'no record'
         ? const Color(0xFF667085)
         : const Color(0xFF149B2B);
     final bg = lower.contains('absent')
         ? const Color(0xFFFFEBEB)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFFF1DB)
         : const Color(0xFFE9F6EC);
     final minutes = item['workingMinutes'] is int
@@ -542,7 +552,13 @@ class _MobileDateHistory extends StatelessWidget {
                 ),
               ),
             ),
-            ...entry.value.asMap().entries.map((e) => _MobileDailyLogRow(item: e.value, index: e.key + 1, onEdit: onEdit)),
+            ...entry.value.asMap().entries.map(
+              (e) => _MobileDailyLogRow(
+                item: e.value,
+                index: e.key + 1,
+                onEdit: onEdit,
+              ),
+            ),
             const SizedBox(height: 5),
           ],
         ),
@@ -589,14 +605,20 @@ class _MobileEmployeeHistory extends StatelessWidget {
     }
     return Column(
       children: groups.values
-          .map((records) => _MobileEmployeeHistoryCard(records: records, onEdit: onEdit))
+          .map(
+            (records) =>
+                _MobileEmployeeHistoryCard(records: records, onEdit: onEdit),
+          )
           .toList(),
     );
   }
 }
 
 class _MobileEmployeeHistoryCard extends StatelessWidget {
-  const _MobileEmployeeHistoryCard({required this.records, required this.onEdit});
+  const _MobileEmployeeHistoryCard({
+    required this.records,
+    required this.onEdit,
+  });
   final List<Map<String, dynamic>> records;
   final ValueChanged<Map<String, dynamic>> onEdit;
 
@@ -720,7 +742,9 @@ class _MobileEmployeeHistoryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          ...sorted.map((item) => _MobileHistoryRow(item: item, onEdit: onEdit)),
+          ...sorted.map(
+            (item) => _MobileHistoryRow(item: item, onEdit: onEdit),
+          ),
         ],
       ),
     );
@@ -766,7 +790,11 @@ class _HistoryCount extends StatelessWidget {
 }
 
 class _MobileDailyLogRow extends StatelessWidget {
-  const _MobileDailyLogRow({required this.item, required this.index, required this.onEdit});
+  const _MobileDailyLogRow({
+    required this.item,
+    required this.index,
+    required this.onEdit,
+  });
   final Map<String, dynamic> item;
   final int index;
   final ValueChanged<Map<String, dynamic>> onEdit;
@@ -891,7 +919,7 @@ class _StatusBadge extends StatelessWidget {
     final lower = status.toLowerCase();
     final color = lower.contains('absent')
         ? const Color(0xFFF04438)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFF9200)
         : lower == 'no record'
         ? const Color(0xFF667085)
@@ -961,18 +989,20 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   bool _loading = true;
   String? _error;
   Timer? _refreshTimer;
+  int _loadRequest = 0;
 
   @override
   void initState() {
     super.initState();
     _load();
     _refreshTimer = Timer.periodic(
-      const Duration(minutes: 1),
+      const Duration(seconds: 30),
       (_) => _load(silent: true),
     );
     _tableBodyScrollCtrl.addListener(() {
       if (_tableHeaderScrollCtrl.hasClients &&
-          (_tableHeaderScrollCtrl.offset - _tableBodyScrollCtrl.offset).abs() > 0.5) {
+          (_tableHeaderScrollCtrl.offset - _tableBodyScrollCtrl.offset).abs() >
+              0.5) {
         _tableHeaderScrollCtrl.jumpTo(_tableBodyScrollCtrl.offset);
       }
     });
@@ -1001,6 +1031,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   }
 
   Future<void> _load({bool silent = false}) async {
+    final request = ++_loadRequest;
     if (!silent) {
       setState(() {
         _loading = true;
@@ -1013,7 +1044,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         monthly: _monthly,
         employeeId: _employeeId,
       );
-      if (!mounted) return;
+      if (!mounted || request != _loadRequest) return;
       setState(() {
         _employees = (data['employees'] as List? ?? const [])
             .whereType<Map>()
@@ -1027,7 +1058,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         if (silent) _error = null;
       });
     } catch (error) {
-      if (mounted && !silent) {
+      if (mounted && request == _loadRequest && !silent) {
         setState(() {
           _loading = false;
           _error = error.toString().replaceFirst('Exception: ', '');
@@ -1050,7 +1081,8 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   }
 
   void _openEmployeeCalendar(Map<String, dynamic> employee) {
-    final id = (employee['employeeId'] as num?)?.toInt() ??
+    final id =
+        (employee['employeeId'] as num?)?.toInt() ??
         (employee['id'] as num?)?.toInt();
     if (id == null) return;
     final name = employee['employeeName']?.toString() ?? 'Employee';
@@ -1078,8 +1110,9 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         ),
       ),
       transitionBuilder: (context, animation, _, child) => SlideTransition(
-        position: Tween(begin: const Offset(1, 0), end: Offset.zero)
-            .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+        position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        ),
         child: child,
       ),
     );
@@ -1088,13 +1121,15 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   Future<void> _chooseEmployeeCalendar() async {
     if (_employees.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No active employees are available.')));
+        const SnackBar(content: Text('No active employees are available.')),
+      );
       return;
     }
     final query = _employeeSearchController.text.trim().toLowerCase();
     final matches = _employees.where((employee) {
       if (query.isEmpty) return true;
-      return (employee['employeeName']?.toString().toLowerCase() ?? '').contains(query) ||
+      return (employee['employeeName']?.toString().toLowerCase() ?? '')
+              .contains(query) ||
           (employee['staffId']?.toString().toLowerCase() ?? '').contains(query);
     }).toList();
     final choices = matches.isEmpty ? _employees : matches;
@@ -1112,14 +1147,21 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
               return ListTile(
                 title: Text(person['employeeName']?.toString() ?? 'Employee'),
                 subtitle: Text(person['staffId']?.toString() ?? ''),
-                trailing: const Icon(Icons.calendar_month_outlined, color: _blue),
+                trailing: const Icon(
+                  Icons.calendar_month_outlined,
+                  color: _blue,
+                ),
                 onTap: () => Navigator.pop(dialogContext, person),
               );
             },
           ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Cancel'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
     if (selected != null && mounted) _openEmployeeCalendar(selected);
@@ -1212,10 +1254,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
           onChanged: (_) => setState(() {}),
           decoration: InputDecoration(
             hintText: 'Search by name, employee ID or email',
-            hintStyle: const TextStyle(
-              color: Color(0xFF50649E),
-              fontSize: 14,
-            ),
+            hintStyle: const TextStyle(color: Color(0xFF50649E), fontSize: 14),
             prefixIcon: const Icon(Icons.search_rounded, color: _navy),
             filled: true,
             fillColor: Colors.white,
@@ -1518,9 +1557,13 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                         if (_visibleLogs.isEmpty)
                           const Padding(
                             padding: EdgeInsets.all(40),
-                            child: Text('No clock logs found for the selected period.'),
+                            child: Text(
+                              'No clock logs found for the selected period.',
+                            ),
                           ),
-                        ..._visibleLogs.asMap().entries.map((e) => _logRow(e.value, e.key + 1)),
+                        ..._visibleLogs.asMap().entries.map(
+                          (e) => _logRow(e.value, e.key + 1),
+                        ),
                       ],
                     ),
                   ),
@@ -1577,7 +1620,22 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       children: List.generate(
         values.length,
         (i) => Expanded(
-          flex: const [5, 22, 11, 11, 11, 11, 13, 10, 11, 10, 13, 12, 10, 10][i],
+          flex: const [
+            5,
+            22,
+            11,
+            11,
+            11,
+            11,
+            13,
+            10,
+            11,
+            10,
+            13,
+            12,
+            10,
+            10,
+          ][i],
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Align(
@@ -1740,14 +1798,14 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     final lower = value.toLowerCase();
     final color = lower.contains('absent')
         ? const Color(0xFFF04438)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFF9200)
         : lower == 'no record'
         ? const Color(0xFF667085)
         : const Color(0xFF3BB95A);
     final bg = lower.contains('absent')
         ? const Color(0xFFFFEBEB)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFFF1DB)
         : lower == 'no record'
         ? const Color(0xFFF1F3F5)

@@ -332,8 +332,9 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
     app.get(`${prefix}/extra-hours/dashboard`, authMiddleware, async (req, res, next) => {
       try {
         const empId = req.employee.id;
-        const currentYear = new Date().getFullYear();
-        const currentMonth = new Date().getMonth() + 1;
+        const today = policy.partsInZone(clock(), timeZone).date;
+        const currentYear = Number(today.slice(0, 4));
+        const currentMonth = Number(today.slice(5, 7));
 
         const [rows] = await pool.execute(
           `SELECT id, 
@@ -360,11 +361,11 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
         let thisMonthApproved = 0;
 
         for (const row of rows) {
-          const d = new Date(row.work_date);
-          const isYear = d.getFullYear() === currentYear;
-          const isMonth = isYear && d.getMonth() + 1 === currentMonth;
+          const isYear = Number(row.work_date.slice(0, 4)) === currentYear;
+          const isMonth = isYear && Number(row.work_date.slice(5, 7)) === currentMonth;
+          row.extra_minutes = Number(row.extra_minutes) || 0;
 
-          if (isYear && row.status === 'APPROVED') totalMinsYear += row.extra_minutes || 0;
+          if (isYear && row.status !== 'REJECTED') totalMinsYear += row.extra_minutes;
           if (row.status === 'APPROVED') {
             approvedSessions++;
             if (isMonth) thisMonthApproved++;
@@ -373,13 +374,13 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
             pendingMins += row.extra_minutes || 0;
             pendingCount++;
           }
-          if (isMonth) {
+          if (isMonth && row.status !== 'REJECTED') {
             thisMonthMins += row.extra_minutes || 0;
             thisMonthSessions++;
           }
         }
 
-        const formatH = (m) => `${Math.floor(m / 60)}h`;
+        const formatH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
         const formatHM = (m) => `${Math.floor(m / 60)}h ${(m % 60).toString().padStart(2, '0')}m`;
 
         res.json({
@@ -404,35 +405,39 @@ function createApp({ pool, jwtSecret, timeZone = 'Asia/Kolkata', clock = () => n
     app.post(`${prefix}/extra-hours/log`, authMiddleware, async (req, res, next) => {
       try {
         const empId = req.employee.id;
-        const { work_date, hours_worked, reason, regular_out, actual_out } = req.body;
+        const { work_date, hours_worked, reason } = req.body;
 
         if (!work_date || !hours_worked) {
           return res.status(400).json({ success: false, message: 'Date and hours worked are required.' });
         }
 
-        let totalMinutes = 0;
-        const hMatch = hours_worked.match(/(\d+)\s*h/i);
-        const mMatch = hours_worked.match(/(\d+)\s*m/i);
-        if (hMatch || mMatch) {
-          if (hMatch) totalMinutes += parseInt(hMatch[1], 10) * 60;
-          if (mMatch) totalMinutes += parseInt(mMatch[1], 10);
-        } else {
-          const num = parseFloat(hours_worked);
-          totalMinutes = isNaN(num) ? 60 : Math.round(num * 60);
+        const date = typeof work_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(work_date)
+          ? new Date(work_date + 'T00:00:00Z') : new Date(NaN);
+        const duration = String(hours_worked).trim();
+        const units = /^(?:(\d+)\s*h\s*)?(?:(\d+)\s*m)?$/i.exec(duration);
+        const totalMinutes = units && (units[1] || units[2])
+          ? Number(units[1] || 0) * 60 + Number(units[2] || 0)
+          : /^\d+(?:\.\d+)?$/.test(duration) ? Math.round(Number(duration) * 60) : 0;
+        if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== work_date ||
+            totalMinutes <= 0 || totalMinutes > 1440 || (units && Number(units[2] || 0) >= 60)) {
+          return res.status(400).json({ success: false, message: 'Enter a valid date and extra hours between 1 minute and 24 hours (for example, 2h 30m).' });
         }
+        if (typeof reason !== 'string' || reason.trim().length > 255) {
+          return res.status(400).json({ success: false, message: 'Reason must be at most 255 characters.' });
+        }
+        const rules = await policy.getTimeSettings(pool);
 
         await pool.execute(
           `INSERT INTO employee_extra_hours 
              (employee_id, work_date, regular_out_time, actual_out_time, extra_minutes, reason, status)
-           VALUES (?, ?, COALESCE(STR_TO_DATE(?, '%h:%i %p'), '18:00:00'),
-                   STR_TO_DATE(?, '%h:%i %p'), ?, ?, 'PENDING')`,
+           VALUES (?, ?, ?, ?, ?, ?, 'PENDING')`,
           [
             empId,
             work_date,
-            regular_out || '06:00 PM',
-            actual_out || null,
+            rules.shiftEnd,
+            null,
             totalMinutes,
-            reason || '',
+            reason.trim(),
           ]
         );
 

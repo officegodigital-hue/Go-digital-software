@@ -141,7 +141,7 @@ class HrmsTrackingApi {
   }) async {
     final response = await http
         .put(
-          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/office-location'),
+          Uri.parse('${ApiConfig.baseUrl}/hrms/tracking/settings'),
           headers: await _headers(),
           body: jsonEncode({
             'officeName': officeName,

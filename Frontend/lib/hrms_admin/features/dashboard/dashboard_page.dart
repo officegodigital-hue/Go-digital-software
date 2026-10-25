@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -64,6 +64,7 @@ class _DashboardPageState extends State<DashboardPage> {
   int _kpiAbsent = 0;
   int _kpiLate = 0;
   int _kpiWorkingDays = 0;
+  int _loadRequest = 0;
   bool _loading = true;
   String? _error;
 
@@ -105,16 +106,25 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
+  void _changePeriod(bool monthly) {
+    if (_monthly == monthly) return;
+    setState(() => _monthly = monthly);
+    _loadDashboard();
+  }
+
   Future<void> _loadDashboard() async {
+    final request = ++_loadRequest;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final data = await HrmsDashboardApi.month(
-        year: _year,
-        month: _monthCodes.indexOf(_month) + 1,
-      );
+      final data = _monthly
+          ? await HrmsDashboardApi.month(
+              year: _year,
+              month: _monthCodes.indexOf(_month) + 1,
+            )
+          : await HrmsDashboardApi.year(year: _year);
       final kpis = Map<String, dynamic>.from(data['kpis'] as Map? ?? {});
       final items = (data['employees'] as List? ?? [])
           .whereType<Map>()
@@ -123,7 +133,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 _EmployeeAttendance.fromApi(Map<String, dynamic>.from(item)),
           )
           .toList();
-      if (!mounted) return;
+      if (!mounted || request != _loadRequest) return;
       setState(() {
         _employees = items;
         _kpiTotal = _asInt(kpis['totalEmployees']);
@@ -134,7 +144,7 @@ class _DashboardPageState extends State<DashboardPage> {
         _loading = false;
       });
     } catch (err) {
-      if (!mounted) return;
+      if (!mounted || request != _loadRequest) return;
       setState(() {
         _error = err.toString().replaceFirst('Exception: ', '');
         _loading = false;
@@ -168,6 +178,48 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Future<void> _exportAttendanceCsv() async {
+    if (_loading || _error != null) return;
+    if (!_monthly) {
+      final rows = <List<String>>[
+        [
+          'Employee Name',
+          'Designation',
+          'Present',
+          'Absent',
+          'Late',
+          'Leave',
+          'Half Leave',
+          'Earned Leave',
+          'Annual Salary',
+        ],
+        for (final employee in _filteredEmployees)
+          [
+            employee.name,
+            employee.designation,
+            '${employee.present}',
+            '${employee.unexcused}',
+            '${employee.late}',
+            '${employee.approvedLeave}',
+            '${employee.halfLeave}',
+            '${employee.earnedLeave}',
+            _YearlyEmployeeRow._annualSalary(employee.salary),
+          ],
+      ];
+      final csv = rows
+          .map(
+            (row) => row
+                .map((value) => '"${value.replaceAll('"', '""')}"')
+                .join(','),
+          )
+          .join('\r\n');
+      await saveAndShareCsv([
+        0xEF,
+        0xBB,
+        0xBF,
+        ...utf8.encode(csv),
+      ], 'GoDigital_Attendance_${_year}_Yearly.csv');
+      return;
+    }
     final month = _monthCodes.indexOf(_month) + 1;
     final dayCount = DateTime(_year, month + 1, 0).day;
     const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -323,7 +375,7 @@ class _DashboardPageState extends State<DashboardPage> {
     if (width < 600) {
       return _MobileDashboard(
         monthly: _monthly,
-        onMonthlyChanged: (value) => setState(() => _monthly = value),
+        onMonthlyChanged: _changePeriod,
         year: _year,
         onYearChanged: (value) {
           setState(() => _year = value);
@@ -362,7 +414,13 @@ class _DashboardPageState extends State<DashboardPage> {
     decoration: const BoxDecoration(
       color: Colors.white,
       border: Border(top: BorderSide(color: _line)),
-      boxShadow: [BoxShadow(color: Color(0x12000000), blurRadius: 8, offset: Offset(0, -2))],
+      boxShadow: [
+        BoxShadow(
+          color: Color(0x12000000),
+          blurRadius: 8,
+          offset: Offset(0, -2),
+        ),
+      ],
     ),
     child: _monthSelector(),
   );
@@ -465,9 +523,15 @@ class _DashboardPageState extends State<DashboardPage> {
                       left: BorderSide(color: Color(0xFFBFD2F2)),
                       right: BorderSide(color: Color(0xFFBFD2F2)),
                     ),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(13)),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(13),
+                    ),
                     boxShadow: [
-                      BoxShadow(color: Color(0x09193B75), blurRadius: 24, offset: Offset(0, 4)),
+                      BoxShadow(
+                        color: Color(0x09193B75),
+                        blurRadius: 24,
+                        offset: Offset(0, 4),
+                      ),
                     ],
                   ),
                   clipBehavior: Clip.antiAlias,
@@ -533,7 +597,9 @@ class _DashboardPageState extends State<DashboardPage> {
                   left: BorderSide(color: Color(0xFFBFD2F2)),
                   right: BorderSide(color: Color(0xFFBFD2F2)),
                 ),
-                borderRadius: BorderRadius.vertical(bottom: Radius.circular(13)),
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(13),
+                ),
               ),
               child: Column(
                 children: [
@@ -554,10 +620,7 @@ class _DashboardPageState extends State<DashboardPage> {
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _PeriodToggle(
-          monthly: _monthly,
-          onChanged: (value) => setState(() => _monthly = value),
-        ),
+        _PeriodToggle(monthly: _monthly, onChanged: _changePeriod),
         const SizedBox(width: 14),
         _YearSelector(
           value: _year,
@@ -1218,7 +1281,7 @@ class _KpiRow extends StatelessWidget {
         child: _KpiCard(
           label: 'Working Days',
           value: '$workingDays',
-          subtitle: 'This Month',
+          subtitle: monthly ? 'This Month' : 'Selected Year',
           color: const Color(0xFF0891B2),
           icon: Icons.calendar_today_outlined,
         ),
@@ -1228,7 +1291,7 @@ class _KpiRow extends StatelessWidget {
         child: _KpiCard(
           label: 'Present',
           value: '$present',
-          subtitle: 'Today',
+          subtitle: monthly ? 'Today' : 'Selected Year',
           color: _green,
           icon: Icons.check_rounded,
         ),
@@ -1238,7 +1301,7 @@ class _KpiRow extends StatelessWidget {
         child: _KpiCard(
           label: 'Absent',
           value: '$absent',
-          subtitle: 'Today',
+          subtitle: monthly ? 'Today' : 'Selected Year',
           color: _red,
           icon: Icons.person_off_outlined,
         ),
@@ -1248,7 +1311,7 @@ class _KpiRow extends StatelessWidget {
         child: _KpiCard(
           label: 'Late',
           value: '$late',
-          subtitle: 'Today',
+          subtitle: monthly ? 'Today' : 'Selected Year',
           color: _orange,
           icon: Icons.schedule_rounded,
         ),
@@ -1794,13 +1857,21 @@ class _MobileDashboardMetric extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: _muted, fontSize: 11),
           ),
-          const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 25,
-              fontWeight: FontWeight.w800,
+          Expanded(
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.bottomLeft,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
             ),
           ),
         ],

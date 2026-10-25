@@ -236,12 +236,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                     children: [
                                       _MainTabBtn(label: 'Leave & Extra Hours', active: _activeTab == 0, onTap: () => setState(() => _activeTab = 0)),
                                       const SizedBox(width: 10),
-                                      _MainTabBtn(
+                                      Flexible(child: _MainTabBtn(
                                         label: 'Attendance Corrections',
                                         active: _activeTab == 1,
                                         badge: _correctionsPendingCount,
                                         onTap: () { setState(() => _activeTab = 1); _loadCorrections(); },
-                                      ),
+                                      )),
                                     ],
                                   ),
                                 ),
@@ -391,8 +391,16 @@ class _ApprovalKpi extends StatelessWidget {
         decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
-          const Spacer(),
-          Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+          Expanded(
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.bottomLeft,
+                child: Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+              ),
+            ),
+          ),
         ]),
       );
     }
@@ -1363,8 +1371,9 @@ class _MainTabBtn extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-          color: active ? Colors.white : const Color(0xFF596176))),
+        Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+          color: active ? Colors.white : const Color(0xFF596176)))),
         if (badge > 0) ...[
           const SizedBox(width: 8),
           Container(
@@ -1701,7 +1710,7 @@ void _showReasonDialog(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Leave Request',
+                        const Text('Permission Request',
                           style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
                             color: Color(0xFF8A94A6), letterSpacing: .06)),
                         const SizedBox(height: 4),

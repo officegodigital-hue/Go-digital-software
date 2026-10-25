@@ -1028,13 +1028,21 @@ class _EmployeeKpi extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Color(0xFF50649E), fontSize: 11),
             ),
-            const Spacer(),
-            Text(
+            Expanded(
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.bottomLeft,
+                  child: Text(
               value,
               style: TextStyle(
                 color: color,
                 fontSize: 25,
                 fontWeight: FontWeight.w800,
+              ),
+            ),
+                ),
               ),
             ),
           ],

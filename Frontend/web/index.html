@@ -44,6 +44,8 @@
   -->
     <script>
     function startFlutter() {
+      if (window.goDigitalFlutterStarted) return;
+      window.goDigitalFlutterStarted = true;
       const bootstrap = document.createElement('script');
       bootstrap.src = 'flutter_bootstrap.js';
       bootstrap.async = true;
@@ -63,6 +65,5 @@
     }
   </script>
   
-  <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
