@@ -35,6 +35,7 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
   List<Map<String, dynamic>> _eligibleAssignees = [];
   bool _loadingAssignees = false;
   final Set<int> _assigningInvoiceIds = {};
+  final Set<int> _expandedInvoiceIds = {};
 
   bool _loadingInvoices = true;
   String? _invoicesError;
@@ -2133,10 +2134,8 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
             _buildErrorState()
           else if (invoices.isEmpty)
             _buildEmptyState()
-          else if (isMobile)
-            _buildMobileInvoiceList(invoices, startIndex, isMainAdmin)
           else
-            _buildDesktopInvoiceTable(invoices, startIndex, isMainAdmin),
+            _buildExpandableInvoiceList(invoices, startIndex, isMainAdmin),
           _buildPagination(
             totalInvoices: totalInvoices,
             startIndex: startIndex,
@@ -2482,6 +2481,506 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // GD_INVOICE_CARDS_UI_V1: Presentation only. APIs, filtering and actions stay intact.
+  Widget _buildExpandableInvoiceList(
+    List<Map<String, dynamic>> invoices,
+    int startIndex,
+    bool isMainAdmin,
+  ) {
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: invoices.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 11),
+      itemBuilder: (context, index) => _buildExpandableInvoiceCard(
+        invoices[index],
+        startIndex + index + 1,
+        isMainAdmin,
+      ),
+    );
+  }
+
+  Widget _invoiceDetailTile({
+    required IconData icon,
+    required String label,
+    required Widget value,
+    double width = 190,
+  }) {
+    return Container(
+      width: width,
+      constraints: const BoxConstraints(minHeight: 67),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F8FD),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(icon, color: const Color(0xFF0870D8), size: 19),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                value,
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExpandableInvoiceCard(
+    Map<String, dynamic> row,
+    int serialNo,
+    bool isMainAdmin,
+  ) {
+    final id = int.tryParse('${row['id']}') ?? 0;
+    final expanded = _expandedInvoiceIds.contains(id);
+    final client = (row['client_name'] ?? '').toString();
+    final invoiceNo = (row['invoice_no'] ?? '').toString();
+    final date = (row['invoice_date'] ?? '').toString();
+    final phone = (row['client_phone'] ?? '').toString();
+    final packageName = (row['package_type'] ?? '-').toString();
+    final maintenance = (row['maintenance_date'] ?? '').toString();
+    final linkedQuotation = (row['linked_quotation_no'] ?? '').toString();
+    final notes = (row['notes'] ?? '').toString();
+    final createdBy = (row['created_by_name'] ?? 'Main Admin').toString();
+    final total = double.tryParse('${row['total_amount'] ?? 0}') ?? 0;
+    final paid = double.tryParse('${row['paid_amount'] ?? 0}') ?? 0;
+    final balance = double.tryParse('${row['balance_amount'] ?? 0}') ?? 0;
+    var status = (row['status'] ?? 'DRAFT').toString().toUpperCase();
+    if (status == 'PARTIAL' || status == 'OVERDUE') status = 'PENDING';
+    final statusBackground = _statusBg[status] ?? const Color(0xFFF1F5F9);
+    final statusForeground = _statusText[status] ?? const Color(0xFF475569);
+    const valueStyle = TextStyle(
+      fontSize: 12,
+      color: Color(0xFF192743),
+      fontWeight: FontWeight.w800,
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: expanded ? const Color(0xFF0B6CE0) : const Color(0xFFDAE3EF),
+          width: expanded ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF263C60).withValues(alpha: 0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: expanded ? const Color(0xFFF0F6FF) : Colors.white,
+            child: InkWell(
+              onTap: () => setState(() {
+                if (expanded) {
+                  _expandedInvoiceIds.remove(id);
+                } else {
+                  _expandedInvoiceIds.add(id);
+                }
+              }),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 15,
+                  vertical: 13,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final narrow = constraints.maxWidth < 720;
+                    final identity = Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFE0E8F3)),
+                          ),
+                          child: Text('$serialNo', style: valueStyle),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE3EFFF),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: const Icon(
+                            Icons.business_rounded,
+                            color: Color(0xFF1178DF),
+                            size: 23,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                client,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF15233C),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '$invoiceNo  |  $date',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF5E7190),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                    final figures = Wrap(
+                      spacing: 12,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusBackground,
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: Text(
+                            status,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: statusForeground,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${_formatCurrency(paid)} paid',
+                          style: const TextStyle(
+                            color: Color(0xFF15803D),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        Text(
+                          '${_formatCurrency(balance)} pending',
+                          style: const TextStyle(
+                            color: Color(0xFFDC2626),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    );
+                    final totalWidget = Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _formatCurrency(total),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF15233C),
+                          ),
+                        ),
+                        const Text(
+                          'Total Amount',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    );
+                    final arrow = Icon(
+                      expanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      color: const Color(0xFF0052CC),
+                      size: 24,
+                    );
+                    if (narrow) {
+                      return Column(
+                        children: [
+                          identity,
+                          const SizedBox(height: 11),
+                          Row(
+                            children: [
+                              Expanded(child: figures),
+                              const SizedBox(width: 10),
+                              totalWidget,
+                              const SizedBox(width: 6),
+                              arrow,
+                            ],
+                          ),
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(flex: 5, child: identity),
+                        const SizedBox(width: 12),
+                        Expanded(flex: 4, child: figures),
+                        const SizedBox(width: 12),
+                        totalWidget,
+                        const SizedBox(width: 12),
+                        arrow,
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
+          ),
+          if (expanded) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(15, 13, 15, 15),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  final columns = width >= 940
+                      ? 4
+                      : width >= 660
+                      ? 3
+                      : width >= 410
+                      ? 2
+                      : 1;
+                  final tileWidth = (width - (columns - 1) * 9) / columns;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 9,
+                        runSpacing: 9,
+                        children: [
+                          _invoiceDetailTile(
+                            icon: Icons.phone_outlined,
+                            label: 'Phone No',
+                            width: tileWidth,
+                            value: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    phone.isEmpty ? '—' : phone,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: valueStyle,
+                                  ),
+                                ),
+                                if (phone.isNotEmpty) ...[
+                                  InkWell(
+                                    onTap: () => _callPhone(phone),
+                                    child: const Icon(
+                                      Icons.call_rounded,
+                                      size: 17,
+                                      color: Color(0xFF0870D8),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  InkWell(
+                                    onTap: () => _openWhatsApp(phone),
+                                    child: Image.asset(
+                                      'assets/images/whatsapp_logo.png',
+                                      width: 17,
+                                      height: 17,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          _invoiceDetailTile(
+                            icon: Icons.inventory_2_outlined,
+                            label: 'Package Details',
+                            width: tileWidth,
+                            value: Text(
+                              packageName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: valueStyle,
+                            ),
+                          ),
+                          _invoiceDetailTile(
+                            icon: Icons.event_outlined,
+                            label: 'Maintenance Date',
+                            width: tileWidth,
+                            value: Text(
+                              maintenance.isEmpty ? '—' : maintenance,
+                              style: valueStyle,
+                            ),
+                          ),
+                          _invoiceDetailTile(
+                            icon: Icons.notifications_outlined,
+                            label: 'Reminder Date',
+                            width: tileWidth,
+                            value: _buildReminderCell(row),
+                          ),
+                          _invoiceDetailTile(
+                            icon: Icons.payments_outlined,
+                            label: 'Paid Amount',
+                            width: tileWidth,
+                            value: Text(
+                              _formatCurrency(paid),
+                              style: valueStyle.copyWith(
+                                color: const Color(0xFF15803D),
+                              ),
+                            ),
+                          ),
+                          _invoiceDetailTile(
+                            icon: Icons.account_balance_wallet_outlined,
+                            label: 'Pending Amount',
+                            width: tileWidth,
+                            value: Text(
+                              _formatCurrency(balance),
+                              style: valueStyle.copyWith(
+                                color: const Color(0xFFDC2626),
+                              ),
+                            ),
+                          ),
+                          _invoiceDetailTile(
+                            icon: Icons.person_outline_rounded,
+                            label: 'Assigned To',
+                            width: tileWidth,
+                            value: _buildInvoiceAssignee(row, isMainAdmin),
+                          ),
+                          if (isMainAdmin)
+                            _invoiceDetailTile(
+                              icon: Icons.manage_accounts_outlined,
+                              label: 'Created By',
+                              width: tileWidth,
+                              value: Text(
+                                createdBy,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: valueStyle,
+                              ),
+                            ),
+                          if (linkedQuotation.isNotEmpty)
+                            _invoiceDetailTile(
+                              icon: Icons.description_outlined,
+                              label: 'Linked Quotation',
+                              width: tileWidth,
+                              value: Text(
+                                linkedQuotation,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: valueStyle,
+                              ),
+                            ),
+                        ],
+                      ),
+                      if (notes.trim().isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        _invoiceDetailTile(
+                          icon: Icons.notes_outlined,
+                          label: 'Notes',
+                          width: width,
+                          value: Text(notes, style: valueStyle),
+                        ),
+                      ],
+                      const SizedBox(height: 13),
+                      Wrap(
+                        spacing: 9,
+                        runSpacing: 9,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () => _showPDFPreview(context, row),
+                            icon: const Icon(
+                              Icons.picture_as_pdf_outlined,
+                              size: 17,
+                            ),
+                            label: const Text('PDF Preview'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              await Navigator.pushNamed(
+                                context,
+                                '/add-invoice',
+                                arguments: {'invoiceId': id, 'viewOnly': true},
+                              );
+                              _fetchInvoices();
+                              _fetchMetrics();
+                            },
+                            icon: const Icon(
+                              Icons.visibility_outlined,
+                              size: 17,
+                            ),
+                            label: const Text('View'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              await Navigator.pushNamed(
+                                context,
+                                '/add-invoice',
+                                arguments: {'invoiceId': id, 'viewOnly': false},
+                              );
+                              _fetchInvoices();
+                              _fetchMetrics();
+                            },
+                            icon: const Icon(Icons.edit_outlined, size: 17),
+                            label: const Text('Edit'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _deleteInvoice(id),
+                            icon: const Icon(
+                              Icons.delete_outline_rounded,
+                              size: 17,
+                              color: Color(0xFFDC2626),
+                            ),
+                            label: const Text(
+                              'Delete',
+                              style: TextStyle(color: Color(0xFFDC2626)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

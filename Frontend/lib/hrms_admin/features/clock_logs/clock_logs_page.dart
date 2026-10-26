@@ -852,18 +852,20 @@ class _MobileDailyLogRow extends StatelessWidget {
                 ),
               ),
               _StatusBadge(status: item['status']?.toString() ?? 'Absent'),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: () => onEdit(item),
+                icon: const Icon(
+                  Icons.calendar_month_outlined,
+                  color: _blue,
+                  size: 22,
+                ),
+                tooltip: 'Open employee calendar',
+              ),
             ],
           ),
           const SizedBox(height: 10),
           _ClockValues(item: item),
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              onPressed: () => onEdit(item),
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'Edit attendance',
-            ),
-          ),
         ],
       ),
     );
@@ -895,18 +897,20 @@ class _MobileHistoryRow extends StatelessWidget {
               ),
             ),
             _StatusBadge(status: item['status']?.toString() ?? 'Absent'),
+            const SizedBox(width: 4),
+            IconButton(
+              onPressed: () => onEdit(item),
+              icon: const Icon(
+                Icons.calendar_month_outlined,
+                color: _blue,
+                size: 22,
+              ),
+              tooltip: 'Open employee calendar',
+            ),
           ],
         ),
         const SizedBox(height: 9),
         _ClockValues(item: item),
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
-            onPressed: () => onEdit(item),
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit attendance',
-          ),
-        ),
       ],
     ),
   );
@@ -1146,29 +1150,167 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     final choices = matches.isEmpty ? _employees : matches;
     final selected = await showDialog<Map<String, dynamic>>(
       context: context,
+      barrierColor: const Color(0x990D1D35),
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Select employee'),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        titlePadding: const EdgeInsets.all(16),
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE1EDFF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.people_outline_rounded,
+                color: _blue,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Select employee',
+                    style: TextStyle(
+                      color: Color(0xFF0A203D),
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Choose an employee to open their calendar.',
+                    style: TextStyle(color: Color(0xFF596783), fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Close',
+              onPressed: () => Navigator.pop(dialogContext),
+              icon: const Icon(Icons.close_rounded, color: Color(0xFF596783)),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 44),
+              padding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+        contentPadding: EdgeInsets.zero,
         content: SizedBox(
-          width: 400,
-          height: 360,
-          child: ListView.builder(
-            itemCount: choices.length,
-            itemBuilder: (context, index) {
-              final person = choices[index];
-              return ListTile(
-                title: Text(person['employeeName']?.toString() ?? 'Employee'),
-                subtitle: Text(person['staffId']?.toString() ?? ''),
-                trailing: const Icon(
-                  Icons.calendar_month_outlined,
-                  color: _blue,
-                ),
-                onTap: () => Navigator.pop(dialogContext, person),
-              );
-            },
+          width: 520,
+          height: (choices.length * 77.0 + 16).clamp(
+            0.0,
+            MediaQuery.sizeOf(dialogContext).height * .45,
+          ),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              border: Border.symmetric(horizontal: BorderSide(color: _line)),
+            ),
+            child: ListView.separated(
+              padding: const EdgeInsets.all(8),
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 1, color: _line),
+              itemCount: choices.length,
+              itemBuilder: (context, index) {
+                final person = choices[index];
+                final mobile = MediaQuery.sizeOf(context).width < 600;
+                final name = person['employeeName']?.toString() ?? 'Employee';
+                final words = name
+                    .trim()
+                    .split(RegExp(r'\s+'))
+                    .where((word) => RegExp(r'[a-zA-Z0-9]').hasMatch(word));
+                final initials = words
+                    .take(2)
+                    .map((word) => word[0])
+                    .join()
+                    .toUpperCase();
+                const colors = [
+                  Color(0xFF0963FF),
+                  Color(0xFF009572),
+                  Color(0xFFBC500D),
+                  Color(0xFF8542ED),
+                  Color(0xFFCB2452),
+                ];
+                final color = colors[index % colors.length];
+                return ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  hoverColor: const Color(0xFFEAF3FF),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: mobile ? 8 : 12,
+                    vertical: 6,
+                  ),
+                  leading: Container(
+                    width: 40,
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      initials.isEmpty ? 'E' : initials,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    name,
+                    style: TextStyle(
+                      color: const Color(0xFF101747),
+                      fontSize: mobile ? 15 : 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'ID: ${person['staffId'] ?? person['employeeId'] ?? person['id'] ?? ''}',
+                    style: TextStyle(
+                      color: const Color(0xFF536280),
+                      fontSize: 13,
+                    ),
+                  ),
+                  trailing: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F8FF),
+                      border: Border.all(color: const Color(0xFFBCD7FF)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.calendar_month_outlined,
+                      color: _blue,
+                      size: 24,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(dialogContext, person),
+                );
+              },
+            ),
           ),
         ),
+        actionsPadding: const EdgeInsets.all(12),
         actions: [
-          TextButton(
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF53607C),
+              side: const BorderSide(color: Color(0xFFB6C1D4)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
@@ -1211,38 +1353,63 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         children: [
           const AdminTopNav(activeRoute: '/admin/clock-logs'),
           Expanded(
-            child: AdminPageScrollView(
-              padding: EdgeInsets.fromLTRB(
-                narrow ? 16 : 38,
-                18,
-                narrow ? 16 : 38,
-                28,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1900),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _desktopHeader(),
-                      const SizedBox(height: 20),
-                      _filters(narrow),
-                      const SizedBox(height: 20),
-                      if (_loading)
-                        const Center(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final side = narrow ? 16.0 : 38.0;
+                final contentWidth = (constraints.maxWidth - side * 2).clamp(
+                  0.0,
+                  1900.0,
+                );
+                final inset = (constraints.maxWidth - contentWidth) / 2;
+                return CustomScrollView(
+                  slivers: [
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(inset, 18, inset, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _desktopHeader(),
+                            const SizedBox(height: 20),
+                            _filters(narrow),
+                            const SizedBox(height: 20),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (!_loading && _error == null)
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _ClockLogsHeaderDelegate(
                           child: Padding(
-                            padding: EdgeInsets.all(42),
-                            child: CircularProgressIndicator(),
+                            padding: EdgeInsets.symmetric(horizontal: inset),
+                            child: Container(
+                              color: Colors.white,
+                              child: _tableHeader(
+                                contentWidth < 1280 ? 1280 : contentWidth,
+                              ),
+                            ),
                           ),
-                        )
-                      else if (_error != null)
-                        _message(_error!, retry: _load)
-                      else
-                        _table(),
-                    ],
-                  ),
-                ),
-              ),
+                        ),
+                      ),
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(inset, 0, inset, 28),
+                      sliver: SliverToBoxAdapter(
+                        child: _loading
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(42),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              )
+                            : _error != null
+                            ? _message(_error!, retry: _load)
+                            : _table(),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -1598,6 +1765,28 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
   );
 
+  Widget _tableHeader(double tableWidth) => SingleChildScrollView(
+    controller: _tableHeaderScrollCtrl,
+    scrollDirection: Axis.horizontal,
+    physics: const NeverScrollableScrollPhysics(),
+    child: SizedBox(
+      width: tableWidth,
+      child: _row(const [
+        'S.No',
+        'Employee',
+        'Date',
+        'Check-in',
+        'Check-out',
+        'Break time',
+        'Worked',
+        'Status',
+        'Work location',
+        'Details',
+        'Action',
+      ], header: true),
+    ),
+  );
+
   Widget _table() => LayoutBuilder(
     builder: (_, constraints) {
       final tableWidth = constraints.maxWidth < 1280
@@ -1613,28 +1802,6 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
-            // Sticky header
-            SingleChildScrollView(
-              controller: _tableHeaderScrollCtrl,
-              scrollDirection: Axis.horizontal,
-              physics: const NeverScrollableScrollPhysics(),
-              child: SizedBox(
-                width: tableWidth,
-                child: _row(const [
-                  'S.No',
-                  'Employee',
-                  'Date',
-                  'Check-in',
-                  'Check-out',
-                  'Break time',
-                  'Worked',
-                  'Status',
-                  'Work location',
-                  'Details',
-                  'Action',
-                ], header: true),
-              ),
-            ),
             // The page owns vertical scrolling; the table only scrolls sideways.
             SingleChildScrollView(
               controller: _tableBodyScrollCtrl,
@@ -2389,4 +2556,22 @@ class _BreakReviewDialogState extends State<_BreakReviewDialog> {
       ],
     ),
   );
+}
+
+class _ClockLogsHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _ClockLogsHeaderDelegate({required this.child});
+  final Widget child;
+
+  @override
+  double get minExtent => 48;
+  @override
+  double get maxExtent => 48;
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => child;
+  @override
+  bool shouldRebuild(covariant _ClockLogsHeaderDelegate oldDelegate) => true;
 }
