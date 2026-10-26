@@ -11,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
 import '../../../services/hrms_employees_api.dart';
 import '../../../services/api_config.dart';
 import '../../../services/auth_storage.dart';
@@ -157,7 +158,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                       ],
                     ),
                   )
-                : SingleChildScrollView(
+                : AdminPageScrollView(
                     padding: EdgeInsets.fromLTRB(
                       mobile ? 16 : 38,
                       18,

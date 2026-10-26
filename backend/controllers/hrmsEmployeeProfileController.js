@@ -181,7 +181,8 @@ async function getProfile(req, res) {
     const [records] = employeeUserId
       ? await db.query(
           `SELECT id, DATE_FORMAT(attendance_date,'%Y-%m-%d') AS attendance_date,
-                  check_in_at, check_out_at, is_late, attendance_status, check_in_method,
+                  check_in_at, check_out_at, is_late, attendance_status,
+                  admin_status_override, check_in_method,
                   working_minutes
            FROM attendance_records
            WHERE employee_id = ? AND attendance_date BETWEEN ? AND ?
@@ -439,6 +440,7 @@ async function getProfile(req, res) {
     return ok(res, {
       employee: {
         id: profile.id,
+        employeeUserId,
         name: String(profile.full_name || '').trim(),
         employeeCode: profile.employee_code || '',
         department: profile.department || '',

@@ -8,6 +8,7 @@ import '../../../services/api_config.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/hrms_approvals_api.dart';
 import '../../shared/widgets/admin_top_nav.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
 
 abstract final class _ApprovalsColors {
   static const blue = Color(0xFF075EF7);
@@ -221,7 +222,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                           ],
                         ),
                       )
-                    : SingleChildScrollView(
+                    : AdminPageScrollView(
                         padding: EdgeInsets.fromLTRB(
                             mobile ? 16 : 28, 18, mobile ? 16 : 28, 28),
                         child: Center(

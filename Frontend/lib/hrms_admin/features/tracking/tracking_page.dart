@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/hrms_tracking_api.dart';
 import '../../../services/office_address_search.dart';
 import '../../shared/widgets/admin_top_nav.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
 import 'employee_tracking_report_page.dart';
 import 'widgets/home_locations_dialog.dart';
 
@@ -238,7 +239,7 @@ class _TrackingPageState extends State<TrackingPage> {
             Expanded(
               child: RefreshIndicator(
                 onRefresh: _load,
-                child: SingleChildScrollView(
+                child: AdminPageScrollView(
                   primary: true,
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: EdgeInsets.fromLTRB(
