@@ -1,14 +1,21 @@
 // name=client_details_screen.dart
+//
+// Client Onboarding → Add / Edit client.
+//  · Back (top) returns to Client History.
+//  · Save        → saves the client and returns to Client History.
+//  · Complete    → saves as "complete" (100%) and returns to Client History.
+// Credentials are managed from the Client Credentials page, not from here.
 
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
-import 'client_credentials_screen.dart';
 import '../../services/auth_service.dart';
-import 'package:provider/provider.dart';
 
 class ClientDetailsScreen extends StatefulWidget {
   final int? clientId;
@@ -21,20 +28,27 @@ class ClientDetailsScreen extends StatefulWidget {
 
 class UpperCaseTextFormatter extends TextInputFormatter {
   @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    return newValue.copyWith(
-      text: newValue.text.toUpperCase(),
-      selection: newValue.selection,
-    );
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    return newValue.copyWith(text: newValue.text.toUpperCase(), selection: newValue.selection);
   }
 }
 
 class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
   static String get _baseUrl => ApiConfig.baseUrl;
 
+  // Palette (matches Client History).
+  static const _blue = Color(0xFF0052CC);
+  static const _blueDark = Color(0xFF003B95);
+  static const _blueLight = Color(0xFF1267E8);
+  static const _ink = Color(0xFF0F172A);
+  static const _text = Color(0xFF334155);
+  static const _muted = Color(0xFF64748B);
+  static const _border = Color(0xFFE2E8F0);
+  static const _green = Color(0xFF16A34A);
+  static const _amber = Color(0xFFB45309);
+  static const _red = Color(0xFFDC2626);
+
+  final _formKey = GlobalKey<FormState>();
   final companyNameController = TextEditingController();
   final contactPersonController = TextEditingController();
   final emailController = TextEditingController();
@@ -47,134 +61,109 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
   String _currentStatus = 'draft';
   int _completionPercent = 0;
   bool _loadingClient = false;
-  bool _savingDraft = false;
+  bool _saving = false;
   bool _completing = false;
 
-  // ---------------------------------------------------------------------------
+  bool get _busy => _saving || _completing;
+  bool get _isEdit => _clientId != null;
+
+  List<TextEditingController> get _controllers => [
+        companyNameController,
+        contactPersonController,
+        emailController,
+        addressController,
+        industryController,
+        phoneController,
+        gstController,
+      ];
+
+  // ─────────────────────────────────────────────────────────────
   // INIT
-  // ---------------------------------------------------------------------------
+  // ─────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
     _clientId = widget.clientId;
-
-    if (_clientId != null) {
-      _loadClient();
+    for (final c in _controllers) {
+      c.addListener(_onFieldChanged);
     }
+    if (_clientId != null) _loadClient();
   }
 
   @override
   void dispose() {
-    companyNameController.dispose();
-    contactPersonController.dispose();
-    emailController.dispose();
-    addressController.dispose();
-    industryController.dispose();
-    phoneController.dispose();
-    gstController.dispose();
+    for (final c in _controllers) {
+      c.removeListener(_onFieldChanged);
+      c.dispose();
+    }
     super.dispose();
   }
 
-  // ---------------------------------------------------------------------------
-  // AUTH
-  // ---------------------------------------------------------------------------
-
-  bool _isMainAdmin() {
-    final authService = Provider.of<AuthService>(
-      context,
-      listen: false,
-    );
-
-    final user = authService.user;
-
-    return user?['is_main_admin'] == true ||
-        user?['is_main_admin'] == 1 ||
-        user?['is_main_admin'].toString() == '1';
+  // Checklist / header update live while typing.
+  void _onFieldChanged() {
+    if (mounted) setState(() {});
   }
 
-  // ---------------------------------------------------------------------------
-  // SNACKBAR
-  // ---------------------------------------------------------------------------
+  Map<String, String> get _headers {
+    final token = Provider.of<AuthService>(context, listen: false).token;
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
 
-  void _showSnack(
-    String msg, {
-    bool success = false,
-  }) {
+  void _showSnack(String msg, {bool success = false}) {
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(18),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: success ? _green : _red,
         content: Row(
           children: [
-            Icon(
-              success
-                  ? Icons.check_circle_rounded
-                  : Icons.error_outline_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
+            Icon(success ? Icons.check_circle_rounded : Icons.error_outline_rounded, color: Colors.white, size: 20),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                msg,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              child: Text(msg, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
             ),
           ],
         ),
-        backgroundColor:
-            success ? const Color(0xFF16A34A) : const Color(0xFFDC2626),
       ),
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // LOAD CLIENT
-  // ---------------------------------------------------------------------------
+  /// Back to Client History (it reloads its list when this page closes).
+  void _goBack({bool saved = false}) {
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(saved);
+    } else {
+      Navigator.of(context).pushReplacementNamed('/client-history');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // LOAD / SAVE
+  // ─────────────────────────────────────────────────────────────
 
   Future<void> _loadClient() async {
     setState(() => _loadingClient = true);
-
     try {
-      final authService = Provider.of<AuthService>(
-        context,
-        listen: false,
-      );
-
-      final token = authService.token;
-
-      final response = await http.get(
-        Uri.parse('$_baseUrl/clients/$_clientId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
+      final response = await http.get(Uri.parse('$_baseUrl/clients/$_clientId'), headers: _headers);
+      if (!mounted) return;
       if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        final c = body['data'];
-
+        final c = jsonDecode(response.body)['data'] as Map;
+        companyNameController.text = '${c['company_name'] ?? ''}';
+        contactPersonController.text = '${c['contact_person'] ?? ''}';
+        emailController.text = '${c['email'] ?? ''}';
+        addressController.text = '${c['address'] ?? ''}';
+        industryController.text = '${c['industry'] ?? ''}';
+        phoneController.text = '${c['client_phone'] ?? ''}';
+        gstController.text = '${c['gst_number'] ?? ''}';
         setState(() {
-          companyNameController.text = c['company_name'] ?? '';
-          contactPersonController.text = c['contact_person'] ?? '';
-          emailController.text = c['email'] ?? '';
-          addressController.text = c['address'] ?? '';
-          industryController.text = c['industry'] ?? '';
-          phoneController.text = c['client_phone'] ?? '';
-          gstController.text = c['gst_number'] ?? '';
-
-          _currentStatus = c['status'] ?? 'draft';
-          _completionPercent = c['completion_percent'] ?? 0;
+          _currentStatus = '${c['status'] ?? 'draft'}';
+          _completionPercent = int.tryParse('${c['completion_percent'] ?? 0}') ?? 0;
           _loadingClient = false;
         });
       } else {
@@ -182,314 +171,147 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
         _showSnack('Failed to load client details');
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loadingClient = false);
       _showSnack('Cannot connect to server');
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // PAYLOAD
-  // ---------------------------------------------------------------------------
+  Map<String, dynamic> _payload(String status) => {
+        'companyName': companyNameController.text.trim(),
+        'industry': industryController.text.trim(),
+        'contactPerson': contactPersonController.text.trim(),
+        'email': emailController.text.trim(),
+        'address': addressController.text.trim(),
+        'clientPhone': phoneController.text.trim(),
+        'gstNumber': gstController.text.trim(),
+        'status': status,
+      };
 
-  Map<String, dynamic> _clientPayload(String status) {
-    return {
-      'companyName': companyNameController.text.trim(),
-      'industry': industryController.text.trim(),
-      'contactPerson': contactPersonController.text.trim(),
-      'email': emailController.text.trim(),
-      'address': addressController.text.trim(),
-      'clientPhone': phoneController.text.trim(),
-      'gstNumber': gstController.text.trim(),
-      'status': status,
-    };
-  }
-
-  // ---------------------------------------------------------------------------
-  // SAVE DRAFT
-  // ---------------------------------------------------------------------------
-
-  Future<void> _saveDraft() async {
+  /// complete = false → Save (keeps the current onboarding step)
+  /// complete = true  → Complete Registration (100%)
+  Future<void> _submit({required bool complete}) async {
+    FocusScope.of(context).unfocus();
     if (companyNameController.text.trim().isEmpty) {
-      _showSnack('Please enter the Company Legal Name first');
+      _formKey.currentState?.validate();
+      _showSnack('Please enter the Company Name');
+      return;
+    }
+    if (complete && !(_formKey.currentState?.validate() ?? false)) {
+      _showSnack('Fill the required fields (*) to complete registration');
+      return;
+    }
+    if (!complete && emailController.text.trim().isNotEmpty && _emailError(emailController.text) != null) {
+      _formKey.currentState?.validate();
+      _showSnack('Please check the email address');
       return;
     }
 
-    setState(() => _savingDraft = true);
-
-    try {
-      final authService = Provider.of<AuthService>(
-        context,
-        listen: false,
-      );
-
-      final token = authService.token;
-      final bool mainAdmin = _isMainAdmin();
-
-      http.Response response;
-
-      final status =
-          (_currentStatus == 'draft') ? 'draft' : _currentStatus;
-
-      if (_clientId == null) {
-        response = await http.post(
-          Uri.parse('$_baseUrl/clients'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode(_clientPayload('draft')),
-        );
+    setState(() {
+      if (complete) {
+        _completing = true;
       } else {
-        response = await http.put(
-          Uri.parse('$_baseUrl/clients/$_clientId'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode(_clientPayload(status)),
-        );
+        _saving = true;
       }
+    });
+    try {
+      final status = complete ? 'complete' : (_isEdit ? _currentStatus : 'draft');
+      final body = jsonEncode(_payload(status));
+      final response = _isEdit
+          ? await http.put(Uri.parse('$_baseUrl/clients/$_clientId'), headers: _headers, body: body)
+          : await http.post(Uri.parse('$_baseUrl/clients'), headers: _headers, body: body);
 
+      if (!mounted) return;
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final body = jsonDecode(response.body);
-
-        if (_clientId == null && body['data'] != null) {
-          setState(() {
-            _clientId = body['data']['id'];
-            _currentStatus = 'draft';
-            _completionPercent =
-                body['data']['completion_percent'] ?? 30;
-          });
-        }
-
         _showSnack(
-          'Draft saved successfully',
+          complete
+              ? 'Registration completed — ${companyNameController.text.trim()} is 100% complete'
+              : (_isEdit ? 'Client updated' : 'Client saved'),
           success: true,
         );
-
-        if (_clientId != null && mainAdmin) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ClientCredentialsScreen(
-                clientId: _clientId!,
-              ),
-            ),
-          );
-        } else {
-          Navigator.pop(context);
-        }
+        _goBack(saved: true);
       } else {
-        debugPrint(
-          'Save failed: ${response.statusCode} - ${response.body}',
-        );
-
-        _showSnack(
-          'Failed to save draft (${response.statusCode})',
-        );
+        String msg = 'Failed to save (${response.statusCode})';
+        try {
+          final m = jsonDecode(response.body)['message'];
+          if (m != null) msg = '$m';
+        } catch (_) {}
+        _showSnack(msg);
       }
     } catch (e) {
-      debugPrint('Save error: $e');
+      debugPrint('Client save error: $e');
       _showSnack('Cannot connect to server');
     } finally {
-      setState(() => _savingDraft = false);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // COMPLETE REGISTRATION
-  // ---------------------------------------------------------------------------
-
-  Future<void> _completeRegistration() async {
-    if (companyNameController.text.trim().isEmpty ||
-        contactPersonController.text.trim().isEmpty ||
-        emailController.text.trim().isEmpty) {
-      _showSnack(
-        'Please fill Company Name, Contact Person and Email before completing registration',
-      );
-      return;
-    }
-
-    setState(() => _completing = true);
-
-    try {
-      final authService = Provider.of<AuthService>(
-        context,
-        listen: false,
-      );
-
-      final token = authService.token;
-      final bool mainAdmin = _isMainAdmin();
-
-      http.Response response;
-
-      if (_clientId == null) {
-        response = await http.post(
-          Uri.parse('$_baseUrl/clients'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode(_clientPayload('complete')),
-        );
-      } else {
-        response = await http.put(
-          Uri.parse('$_baseUrl/clients/$_clientId'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode(_clientPayload('complete')),
-        );
-      }
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final body = jsonDecode(response.body);
-
-        if (_clientId == null && body['data'] != null) {
-          _clientId = body['data']['id'];
-        }
-
+      if (mounted) {
         setState(() {
-          _currentStatus = 'complete';
-          _completionPercent = 100;
+          _saving = false;
+          _completing = false;
         });
-
-        _showSnack(
-          'Registration completed — 100% complete',
-          success: true,
-        );
-
-        if (_clientId != null && mainAdmin) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ClientCredentialsScreen(
-                clientId: _clientId!,
-              ),
-            ),
-          );
-        } else {
-          Navigator.pop(context);
-        }
-      } else {
-        debugPrint(
-          'Complete failed: ${response.statusCode} - ${response.body}',
-        );
-
-        _showSnack(
-          'Failed to complete registration (${response.statusCode})',
-        );
       }
-    } catch (e) {
-      debugPrint('Complete error: $e');
-      _showSnack('Cannot connect to server');
-    } finally {
-      setState(() => _completing = false);
     }
   }
 
-  // ---------------------------------------------------------------------------
+  // ─────────────────────────────────────────────────────────────
+  // VALIDATION
+  // ─────────────────────────────────────────────────────────────
+
+  String? _required(String? v, String label) => (v ?? '').trim().isEmpty ? '$label is required' : null;
+
+  String? _emailError(String? v) {
+    final t = (v ?? '').trim();
+    if (t.isEmpty) return 'Email is required';
+    return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(t) ? null : 'Enter a valid email';
+  }
+
+  String? _phoneError(String? v) {
+    final digits = (v ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return null; // optional
+    return digits.length < 10 ? 'Enter a valid phone number' : null;
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // BUILD
-  // ---------------------------------------------------------------------------
+  // ─────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final bool mainAdmin = _isMainAdmin();
-
     return AdminLayout(
-      pageTitle: "Client Details",
-      currentRoute: "/client-history",
+      pageTitle: _isEdit ? 'Edit Client' : 'New Client',
+      currentRoute: '/client-history',
       child: _loadingClient
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(60),
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Color(0xFF2563EB),
-                ),
-              ),
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 120),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2.5, color: _blue)),
             )
           : LayoutBuilder(
               builder: (context, constraints) {
-                final bool isMobile = constraints.maxWidth < 700;
-                final bool isTablet = constraints.maxWidth >= 700 &&
-                    constraints.maxWidth < 1050;
-
-                return SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: EdgeInsets.only(
-                    left: isMobile ? 14 : 28,
-                    right: isMobile ? 14 : 28,
-                    top: isMobile ? 16 : 26,
-                    bottom: 40,
-                  ),
+                final w = constraints.maxWidth;
+                final mobile = w < 700;
+                final wide = w >= 1080;
+                return Form(
+                  key: _formKey,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _buildPageHeader(
-                        isMobile: isMobile,
-                        mainAdmin: mainAdmin,
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      _buildProgressCard(
-                        isMobile: isMobile,
-                      ),
-
-                      const SizedBox(height: 22),
-
-                      if (isMobile)
-                        Column(
-                          children: [
-                            _buildFormCard(
-                              title: "Primary Company Details",
-                              subtitle:
-                                  "Legal information for billing and contract management.",
-                              child: _buildFormContent(
-                                isMobile: true,
-                              ),
-                            ),
-                            const SizedBox(height: 18),
-                            _buildPartnerCard(
-                              mainAdmin: mainAdmin,
-                              isMobile: true,
-                            ),
-                          ],
-                        )
-                      else
+                      _hero(mobile),
+                      const SizedBox(height: 18),
+                      if (wide)
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              flex: isTablet ? 5 : 3,
-                              child: _buildFormCard(
-                                title: "Primary Company Details",
-                                subtitle:
-                                    "Legal information for billing and contract management.",
-                                child: _buildFormContent(
-                                  isMobile: false,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 20),
-                            Expanded(
-                              flex: isTablet ? 2 : 1,
-                              child: _buildPartnerCard(
-                                mainAdmin: mainAdmin,
-                                isMobile: false,
-                              ),
-                            ),
+                            Expanded(flex: 3, child: _formColumn(mobile)),
+                            const SizedBox(width: 18),
+                            SizedBox(width: 330, child: _checklistCard()),
                           ],
-                        ),
-
-                      const SizedBox(height: 22),
-
-                      _buildBottomActions(
-                        mainAdmin: mainAdmin,
-                        isMobile: isMobile,
-                      ),
+                        )
+                      else ...[
+                        _formColumn(mobile),
+                        const SizedBox(height: 16),
+                        _checklistCard(),
+                      ],
+                      const SizedBox(height: 18),
+                      _actionBar(mobile),
+                      const SizedBox(height: 24),
                     ],
                   ),
                 );
@@ -498,1001 +320,590 @@ class _ClientDetailsScreenState extends State<ClientDetailsScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // PAGE HEADER
-  // ---------------------------------------------------------------------------
+  // ─────────────────────────────────────────────────────────────
+  // HERO (Back on top)
+  // ─────────────────────────────────────────────────────────────
 
-  Widget _buildPageHeader({
-    required bool isMobile,
-    required bool mainAdmin,
-  }) {
-    return Container(
-      padding: EdgeInsets.all(isMobile ? 18 : 22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE5E7EB),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.025),
-            blurRadius: 20,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: isMobile
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeaderTitle(),
-                const SizedBox(height: 18),
-                _buildStatusBadge(),
-              ],
-            )
-          : Row(
-              children: [
-                Expanded(
-                  child: _buildHeaderTitle(),
-                ),
-                _buildStatusBadge(),
-              ],
-            ),
-    );
-  }
+  Widget _hero(bool mobile) {
+    final completed = _currentStatus == 'complete';
+    final name = companyNameController.text.trim();
+    final percent = _completionPercent.clamp(0, 100);
 
-  Widget _buildHeaderTitle() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: const Color(0xFFEFF6FF),
-            borderRadius: BorderRadius.circular(13),
-          ),
-          child: const Icon(
-            Icons.business_rounded,
-            color: Color(0xFF2563EB),
-            size: 23,
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    final backButton = Material(
+      color: Colors.white.withValues(alpha: .16),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _busy ? null : () => _goBack(),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                "Client Details",
-                style: TextStyle(
-                  fontSize: 25,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF111827),
-                  letterSpacing: -0.5,
-                ),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                _clientId == null
-                    ? "Register a new enterprise partner and configure their profile."
-                    : "Update and manage the registered client profile.",
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  color: Color(0xFF6B7280),
-                  height: 1.45,
-                ),
-              ),
+              Icon(Icons.arrow_back_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 6),
+              Text('Client History',
+                  style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w800)),
             ],
           ),
         ),
-      ],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // STATUS BADGE
-  // ---------------------------------------------------------------------------
-
-  Widget _buildStatusBadge() {
-    final bool completed = _currentStatus == 'complete';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 13,
-        vertical: 9,
       ),
+    );
+
+    final statusPill = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
-        color: completed
-            ? const Color(0xFFECFDF5)
-            : const Color(0xFFFFFBEB),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(
-          color: completed
-              ? const Color(0xFFBBF7D0)
-              : const Color(0xFFFDE68A),
-        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(
-              color: completed
-                  ? const Color(0xFF16A34A)
-                  : const Color(0xFFF59E0B),
-              shape: BoxShape.circle,
-            ),
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: completed ? _green : const Color(0xFFF59E0B), shape: BoxShape.circle),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 7),
           Text(
-            completed ? "REGISTRATION COMPLETE" : "DRAFT PROFILE",
+            _isEdit ? _currentStatus.toUpperCase() : 'NEW CLIENT',
             style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w900,
               letterSpacing: .5,
-              color: completed
-                  ? const Color(0xFF15803D)
-                  : const Color(0xFFB45309),
+              color: completed ? const Color(0xFF15803D) : _amber,
             ),
           ),
         ],
       ),
     );
-  }
 
-  // ---------------------------------------------------------------------------
-  // PROGRESS CARD
-  // ---------------------------------------------------------------------------
-
-  Widget _buildProgressCard({
-    required bool isMobile,
-  }) {
-    final double progress =
-        (_completionPercent.clamp(0, 100)) / 100;
-
-    return Container(
-      padding: EdgeInsets.all(isMobile ? 16 : 20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFE5E7EB),
-        ),
-      ),
-      child: isMobile
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildProgressText(),
-                const SizedBox(height: 13),
-                _buildProgressBar(progress),
-              ],
-            )
-          : Row(
-              children: [
-                Expanded(
-                  child: _buildProgressText(),
-                ),
-                const SizedBox(width: 30),
-                SizedBox(
-                  width: 250,
-                  child: _buildProgressBar(progress),
-                ),
-              ],
-            ),
-    );
-  }
-
-  Widget _buildProgressText() {
-    return Row(
+    final progress = Column(
+      crossAxisAlignment: mobile ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: const Color(0xFFEFF6FF),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: const Icon(
-            Icons.auto_graph_rounded,
-            color: Color(0xFF2563EB),
-            size: 19,
+        Text('$percent%', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        SizedBox(
+          width: mobile ? double.infinity : 200,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: percent / 100,
+              minHeight: 7,
+              backgroundColor: Colors.white.withValues(alpha: .22),
+              valueColor: const AlwaysStoppedAnimation(Colors.white),
+            ),
           ),
         ),
-        const SizedBox(width: 11),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Profile completion",
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF374151),
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              _completionPercent == 100
-                  ? "All required information completed"
-                  : "Complete the required information to finish registration",
-              style: const TextStyle(
-                fontSize: 10.5,
-                color: Color(0xFF6B7280),
-              ),
-            ),
-          ],
+        const SizedBox(height: 5),
+        Text(
+          _isEdit ? 'Profile completion' : 'Saved profile completion',
+          style: TextStyle(color: Colors.white.withValues(alpha: .8), fontSize: 11),
         ),
       ],
     );
-  }
 
-  Widget _buildProgressBar(double progress) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          "$_completionPercent%",
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF2563EB),
-          ),
+          _isEdit ? 'EDIT CLIENT' : 'CLIENT ONBOARDING',
+          style: const TextStyle(color: Color(0xFFBFD5FF), fontSize: 10, letterSpacing: 1.2, fontWeight: FontWeight.w800),
         ),
-        const SizedBox(height: 7),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: LinearProgressIndicator(
-            value: progress,
-            minHeight: 7,
-            backgroundColor: const Color(0xFFE5E7EB),
-            color: const Color(0xFF2563EB),
-          ),
+        const SizedBox(height: 6),
+        Text(
+          name.isEmpty ? (_isEdit ? 'Client Details' : 'New Client') : name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Colors.white, fontSize: mobile ? 21 : 25, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          _isEdit
+              ? 'Update the client profile. Save returns you to Client History.'
+              : 'Register a new client. Save returns you to Client History.',
+          style: const TextStyle(color: Color(0xFFDCE8FF), fontSize: 11.5, height: 1.4),
         ),
       ],
     );
-  }
 
-  // ---------------------------------------------------------------------------
-  // FORM CONTENT
-  // ---------------------------------------------------------------------------
-
-  Widget _buildFormContent({
-    required bool isMobile,
-  }) {
-    if (isMobile) {
-      return Column(
-        children: [
-          _buildInputField(
-            label: "Company Name",
-            hint: "e.g. Acme Corporation",
-            controller: companyNameController,
-            inputFormatters: [
-              UpperCaseTextFormatter(),
-            ],
-          ),
-          const SizedBox(height: 18),
-          _buildInputField(
-            label: "Industry Vertical",
-            hint: "e.g. Technology",
-            controller: industryController,
-            inputFormatters: [
-              UpperCaseTextFormatter(),
-            ],
-          ),
-          const SizedBox(height: 18),
-          _buildInputField(
-            label: "Contact Person",
-            hint: "Jane Doe",
-            controller: contactPersonController,
-            inputFormatters: [
-              UpperCaseTextFormatter(),
-            ],
-          ),
-          const SizedBox(height: 18),
-          _buildInputField(
-            label: "Phone Number",
-            hint: "e.g. +91 98765 43210",
-            controller: phoneController,
-          ),
-          const SizedBox(height: 18),
-          _buildInputField(
-            label: "GST Number",
-            hint: "e.g. 29ABCDE1234F1Z5",
-            controller: gstController,
-            inputFormatters: [
-              UpperCaseTextFormatter(),
-            ],
-          ),
-          const SizedBox(height: 18),
-          _buildInputField(
-            label: "Email Address",
-            hint: "jane@company.com",
-            controller: emailController,
-          ),
-          const SizedBox(height: 18),
-          _buildInputField(
-            label: "Company Address",
-            hint: "Street, City, Country, ZIP",
-            controller: addressController,
-            maxLines: 4,
-          ),
-        ],
-      );
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final bool compact = constraints.maxWidth < 720;
-
-        if (compact) {
-          return Column(
-            children: [
-              _buildInputField(
-                label: "Company Name",
-                hint: "e.g. Acme Corporation",
-                controller: companyNameController,
-                inputFormatters: [
-                  UpperCaseTextFormatter(),
-                ],
-              ),
-              const SizedBox(height: 18),
-              _buildInputField(
-                label: "Industry Vertical",
-                hint: "e.g. Technology",
-                controller: industryController,
-                inputFormatters: [
-                  UpperCaseTextFormatter(),
-                ],
-              ),
-              const SizedBox(height: 18),
-              _buildInputField(
-                label: "Contact Person",
-                hint: "Jane Doe",
-                controller: contactPersonController,
-                inputFormatters: [
-                  UpperCaseTextFormatter(),
-                ],
-              ),
-              const SizedBox(height: 18),
-              _buildInputField(
-                label: "Phone Number",
-                hint: "e.g. +91 98765 43210",
-                controller: phoneController,
-              ),
-              const SizedBox(height: 18),
-              _buildInputField(
-                label: "GST Number",
-                hint: "e.g. 29ABCDE1234F1Z5",
-                controller: gstController,
-                inputFormatters: [
-                  UpperCaseTextFormatter(),
-                ],
-              ),
-              const SizedBox(height: 18),
-              _buildInputField(
-                label: "Email Address",
-                hint: "jane@company.com",
-                controller: emailController,
-              ),
-              const SizedBox(height: 18),
-              _buildInputField(
-                label: "Company Address",
-                hint: "Street, City, Country, ZIP",
-                controller: addressController,
-                maxLines: 4,
-              ),
-            ],
-          );
-        }
-
-        return Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInputField(
-                    label: "Company Name",
-                    hint: "e.g. Acme Corporation",
-                    controller: companyNameController,
-                    inputFormatters: [
-                      UpperCaseTextFormatter(),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: _buildInputField(
-                    label: "Industry Vertical",
-                    hint: "e.g. Technology",
-                    controller: industryController,
-                    inputFormatters: [
-                      UpperCaseTextFormatter(),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInputField(
-                    label: "Contact Person",
-                    hint: "Jane Doe",
-                    controller: contactPersonController,
-                    inputFormatters: [
-                      UpperCaseTextFormatter(),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: _buildInputField(
-                    label: "Phone Number",
-                    hint: "e.g. +91 98765 43210",
-                    controller: phoneController,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildInputField(
-                    label: "GST Number",
-                    hint: "e.g. 29ABCDE1234F1Z5",
-                    controller: gstController,
-                    inputFormatters: [
-                      UpperCaseTextFormatter(),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 18),
-                Expanded(
-                  child: _buildInputField(
-                    label: "Email Address",
-                    hint: "jane@company.com",
-                    controller: emailController,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            _buildInputField(
-              label: "Company Address",
-              hint: "Street, City, Country, ZIP",
-              controller: addressController,
-              maxLines: 4,
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // FORM CARD
-  // ---------------------------------------------------------------------------
-
-  Widget _buildFormCard({
-    required String title,
-    required String subtitle,
-    required Widget child,
-  }) {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFE5E7EB),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: .025),
-            blurRadius: 18,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 22,
-              vertical: 18,
-            ),
-            decoration: const BoxDecoration(
-              color: Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(16),
-                topRight: Radius.circular(16),
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.domain_rounded,
-                    size: 19,
-                    color: Color(0xFF2563EB),
-                  ),
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        subtitle,
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          color: Color(0xFF6B7280),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(22),
-            child: child,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // PARTNER CARD
-  // ---------------------------------------------------------------------------
-
-  Widget _buildPartnerCard({
-    required bool mainAdmin,
-    required bool isMobile,
-  }) {
-    return Container(
-      padding: EdgeInsets.all(isMobile ? 20 : 22),
+      padding: EdgeInsets.all(mobile ? 18 : 24),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF0F172A),
-            Color(0xFF1E3A8A),
-          ],
+          colors: [_blueDark, _blue, _blueLight],
         ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF1E3A8A).withValues(alpha: .12),
-            blurRadius: 25,
-            offset: const Offset(0, 10),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(mobile ? 20 : 24),
+        boxShadow: [BoxShadow(color: _blue.withValues(alpha: .22), blurRadius: 26, offset: const Offset(0, 12))],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              backButton,
+              const Spacer(),
+              statusPill,
+            ],
+          ),
+          const SizedBox(height: 18),
+          if (mobile) ...[
+            titleBlock,
+            const SizedBox(height: 16),
+            progress,
+          ] else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(child: titleBlock),
+                const SizedBox(width: 24),
+                progress,
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // FORM
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _formColumn(bool mobile) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _section(
+          icon: Icons.apartment_rounded,
+          title: 'Company',
+          subtitle: 'Legal name and business details used on invoices and contracts.',
+          children: [
+            _field(
+              label: 'Company Name',
+              hint: 'e.g. ACME CORPORATION',
+              icon: Icons.business_rounded,
+              controller: companyNameController,
+              upper: true,
+              requiredField: true,
+              validator: (v) => _required(v, 'Company name'),
+            ),
+            _field(
+              label: 'Industry',
+              hint: 'e.g. TECHNOLOGY',
+              icon: Icons.category_rounded,
+              controller: industryController,
+              upper: true,
+            ),
+            _field(
+              label: 'GST Number',
+              hint: 'e.g. 29ABCDE1234F1Z5',
+              icon: Icons.receipt_long_rounded,
+              controller: gstController,
+              upper: true,
+            ),
+          ],
+          mobile: mobile,
+        ),
+        const SizedBox(height: 16),
+        _section(
+          icon: Icons.contact_phone_rounded,
+          title: 'Contact',
+          subtitle: 'Who we talk to at the client.',
+          children: [
+            _field(
+              label: 'Contact Person',
+              hint: 'e.g. JANE DOE',
+              icon: Icons.person_rounded,
+              controller: contactPersonController,
+              upper: true,
+              requiredField: true,
+              validator: (v) => _required(v, 'Contact person'),
+            ),
+            _field(
+              label: 'Phone Number',
+              hint: 'e.g. +91 98765 43210',
+              icon: Icons.phone_rounded,
+              controller: phoneController,
+              keyboard: TextInputType.phone,
+              validator: _phoneError,
+            ),
+            _field(
+              label: 'Email Address',
+              hint: 'jane@company.com',
+              icon: Icons.email_rounded,
+              controller: emailController,
+              keyboard: TextInputType.emailAddress,
+              requiredField: true,
+              validator: _emailError,
+            ),
+          ],
+          mobile: mobile,
+        ),
+        const SizedBox(height: 16),
+        _section(
+          icon: Icons.location_on_rounded,
+          title: 'Address',
+          subtitle: 'Registered company address.',
+          children: [
+            _field(
+              label: 'Company Address',
+              hint: 'Street, City, State, PIN',
+              icon: Icons.home_work_rounded,
+              controller: addressController,
+              maxLines: 3,
+              full: true,
+            ),
+          ],
+          mobile: mobile,
+        ),
+      ],
+    );
+  }
+
+  Widget _section({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required List<Widget> children,
+    required bool mobile,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .025), blurRadius: 16, offset: const Offset(0, 5))],
+      ),
+      padding: EdgeInsets.all(mobile ? 16 : 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
               Container(
                 width: 38,
                 height: 38,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .10),
-                  borderRadius: BorderRadius.circular(11),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: .12),
-                  ),
-                ),
-                child: const Icon(
-                  Icons.workspace_premium_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
+                decoration: BoxDecoration(color: const Color(0xFFEAF2FF), borderRadius: BorderRadius.circular(11)),
+                child: Icon(icon, size: 19, color: _blue),
               ),
               const SizedBox(width: 11),
-              const Expanded(
-                child: Text(
-                  "Partner Excellence",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _ink)),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: const TextStyle(fontSize: 11.5, color: _muted)),
+                  ],
                 ),
               ),
             ],
           ),
-
-          const SizedBox(height: 18),
-
-          Text(
-            "GoDigital partners represent the top 5% of digital-first enterprises.",
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: .88),
-              fontSize: 12,
-              height: 1.55,
-            ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, c) {
+              final cols = c.maxWidth >= 760 ? 3 : c.maxWidth >= 480 ? 2 : 1;
+              const gap = 14.0;
+              final fw = (c.maxWidth - gap * (cols - 1)) / cols;
+              return Wrap(
+                spacing: gap,
+                runSpacing: 14,
+                children: [
+                  for (final f in children)
+                    SizedBox(width: f is _FullWidth ? c.maxWidth : fw, child: f),
+                ],
+              );
+            },
           ),
-
-          const SizedBox(height: 10),
-
-          Text(
-            "Accurate information at this stage helps streamline billing, contracts and the complete client lifecycle.",
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: .65),
-              fontSize: 11,
-              height: 1.55,
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          _buildInfoRow(
-            Icons.verified_user_outlined,
-            "Verified client profile",
-          ),
-          const SizedBox(height: 11),
-          _buildInfoRow(
-            Icons.receipt_long_outlined,
-            "Billing-ready information",
-          ),
-          const SizedBox(height: 11),
-          _buildInfoRow(
-            Icons.account_tree_outlined,
-            "Centralized client lifecycle",
-          ),
-
-          if (_clientId != null && mainAdmin) ...[
-            const SizedBox(height: 22),
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: const Color(0xFF1D4ED8),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ClientCredentialsScreen(
-                        clientId: _clientId!,
-                      ),
-                    ),
-                  );
-                },
-                icon: const Icon(
-                  Icons.key_rounded,
-                  size: 17,
-                ),
-                label: const Text(
-                  "Manage Credentials",
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildInfoRow(
-    IconData icon,
-    String text,
-  ) {
-    return Row(
-      children: [
-        Icon(
-          icon,
-          color: Colors.white.withValues(alpha: .72),
-          size: 16,
-        ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: .78),
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // INPUT FIELD
-  // ---------------------------------------------------------------------------
-
-  Widget _buildInputField({
+  Widget _field({
     required String label,
     required String hint,
+    required IconData icon,
     required TextEditingController controller,
+    bool upper = false,
+    bool requiredField = false,
+    bool full = false,
     int maxLines = 1,
-    List<TextInputFormatter>? inputFormatters,
+    TextInputType? keyboard,
+    String? Function(String?)? validator,
   }) {
-    return Column(
+    final field = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF374151),
-              ),
-            ),
-            if (label == "Company Name" ||
-                label == "Contact Person" ||
-                label == "Email Address") ...[
-              const SizedBox(width: 3),
-              const Text(
-                "*",
-                style: TextStyle(
-                  color: Color(0xFFEF4444),
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
+            Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _text)),
+            if (requiredField) const Text(' *', style: TextStyle(color: _red, fontWeight: FontWeight.w900)),
           ],
         ),
         const SizedBox(height: 7),
-        TextField(
+        TextFormField(
           controller: controller,
-          inputFormatters: inputFormatters,
+          enabled: !_busy,
           maxLines: maxLines,
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w500,
-            color: Color(0xFF111827),
-          ),
-          cursorColor: const Color(0xFF2563EB),
+          keyboardType: keyboard ?? (maxLines > 1 ? TextInputType.multiline : TextInputType.text),
+          inputFormatters: upper ? [UpperCaseTextFormatter()] : null,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          validator: validator,
+          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: _ink),
+          cursorColor: _blue,
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(
-              color: Color(0xFF9CA3AF),
-              fontSize: 12,
-              fontWeight: FontWeight.w400,
-            ),
+            hintStyle: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 12.5, fontWeight: FontWeight.w400),
+            prefixIcon: maxLines > 1
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: 40),
+                    child: Icon(icon, size: 19, color: const Color(0xFF94A3B8)),
+                  )
+                : Icon(icon, size: 19, color: const Color(0xFF94A3B8)),
             filled: true,
-            fillColor: const Color(0xFFFAFAFA),
-            contentPadding: EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: maxLines > 1 ? 13 : 12,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(
-                color: Color(0xFFE5E7EB),
-              ),
-            ),
+            fillColor: const Color(0xFFF8FAFD),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(
-                color: Color(0xFFE5E7EB),
-              ),
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _border),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(
-                color: Color(0xFF2563EB),
-                width: 1.5,
-              ),
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _blue, width: 1.5),
             ),
-            hoverColor: Colors.transparent,
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _red),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _red, width: 1.5),
+            ),
           ),
         ),
       ],
     );
+    return full ? _FullWidth(child: field) : field;
   }
 
-  // ---------------------------------------------------------------------------
-  // BOTTOM ACTIONS
-  // ---------------------------------------------------------------------------
+  // ─────────────────────────────────────────────────────────────
+  // CHECKLIST (live)
+  // ─────────────────────────────────────────────────────────────
 
-  Widget _buildBottomActions({
-    required bool mainAdmin,
-    required bool isMobile,
-  }) {
-    if (isMobile) {
-      return Column(
+  Widget _checklistCard() {
+    final items = <(String, bool, bool)>[
+      ('Company name', companyNameController.text.trim().isNotEmpty, true),
+      ('Contact person', contactPersonController.text.trim().isNotEmpty, true),
+      ('Valid email', _emailError(emailController.text) == null, true),
+      ('Phone number', phoneController.text.trim().isNotEmpty && _phoneError(phoneController.text) == null, false),
+      ('Industry', industryController.text.trim().isNotEmpty, false),
+      ('GST number', gstController.text.trim().isNotEmpty, false),
+      ('Address', addressController.text.trim().isNotEmpty, false),
+    ];
+    final done = items.where((i) => i.$2).length;
+    final requiredDone = items.where((i) => i.$3).every((i) => i.$2);
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .025), blurRadius: 16, offset: const Offset(0, 5))],
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          OutlinedButton.icon(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(
-              Icons.arrow_back_rounded,
-              size: 17,
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(color: const Color(0xFFEAF2FF), borderRadius: BorderRadius.circular(11)),
+                child: const Icon(Icons.checklist_rounded, size: 19, color: _blue),
+              ),
+              const SizedBox(width: 11),
+              const Expanded(
+                child: Text('Profile checklist', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _ink)),
+              ),
+              Text('$done/${items.length}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: _blue)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: done / items.length,
+              minHeight: 6,
+              backgroundColor: const Color(0xFFE2E8F0),
+              valueColor: AlwaysStoppedAnimation(requiredDone ? _green : _blue),
             ),
-            style: _outlineButtonStyle(),
-            label: const Text("Back"),
           ),
-          const SizedBox(height: 10),
-          OutlinedButton(
-            onPressed: _savingDraft ? null : _saveDraft,
-            style: _outlineButtonStyle(),
-            child: _savingDraft
-                ? const SizedBox(
-                    width: 17,
-                    height: 17,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFF475569),
-                    ),
-                  )
-                : Text(
-                    mainAdmin
-                        ? "Save & Next — Credentials"
-                        : "Save Draft",
+          const SizedBox(height: 12),
+          for (final i in items)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 5),
+              child: Row(
+                children: [
+                  Icon(
+                    i.$2 ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                    size: 18,
+                    color: i.$2 ? _green : const Color(0xFFCBD5E1),
                   ),
-          ),
-          const SizedBox(height: 10),
-          ElevatedButton(
-            onPressed: _completing ? null : _completeRegistration,
-            style: _primaryButtonStyle(),
-            child: _completing
-                ? const SizedBox(
-                    width: 17,
-                    height: 17,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      i.$1,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: i.$2 ? _ink : _muted,
+                      ),
                     ),
-                  )
-                : Text(
-                    mainAdmin
-                        ? "Complete & View Credentials"
-                        : "Complete Registration",
                   ),
+                  if (i.$3)
+                    const Text('Required', style: TextStyle(fontSize: 10, color: _red, fontWeight: FontWeight.w700)),
+                ],
+              ),
+            ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: requiredDone ? const Color(0xFFF0FDF4) : const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  requiredDone ? Icons.verified_rounded : Icons.info_outline_rounded,
+                  size: 18,
+                  color: requiredDone ? _green : _amber,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    requiredDone
+                        ? 'Ready — you can Complete Registration.'
+                        : 'Save any time as a draft. Fill the required fields to Complete Registration.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      height: 1.4,
+                      fontWeight: FontWeight.w600,
+                      color: requiredDone ? const Color(0xFF15803D) : _amber,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-      );
-    }
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // ACTIONS: Cancel · Save · Complete Registration
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _actionBar(bool mobile) {
+    final cancel = OutlinedButton(
+      onPressed: _busy ? null : () => _goBack(),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(110, 48),
+        foregroundColor: _text,
+        side: const BorderSide(color: Color(0xFFD1D5DB)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
+      child: const Text('Cancel'),
+    );
+
+    final save = OutlinedButton.icon(
+      onPressed: _busy ? null : () => _submit(complete: false),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(130, 48),
+        foregroundColor: _blue,
+        side: const BorderSide(color: Color(0xFF93B4EC), width: 1.3),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+      ),
+      icon: _saving
+          ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2, color: _blue))
+          : const Icon(Icons.save_rounded, size: 18),
+      label: Text(_saving ? 'Saving…' : 'Save'),
+    );
+
+    final complete = ElevatedButton.icon(
+      onPressed: _busy || _currentStatus == 'complete' ? null : () => _submit(complete: true),
+      style: ElevatedButton.styleFrom(
+        minimumSize: const Size(190, 48),
+        backgroundColor: _blue,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: const Color(0xFFDCFCE7),
+        disabledForegroundColor: const Color(0xFF15803D),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+      ),
+      icon: _completing
+          ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+          : Icon(_currentStatus == 'complete' ? Icons.verified_rounded : Icons.task_alt_rounded, size: 18),
+      label: Text(
+        _completing
+            ? 'Completing…'
+            : _currentStatus == 'complete'
+                ? 'Registration complete'
+                : 'Complete Registration',
+      ),
+    );
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFE5E7EB),
-        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .03), blurRadius: 14, offset: const Offset(0, 4))],
       ),
-      child: Row(
-        children: [
-          OutlinedButton.icon(
-            onPressed: () => Navigator.pop(context),
-            icon: const Icon(
-              Icons.arrow_back_rounded,
-              size: 16,
+      child: mobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [complete, const SizedBox(height: 10), save, const SizedBox(height: 10), cancel],
+            )
+          : Row(
+              children: [
+                const Icon(Icons.info_outline_rounded, size: 16, color: _muted),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    'Saving takes you back to Client History.',
+                    style: TextStyle(fontSize: 12, color: _muted, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                cancel,
+                const SizedBox(width: 10),
+                save,
+                const SizedBox(width: 10),
+                complete,
+              ],
             ),
-            style: _outlineButtonStyle(),
-            label: const Text("Back"),
-          ),
-          const Spacer(),
-          OutlinedButton(
-            onPressed: _savingDraft ? null : _saveDraft,
-            style: _outlineButtonStyle(),
-            child: _savingDraft
-                ? const SizedBox(
-                    width: 17,
-                    height: 17,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFF475569),
-                    ),
-                  )
-                : Text(
-                    mainAdmin
-                        ? "Save & Next — Credentials"
-                        : "Save Draft",
-                  ),
-          ),
-          const SizedBox(width: 10),
-          ElevatedButton(
-            onPressed: _completing ? null : _completeRegistration,
-            style: _primaryButtonStyle(),
-            child: _completing
-                ? const SizedBox(
-                    width: 17,
-                    height: 17,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : Text(
-                    mainAdmin
-                        ? "Complete & View Credentials"
-                        : "Complete Registration",
-                  ),
-          ),
-        ],
-      ),
     );
   }
+}
 
-  // ---------------------------------------------------------------------------
-  // BUTTON STYLES
-  // ---------------------------------------------------------------------------
+/// Marks a form field that should span the full row.
+class _FullWidth extends StatelessWidget {
+  final Widget child;
+  const _FullWidth({required this.child});
 
-  ButtonStyle _outlineButtonStyle() {
-    return OutlinedButton.styleFrom(
-      minimumSize: const Size(120, 44),
-      padding: const EdgeInsets.symmetric(
-        horizontal: 17,
-        vertical: 12,
-      ),
-      side: const BorderSide(
-        color: Color(0xFFD1D5DB),
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-      ),
-      foregroundColor: const Color(0xFF374151),
-      textStyle: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
-      ),
-    );
-  }
-
-  ButtonStyle _primaryButtonStyle() {
-    return ElevatedButton.styleFrom(
-      minimumSize: const Size(150, 44),
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 12,
-      ),
-      backgroundColor: const Color(0xFF2563EB),
-      foregroundColor: Colors.white,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-      ),
-      textStyle: const TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w800,
-      ),
-    );
-  }
+  @override
+  Widget build(BuildContext context) => child;
 }

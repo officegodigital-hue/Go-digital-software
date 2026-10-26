@@ -31,6 +31,96 @@ function computePercent(client, credentialCount) {
   return Math.min(80, Math.round(percent));
 }
 
+// ── Client state: Active / On Hold / Inactive ─────────────────────────────────
+// On Hold = is_on_hold = 1 AND is_active = 0, so every screen that lists only
+// active clients (Employee Workspace, Task Assign, credentials, search …)
+// hides the client until it is set back to Active.
+let holdColumnsReady = null;
+function ensureHoldColumns() {
+  if (!holdColumnsReady) {
+    holdColumnsReady = (async () => {
+      const [cols] = await db.query(
+        `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clients'`,
+      );
+      const have = new Set(cols.map((r) => r.c));
+      if (!have.has('is_on_hold')) {
+        await db.query('ALTER TABLE clients ADD COLUMN is_on_hold TINYINT(1) NOT NULL DEFAULT 0');
+      }
+      if (!have.has('on_hold_at')) {
+        await db.query('ALTER TABLE clients ADD COLUMN on_hold_at DATETIME NULL');
+      }
+    })().catch((err) => {
+      holdColumnsReady = null;
+      console.error('clients: hold columns not added:', err.message);
+    });
+  }
+  return holdColumnsReady;
+}
+ensureHoldColumns();
+
+function clientState(c) {
+  if (Number(c.is_on_hold) === 1) return 'hold';
+  return Number(c.is_active) === 1 || c.is_active == null ? 'active' : 'inactive';
+}
+const STATE_RANK = { active: 0, hold: 1, inactive: 2 };
+
+// S.No = display_order, always 1..N with no gaps:
+// Active clients first, then On Hold, then In-Active; inside each group the
+// saved order (new / unnumbered ones at the bottom).
+// move = { id, position } puts that client at that S.No, kept inside its group.
+// toEnd = id → that client goes to the bottom of its group (new / state change).
+async function renumberClients(conn, { move = null, toEnd = null } = {}) {
+  const [rows] = await conn.query('SELECT id, display_order, is_active, is_on_hold FROM clients FOR UPDATE');
+  const big = Number.MAX_SAFE_INTEGER;
+  const key = (r) => {
+    if (toEnd !== null && Number(r.id) === Number(toEnd)) return big;
+    const d = Number(r.display_order);
+    return d > 0 ? d : big - 1;
+  };
+  const groups = [[], [], []];
+  rows
+    .sort((a, b) => key(a) - key(b) || Number(a.id) - Number(b.id))
+    .forEach((r) => groups[STATE_RANK[clientState(r)]].push(r));
+
+  if (move) {
+    const g = groups.find((list) => list.some((r) => Number(r.id) === Number(move.id)));
+    if (g) {
+      const offset = groups.slice(0, groups.indexOf(g)).reduce((n, list) => n + list.length, 0);
+      const from = g.findIndex((r) => Number(r.id) === Number(move.id));
+      const [item] = g.splice(from, 1);
+      const to = Math.max(0, Math.min(Number(move.position) - 1 - offset, g.length));
+      g.splice(to, 0, item);
+    }
+  }
+
+  const ordered = groups.flat();
+  const changed = ordered
+    .map((r, i) => ({ id: Number(r.id), pos: i + 1, old: Number(r.display_order) }))
+    .filter((r) => r.pos !== r.old);
+  if (!changed.length) return;
+  const ids = changed.map((r) => r.id);
+  const caseSql = (sign) => `CASE id ${changed.map((r) => `WHEN ${r.id} THEN ${sign * r.pos}`).join(' ')} END`;
+  // Two passes (negative first) so a UNIQUE index on display_order never clashes.
+  await conn.query(`UPDATE clients SET display_order = ${caseSql(-1)} WHERE id IN (${ids.join(',')})`);
+  await conn.query(`UPDATE clients SET display_order = ${caseSql(1)} WHERE id IN (${ids.join(',')})`);
+}
+
+async function withConnection(fn) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const out = await fn(conn);
+    await conn.commit();
+    return out;
+  } catch (err) {
+    try { await conn.rollback(); } catch (_) { /* ignore */ }
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
 
 // 🟢 GET /api/clients/all-for-credentials — Fetch all active clients for credentials directory
 router.get('/all-for-credentials', authenticateToken, async (req, res) => {
@@ -82,29 +172,12 @@ router.get('/active-list', async (req, res) => {
     console.error('GET /clients/active-list ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
-});// 🟢 1. PUT /active-list ON TOP OF /:id to prevent route hijacking
-router.get('/active-list', async (req, res) => {
-  try {
-    const [clients] = await db.query(
-      `SELECT id, company_name, industry, is_active 
-       FROM clients 
-       WHERE is_active = 1 OR is_active IS NULL 
-       ORDER BY company_name ASC`
-    );
-
-    return res.json({
-      success: true,
-      data: clients,
-    });
-  } catch (err) {
-    console.error('GET /clients/active-list ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
-  }
 });
 
 // 1. GET /api/clients — Role-based filtering for main admin and regular admins
 router.get('/', authenticateToken, async (req, res) => {
   try {
+    await ensureHoldColumns();
     const userId = req.user.id;
 
     // ✅ Kandupudippu: Database-la check panni Main Admin-ah nu paarkurom
@@ -128,9 +201,11 @@ router.get('/', authenticateToken, async (req, res) => {
     query += `
       ORDER BY
         CASE
-          WHEN c.is_active = 1 THEN 0
-          ELSE 1
+          WHEN COALESCE(c.is_on_hold, 0) = 1 THEN 1
+          WHEN c.is_active = 1 OR c.is_active IS NULL THEN 0
+          ELSE 2
         END ASC,
+        CASE WHEN c.display_order IS NULL OR c.display_order <= 0 THEN 1 ELSE 0 END ASC,
         c.display_order ASC,
         c.id ASC
     `;
@@ -146,6 +221,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     const data = clients.map(c => ({
       ...c,
+      client_state: clientState(c),
       credential_count: countMap[c.id] || 0,
       completion_percent: computePercent(c, countMap[c.id] || 0),
     }));
@@ -247,6 +323,14 @@ router.post('/', authenticateToken, async (req, res) => {
         status || 'draft', clientPhone || '', gstNumber || '', adminId
       ]
     );
+
+    // New client → last S.No of the Active group.
+    try {
+      await ensureHoldColumns();
+      await withConnection((conn) => renumberClients(conn, { toEnd: result.insertId }));
+    } catch (e) {
+      console.error('POST /clients renumber failed:', e.message);
+    }
 
     const completionPercent = computePercent({
       status: status || 'draft',
@@ -414,34 +498,68 @@ router.put('/:id', async (req, res) => {
 });
 
 // PATCH /api/clients/:id
+//   { state: 'active' | 'hold' | 'inactive' }  — Active / On Hold / Inactive
+//   { isActive: true | false }                 — old toggle (still works)
+//   { status: 'draft' | 'pending' | 'verified' | 'complete' } — onboarding step
 router.patch('/:id', async (req, res) => {
   try {
-    const { isActive } = req.body;
-
-    const [result] = await db.query(
-      `UPDATE clients
-       SET is_active = ?
-       WHERE id = ?`,
-      [isActive ? 1 : 0, req.params.id]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Client not found',
-      });
+    await ensureHoldColumns();
+    const { isActive, state, status } = req.body || {};
+    let next = null;
+    if (state !== undefined && state !== null && state !== '') next = String(state).trim().toLowerCase();
+    else if (isActive !== undefined && isActive !== null) next = isActive ? 'active' : 'inactive';
+    if (next === 'on hold' || next === 'on_hold') next = 'hold';
+    if (next && !['active', 'hold', 'inactive'].includes(next)) {
+      return res.status(400).json({ success: false, message: 'state must be active, hold or inactive' });
     }
 
-    res.json({
+    const sets = [];
+    const vals = [];
+    if (next === 'active') sets.push('is_active = 1', 'is_on_hold = 0', 'on_hold_at = NULL');
+    if (next === 'hold') sets.push('is_active = 0', 'is_on_hold = 1', 'on_hold_at = NOW()');
+    if (next === 'inactive') sets.push('is_active = 0', 'is_on_hold = 0', 'on_hold_at = NULL');
+    if (status !== undefined && status !== null && status !== '') {
+      const st = String(status).trim().toLowerCase();
+      if (!['draft', 'pending', 'verified', 'complete'].includes(st)) {
+        return res.status(400).json({ success: false, message: 'Unknown onboarding status' });
+      }
+      sets.push('status = ?');
+      vals.push(st);
+    }
+    if (!sets.length) {
+      return res.status(400).json({ success: false, message: 'Nothing to update' });
+    }
+
+    const [result] = await db.query(
+      `UPDATE clients SET ${sets.join(', ')} WHERE id = ?`,
+      [...vals, req.params.id],
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Client not found' });
+    }
+
+    // Changed group (Active / On Hold / In-Active) → bottom of that group,
+    // every S.No renumbered with no gaps.
+    if (next) {
+      try {
+        await withConnection((conn) => renumberClients(conn, { toEnd: Number(req.params.id) }));
+      } catch (e) {
+        console.error('PATCH /clients renumber failed:', e.message);
+      }
+    }
+
+    // Open Employee Workspace pages refresh their client cards.
+    if (next) req.app.get('io')?.emit('task_updated', { type: 'client_state', clientId: Number(req.params.id), state: next });
+
+    const label = { active: 'Active', hold: 'On Hold', inactive: 'Inactive' }[next];
+    return res.json({
       success: true,
-      message: 'Client status updated',
+      state: next,
+      message: label ? `Client set to ${label}` : 'Client status updated',
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    console.error('PATCH /clients/:id ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -451,6 +569,11 @@ router.delete('/:id', async (req, res) => {
     const [result] = await db.query(`DELETE FROM clients WHERE id = ?`, [req.params.id]);
     if (result.affectedRows === 0)
       return res.status(404).json({ success: false, message: 'Client not found' });
+    try {
+      await withConnection((conn) => renumberClients(conn));
+    } catch (e) {
+      console.error('DELETE /clients renumber failed:', e.message);
+    }
     return res.json({ success: true, message: 'Client deleted' });
   } catch (err) {
     console.error('DELETE /clients/:id ERROR:', err.message);
@@ -512,96 +635,30 @@ router.get('/search', async (req, res) => {
   }
 });
  
-// PATCH /api/clients/:id/order
+// PATCH /api/clients/:id/order  { position }
+// Moves the client to that S.No (inside its own Active / On Hold / In-Active
+// group) and renumbers everyone 1..N.
 router.patch('/:id/order', async (req, res) => {
-  const conn = await db.getConnection();
-
+  const clientId = Number(req.params.id);
+  const position = Number(req.body?.position);
+  if (!Number.isInteger(clientId) || !Number.isInteger(position) || position < 1) {
+    return res.status(400).json({ success: false, message: 'Invalid client id or position' });
+  }
   try {
-    await conn.beginTransaction();
-
-    const clientId = Number(req.params.id);
-    const requestedPos = Number(req.body.position);
-
-    if (!Number.isInteger(clientId) || !Number.isInteger(requestedPos)) {
-      await conn.rollback();
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid client id or position',
-      });
-    }
-
-    const [clients] = await conn.query(
-      `
-      SELECT id, display_order, is_active
-      FROM clients
-      ORDER BY
-        is_active DESC,
-        CASE
-          WHEN display_order IS NULL OR display_order <= 0 THEN 999999
-          ELSE display_order
-        END ASC,
-        id ASC
-      FOR UPDATE
-      `
-    );
-
-    if (!clients.length) {
-      await conn.rollback();
-      return res.status(404).json({ success: false, message: 'No clients found' });
-    }
-
-    const clientIndex = clients.findIndex(c => Number(c.id) === clientId);
-
-    if (clientIndex === -1) {
-      await conn.rollback();
-      return res.status(404).json({ success: false, message: 'Client not found' });
-    }
-
-    const selectedClient = clients[clientIndex];
-
-    let activeClients = clients.filter(c => Number(c.is_active) === 1);
-    let inactiveClients = clients.filter(c => Number(c.is_active) !== 1);
-
-    if (Number(selectedClient.is_active) === 1) {
-      const currentIndex = activeClients.findIndex(c => Number(c.id) === clientId);
-      let targetIndex = requestedPos - 1;
-      targetIndex = Math.max(0, Math.min(targetIndex, activeClients.length - 1));
-      const [movedClient] = activeClients.splice(currentIndex, 1);
-      activeClients.splice(targetIndex, 0, movedClient);
-    } else {
-      const currentIndex = inactiveClients.findIndex(c => Number(c.id) === clientId);
-      let targetIndex = requestedPos - 1;
-      targetIndex = Math.max(0, Math.min(targetIndex, inactiveClients.length - 1));
-      const [movedClient] = inactiveClients.splice(currentIndex, 1);
-      inactiveClients.splice(targetIndex, 0, movedClient);
-    }
-
-    const finalClients = [...activeClients, ...inactiveClients];
-
-    for (let i = 0; i < finalClients.length; i++) {
-      await conn.query(`UPDATE clients SET display_order = ? WHERE id = ?`, [-(i + 1), finalClients[i].id]);
-    }
-
-    for (let i = 0; i < finalClients.length; i++) {
-      await conn.query(`UPDATE clients SET display_order = ? WHERE id = ?`, [i + 1, finalClients[i].id]);
-    }
-
-    await conn.commit();
-
+    await ensureHoldColumns();
+    const [[exists]] = await db.query('SELECT id FROM clients WHERE id = ?', [clientId]);
+    if (!exists) return res.status(404).json({ success: false, message: 'Client not found' });
+    await withConnection((conn) => renumberClients(conn, { move: { id: clientId, position } }));
+    const [[after]] = await db.query('SELECT display_order FROM clients WHERE id = ?', [clientId]);
     return res.json({
       success: true,
+      position: Number(after?.display_order) || position,
       message: 'Client order updated successfully',
     });
-
   } catch (e) {
-    await conn.rollback();
     console.error('Client reorder error:', e);
     return res.status(500).json({ success: false, message: e.message });
-  } finally {
-    conn.release();
   }
 });
-
-
 
 module.exports = router;

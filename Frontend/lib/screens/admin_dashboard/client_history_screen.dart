@@ -25,6 +25,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
 
   String activeFilter = 'Active';
   bool _isFilterMenuOpen = false;
+  final Set<int> _expanded = {};
 
   @override
   void initState() {
@@ -67,17 +68,11 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
   void _applyClientFilter() {
     setState(() {
       filteredClients = _clients.where((client) {
-        final bool isActive =
-            client['is_active'] == 1 ||
-            client['is_active'] == true;
+        final state = _stateOf(client);
 
-        if (activeFilter == 'Active' && !isActive) {
-          return false;
-        }
-
-        if (activeFilter == 'Inactive' && isActive) {
-          return false;
-        }
+        if (activeFilter == 'Active' && state != 'active') return false;
+        if (activeFilter == 'On Hold' && state != 'hold') return false;
+        if (activeFilter == 'Inactive' && state != 'inactive') return false;
 
         if (_searchQuery.isEmpty) {
           return true;
@@ -113,6 +108,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
 
   Future<void> _updateStatus(int id, String status) async {
     try {
+      // Onboarding step only — does not change Active / On Hold.
       final response = await http.patch(
         Uri.parse('$_baseUrl/clients/$id'),
         headers: {
@@ -148,29 +144,74 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     }
   }
 
-  Future<bool> _confirmReorder(int oldNo, int newNo) async {
-    return await showDialog<bool>(
-          context: context,
-          builder: (_) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Text("Change Order", style: TextStyle(fontWeight: FontWeight.w900)),
-            content: Text(
-              "Move this row from $oldNo to position $newNo?",
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text("Cancel"),
+  /// Tap the S.No → choose the new S.No. Other clients shift to make room.
+  Future<void> _askNewPosition(Map<String, dynamic> c, int current) async {
+    final ctrl = TextEditingController(text: '$current');
+    final total = _clients.length;
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) {
+        String? error;
+        return StatefulBuilder(
+          builder: (context, setD) {
+            void submit() {
+              final v = int.tryParse(ctrl.text.trim());
+              if (v == null || v < 1 || v > total) {
+                setD(() => error = 'Enter a number from 1 to $total');
+                return;
+              }
+              Navigator.pop(dialogContext, v);
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Text('Change S.No', style: TextStyle(fontWeight: FontWeight.w900)),
+              content: SizedBox(
+                width: 340,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${c['company_name'] ?? 'This client'} is S.No $current. Move it to:',
+                      style: const TextStyle(color: Color(0xFF475569)),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: ctrl,
+                      autofocus: true,
+                      keyboardType: TextInputType.number,
+                      onSubmitted: (_) => submit(),
+                      decoration: InputDecoration(
+                        labelText: 'New S.No (1 – $total)',
+                        errorText: error,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Active, On Hold and In-Active clients keep their own blocks, so a client moves inside its block.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                    ),
+                  ],
+                ),
               ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC)),
-                child: const Text("OK", style: TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+                ElevatedButton(
+                  onPressed: submit,
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC)),
+                  child: const Text('Move', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    ctrl.dispose();
+    if (picked == null || picked == current) return;
+    await _updateOrder(c['id'] as int, picked);
   }
 
   Future<void> _updateOrder(int clientId, int newPosition) async {
@@ -199,29 +240,161 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     }
   }
 
-  Future<void> _toggleClientStatus(
-    int id,
-    bool currentStatus,
-  ) async {
+  // ── Active / On Hold / Inactive ──────────────────────────────────────────
+  // On Hold hides the client everywhere (Employee Workspace, Task Assign …)
+  // until it is set back to Active.
+  static String _stateOf(Map<String, dynamic> c) {
+    final st = '${c['client_state'] ?? ''}'.toLowerCase();
+    if (st == 'active' || st == 'hold' || st == 'inactive') return st;
+    if (c['is_on_hold'] == 1 || c['is_on_hold'] == true || '${c['is_on_hold']}' == '1') return 'hold';
+    return c['is_active'] == 1 || c['is_active'] == true || c['is_active'] == null ? 'active' : 'inactive';
+  }
+
+  static const Map<String, ({String label, IconData icon, Color fg, Color bg, Color border})> _stateStyle = {
+    'active': (
+      label: 'ACTIVE',
+      icon: Icons.check_circle_rounded,
+      fg: Color(0xFF159447),
+      bg: Color(0xFFE8F8EF),
+      border: Color(0xFF9BE3B8),
+    ),
+    'hold': (
+      label: 'ON HOLD',
+      icon: Icons.pause_circle_filled_rounded,
+      fg: Color(0xFFB45309),
+      bg: Color(0xFFFFF4E0),
+      border: Color(0xFFF8C77A),
+    ),
+    'inactive': (
+      label: 'IN-ACTIVE',
+      icon: Icons.remove_circle_outline_rounded,
+      fg: Color(0xFF64748B),
+      bg: Color(0xFFF1F5F9),
+      border: Color(0xFFD3DCE7),
+    ),
+  };
+
+  Future<void> _setClientState(int id, String state, String companyName) async {
+    if (state != 'active') {
+      final hold = state == 'hold';
+      final ok = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              icon: Icon(
+                hold ? Icons.pause_circle_filled_rounded : Icons.remove_circle_outline_rounded,
+                color: hold ? const Color(0xFFB45309) : const Color(0xFF64748B),
+                size: 34,
+              ),
+              title: Text(hold ? 'Put client on hold?' : 'Mark client inactive?',
+                  style: const TextStyle(fontWeight: FontWeight.w900)),
+              content: Text(
+                hold
+                    ? '"$companyName" will be hidden from Employee Workspace, Task Assign and other active-client lists until you set it back to Active.'
+                    : '"$companyName" will be marked In-Active and hidden from active-client lists.',
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: hold ? const Color(0xFFE88900) : const Color(0xFF475569),
+                  ),
+                  child: Text(hold ? 'Put on hold' : 'Mark inactive', style: const TextStyle(color: Colors.white)),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!ok) return;
+    }
     try {
+      final token = Provider.of<AuthService>(context, listen: false).token;
       final response = await http.patch(
         Uri.parse('$_baseUrl/clients/$id'),
         headers: {
           'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({
-          'isActive': !currentStatus,
-        }),
+        body: jsonEncode({'state': state}),
       );
-
       if (response.statusCode == 200) {
-        _fetchClients();
+        await _fetchClients();
+        final label = {'active': 'Active', 'hold': 'On Hold', 'inactive': 'In-Active'}[state];
+        _showSnack('$companyName set to $label', success: true);
       } else {
         _showSnack('Failed to update status');
       }
     } catch (e) {
       _showSnack('Cannot connect to server');
     }
+  }
+
+  /// Status chip that opens Active / On Hold / Inactive.
+  Widget _stateMenu(Map<String, dynamic> c, {bool expand = false}) {
+    final int id = c['id'];
+    final name = '${c['company_name'] ?? 'Client'}';
+    final current = _stateOf(c);
+    final style = _stateStyle[current]!;
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      alignment: expand ? Alignment.center : null,
+      decoration: BoxDecoration(
+        color: style.bg,
+        borderRadius: BorderRadius.circular(expand ? 10 : 7),
+        border: Border.all(color: style.border),
+      ),
+      child: Row(
+        mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(style.icon, size: 13, color: style.fg),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              style.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: expand ? 10 : 9, fontWeight: FontWeight.w900, color: style.fg),
+            ),
+          ),
+          const SizedBox(width: 2),
+          Icon(Icons.arrow_drop_down_rounded, size: 16, color: style.fg),
+        ],
+      ),
+    );
+    return PopupMenuButton<String>(
+      tooltip: 'Change status',
+      position: PopupMenuPosition.under,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (v) {
+        if (v != current) _setClientState(id, v, name);
+      },
+      itemBuilder: (_) => [
+        for (final key in const ['active', 'hold', 'inactive'])
+          PopupMenuItem<String>(
+            value: key,
+            child: Row(
+              children: [
+                Icon(_stateStyle[key]!.icon, size: 18, color: _stateStyle[key]!.fg),
+                const SizedBox(width: 10),
+                Text(
+                  {'active': 'Active', 'hold': 'On Hold', 'inactive': 'In-Active'}[key]!,
+                  style: TextStyle(
+                    fontWeight: key == current ? FontWeight.w900 : FontWeight.w600,
+                    color: _stateStyle[key]!.fg,
+                  ),
+                ),
+                if (key == current) ...[
+                  const Spacer(),
+                  const Icon(Icons.check_rounded, size: 16, color: Color(0xFF0052CC)),
+                ],
+              ],
+            ),
+          ),
+      ],
+      child: chip,
+    );
   }
 
   void _confirmDelete(int id, String companyName) {
@@ -395,6 +568,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                               children: [
                                 _buildFilterTab('All'),
                                 _buildFilterTab('Active'),
+                                _buildFilterTab('On Hold'),
                                 _buildFilterTab('Inactive'),
                               ],
                             ),
@@ -421,6 +595,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                                   children: [
                                     _buildFilterTab('All'),
                                     _buildFilterTab('Active'),
+                                    _buildFilterTab('On Hold'),
                                     _buildFilterTab('Inactive'),
                                     const SizedBox(width: 8),
                                   ],
@@ -434,108 +609,50 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
               ),
               const SizedBox(height: 20),
 
-              // ── WORKSPACE TABLE / CARD CONTAINER ───────────────────────
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.025),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (!isMobile)
-                      Container(
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF0759D4),
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(20),
-                          ),
-                        ),
-                        height: 52,
-                        padding: EdgeInsets.zero,
-                        child: Row(children: [
-                          _plannerHeaderCell(label: 'S.NO', flex: 1),
-                          _plannerHeaderCell(label: 'COMPANY', flex: 3),
-                          _plannerHeaderCell(label: 'CONTACT', flex: 2),
-                          _plannerHeaderCell(label: 'CREATED', flex: 2),
-                          _plannerHeaderCell(label: 'COMPLETION', flex: 3),
-                          _plannerHeaderCell(label: 'STATUS', flex: 2),
-                          _plannerHeaderCell(label: 'ACTIVE', flex: 2),
-                          if (isMainAdmin)
-                            _plannerHeaderCell(label: 'CREATED BY', flex: 2),
-                          _plannerHeaderCell(
-                            label: 'ACTIONS',
-                            flex: 4,
-                            alignment: Alignment.centerRight,
-                          ),
-                        ]),
-                      ),
-                    if (!isMobile)
-                      const SizedBox(
-                        height: 1,
-                        child: ColoredBox(color: Color(0xFFD7E2F2)),
-                      ),
-
-                    SizedBox(
-                      height: 500,
-                      child: _loading
-                          ? const Center(child: CircularProgressIndicator(color: Color(0xFF0052CC)))
-                          : _error != null
-                              ? Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(_error!, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
-                                      const SizedBox(height: 12),
-                                      ElevatedButton(
-                                        onPressed: _fetchClients,
-                                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC)),
-                                        child: const Text('Retry', style: TextStyle(color: Colors.white)),
-                                      ),
-                                    ],
-                                  ),
-                                )
-                              : filteredClients.isEmpty
-                                  ? const Center(
-                                      child: Text(
-                                        'No clients found.',
-                                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w600),
-                                      ),
-                                    )
-                                  : isMobile
-                                      ? ListView.builder(
-                                          itemCount: filteredClients.length,
-                                          padding: const EdgeInsets.all(14),
-                                          itemBuilder: (context, index) {
-                                            final c = filteredClients[index];
-                                            return _buildMobileClientCard(index + 1, c, isMainAdmin);
-                                          },
-                                        )
-                                      : ListView.separated(
-                                          itemCount: filteredClients.length,
-                                          physics: const BouncingScrollPhysics(),
-                                          separatorBuilder: (_, _) => const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                                          itemBuilder: (context, index) {
-                                            final c = filteredClients[index];
-                                            final int displayOrder =
-                                                (c['display_order'] == null || c['display_order'] == 0)
-                                                    ? (index + 1)
-                                                    : int.tryParse(c['display_order'].toString()) ?? (index + 1);
-                                            return _buildRow(displayOrder, c, isMainAdmin);
-                                          },
-                                        ),
-                    ),
-                  ],
+              // ── CLIENT CARDS ───────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 10),
+                child: Text(
+                  _loading ? 'Loading clients…' : '${filteredClients.length} client${filteredClients.length == 1 ? '' : 's'} · tap a card for details · tap the number to change S.No',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
                 ),
               ),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 80),
+                  child: Center(child: CircularProgressIndicator(color: Color(0xFF0052CC))),
+                )
+              else if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!, style: const TextStyle(color: Color(0xFF64748B), fontSize: 12)),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: _fetchClients,
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC)),
+                          child: const Text('Retry', style: TextStyle(color: Colors.white)),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (filteredClients.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 60),
+                  child: Center(
+                    child: Text(
+                      'No clients found.',
+                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                )
+              else
+                for (var i = 0; i < filteredClients.length; i++)
+                  _buildClientCard(i, filteredClients[i], isMainAdmin, isMobile),
               const SizedBox(height: 32),
             ],
           );
@@ -649,644 +766,419 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
 
 
 
-  // Day-planner style desktop table:
-  // one strong blue header + clean light grid lines between every column.
-  Widget _plannerHeaderCell({
-    required String label,
-    required int flex,
-    Alignment alignment = Alignment.centerLeft,
-  }) {
-    return Expanded(
-      flex: flex,
-      child: Container(
-        height: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        margin: EdgeInsets.zero,
-        alignment: alignment,
-        decoration: const BoxDecoration(
-          color: Color(0xFF0759D4),
-          border: Border(
-            left: BorderSide(color: Color(0xFF4B83E3), width: 1),
-            right: BorderSide(color: Color(0xFF4B83E3), width: 1),
+  // ─────────────────────────────────────────────────────────────
+  // CLIENT CARDS (collapsed header + expandable details, like Invoices)
+  // ─────────────────────────────────────────────────────────────
+
+  static const _tileColors = [
+    (Color(0xFFEAF2FF), Color(0xFF2563EB)),
+    (Color(0xFFF3E8FF), Color(0xFF7C3AED)),
+    (Color(0xFFDCFCE7), Color(0xFF16A34A)),
+    (Color(0xFFFFE4E6), Color(0xFFE11D48)),
+    (Color(0xFFFFF4E0), Color(0xFFD97706)),
+  ];
+
+  int _serialOf(Map<String, dynamic> c, int index) {
+    final d = int.tryParse('${c['display_order'] ?? ''}') ?? 0;
+    return d > 0 ? d : index + 1;
+  }
+
+  String _text(dynamic v, [String fallback = '—']) {
+    final t = '${v ?? ''}'.trim();
+    return t.isEmpty || t == 'null' ? fallback : t;
+  }
+
+  Widget _buildClientCard(int index, Map<String, dynamic> c, bool isMainAdmin, bool isMobile) {
+    final int id = c['id'];
+    final serial = _serialOf(c, index);
+    final open = _expanded.contains(id);
+    final status = '${c['status'] ?? 'draft'}';
+    final colors = _statusColors(status);
+    final percent = (int.tryParse('${c['completion_percent'] ?? 0}') ?? 0).clamp(0, 100);
+    final tile = _tileColors[id % _tileColors.length];
+    final industry = _text(c['industry'], '');
+    final created = _formatDate(c['created_at']?.toString());
+
+    final serialBox = Tooltip(
+      message: 'Change S.No',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _askNewPosition(c, serial),
+        child: Container(
+          width: 46,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFDCE6F2)),
           ),
+          child: Text('$serial',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
         ),
-        child: Text(
-          label,
+      ),
+    );
+
+    final iconBox = Container(
+      width: 46,
+      height: 46,
+      decoration: BoxDecoration(color: tile.$1, borderRadius: BorderRadius.circular(12)),
+      child: Icon(Icons.apartment_rounded, color: tile.$2, size: 24),
+    );
+
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          _text(c['company_name'], ''),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w900,
-            color: Colors.white,
-            letterSpacing: 0.25,
-          ),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
         ),
+        const SizedBox(height: 3),
+        Text(
+          [if (industry.isNotEmpty) industry, if (created.isNotEmpty) created].join('   |   '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+
+    final statusChip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: colors['bg'],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors['fg']!.withValues(alpha: .25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.flag_rounded, size: 13, color: colors['fg']),
+          const SizedBox(width: 5),
+          Text(status.toUpperCase(),
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: colors['fg'])),
+        ],
       ),
     );
-  }
 
-  Widget _plannerBodyCell({
-    required int flex,
-    required Widget child,
-    Alignment alignment = Alignment.centerLeft,
-    EdgeInsetsGeometry padding = const EdgeInsets.symmetric(horizontal: 12),
-  }) {
-    return Expanded(
-      flex: flex,
+    final completion = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('$percent%',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: percent >= 100 ? const Color(0xFF16A34A) : const Color(0xFF0F172A),
+            )),
+        const SizedBox(height: 4),
+        SizedBox(
+          width: 90,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: percent / 100,
+              minHeight: 5,
+              backgroundColor: const Color(0xFFE2E8F0),
+              valueColor: AlwaysStoppedAnimation(
+                percent >= 100 ? const Color(0xFF16A34A) : const Color(0xFF0052CC),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        const Text('Completion', style: TextStyle(fontSize: 10.5, color: Color(0xFF64748B))),
+      ],
+    );
+
+    final chevron = AnimatedRotation(
+      turns: open ? .5 : 0,
+      duration: const Duration(milliseconds: 200),
+      child: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF0F172A)),
+    );
+
+    final header = InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => setState(() => open ? _expanded.remove(id) : _expanded.add(id)),
       child: Container(
-        height: double.infinity,
-        padding: padding,
-        alignment: alignment,
-        decoration: const BoxDecoration(
-          border: Border(
-            left: BorderSide(color: Color(0xFFD7E2F2), width: 1),
-            right: BorderSide(color: Color(0xFFD7E2F2), width: 1),
-          ),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: open ? const Color(0xFFF4F8FF) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
         ),
-        child: child,
+        child: isMobile
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      serialBox,
+                      const SizedBox(width: 10),
+                      iconBox,
+                      const SizedBox(width: 10),
+                      Expanded(child: title),
+                      chevron,
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [statusChip, _stateMenu(c)],
+                        ),
+                      ),
+                      completion,
+                    ],
+                  ),
+                ],
+              )
+            : Row(
+                children: [
+                  serialBox,
+                  const SizedBox(width: 14),
+                  iconBox,
+                  const SizedBox(width: 14),
+                  Expanded(flex: 5, child: title),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 4,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [statusChip, _stateMenu(c)],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  completion,
+                  const SizedBox(width: 18),
+                  chevron,
+                ],
+              ),
       ),
     );
-  }
 
-  Widget _buildMobileClientCard(int serialNo, Map<String, dynamic> c, bool isMainAdmin) {
-    final int id = c['id'];
-    final String status = c['status'] ?? 'draft';
-    final int percent = c['completion_percent'] ?? 0;
-    final colors = _statusColors(status);
-    final bool active = c['is_active'] == 1 || c['is_active'] == true;
-    final String createdByName = c['created_by_name'] ?? 'Main Admin';
-
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: open ? const Color(0xFF2563EB) : const Color(0xFFE2E8F0),
+          width: open ? 1.6 : 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: open ? .05 : .025),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(4),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEAF2FF),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '#$serialNo',
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF0052CC)),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: colors['bg'],
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: colors['fg']!.withValues(alpha: 0.2)),
-                  ),
-                  child: Text(
-                    status.toUpperCase(),
-                    style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: colors['fg'], letterSpacing: 0.5),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              c['company_name'] ?? '',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              c['industry'] ?? 'General Industry',
-              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
-            ),
-            if (isMainAdmin) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Created by: $createdByName',
-                style: const TextStyle(fontSize: 11, color: Color(0xFF0052CC), fontWeight: FontWeight.w700),
-              ),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.person_outline_rounded, size: 14, color: Color(0xFF64748B)),
-                const SizedBox(width: 6),
-                Text(c['contact_person']?.toString().isEmpty ?? true ? '—' : c['contact_person'], style: const TextStyle(fontSize: 11, color: Color(0xFF334155), fontWeight: FontWeight.w600)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.email_outlined, size: 14, color: Color(0xFF64748B)),
-                const SizedBox(width: 6),
-                Expanded(child: Text(c['email']?.toString().isEmpty ?? true ? '—' : c['email'], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)))),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Text("Completion: ", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF64748B))),
-                Text('$percent%', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF0F172A))),
-                const Spacer(),
-                Text(_formatDate(c['created_at']?.toString()), style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600)),
-              ],
-            ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: percent / 100,
-                minHeight: 6,
-                backgroundColor: const Color(0xFFE2E8F0),
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  percent == 100 ? const Color(0xFF16A34A) : const Color(0xFF0052CC),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: () => _toggleClientStatus(id, active),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: active ? const Color(0xFFDCFCE7) : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: active ? const Color(0xFFBBF7D0) : const Color(0xFFE2E8F0)),
-                      ),
-                      child: Text(
-                        active ? 'ACTIVE' : 'IN-ACTIVE',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                          color: active ? const Color(0xFF16A34A) : const Color(0xFF64748B),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () => _openOnboarding(clientId: id),
-                  icon: const Icon(Icons.edit_outlined, size: 18, color: Color(0xFF0052CC)),
-                  tooltip: 'Edit',
-                  style: IconButton.styleFrom(backgroundColor: const Color(0xFFEAF2FF), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                ),
-                const SizedBox(width: 6),
-                IconButton(
-                  onPressed: () => _confirmDelete(id, c['company_name'] ?? 'this client'),
-                  icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFDC2626)),
-                  tooltip: 'Delete',
-                  style: IconButton.styleFrom(backgroundColor: const Color(0xFFFEE2E2), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                ),
-              ],
-            ),
+            header,
+            if (open) _buildDetails(c, isMainAdmin, isMobile, percent),
           ],
         ),
       ),
     );
   }
 
-
-
-  Widget _buildRow(int index, Map<String, dynamic> c, bool isMainAdmin) {
+  Widget _buildDetails(Map<String, dynamic> c, bool isMainAdmin, bool isMobile, int percent) {
     final int id = c['id'];
-    final String status = c['status'] ?? 'draft';
-    final int percent = c['completion_percent'] ?? 0;
-    final colors = _statusColors(status);
-    final bool active = c['is_active'] == 1 || c['is_active'] == true;
-    final String createdByName = c['created_by_name'] ?? 'Main Admin';
+    final status = '${c['status'] ?? 'draft'}';
+    final tiles = <Widget>[
+      _infoTile(Icons.phone_rounded, 'Phone No', _text(c['client_phone'] ?? c['phone']), const Color(0xFF2563EB)),
+      _infoTile(Icons.person_rounded, 'Contact Person', _text(c['contact_person']), const Color(0xFF7C3AED)),
+      _infoTile(Icons.email_rounded, 'Email', _text(c['email']), const Color(0xFF0891B2)),
+      _infoTile(Icons.category_rounded, 'Industry', _text(c['industry']), const Color(0xFFD97706)),
+      _infoTile(Icons.receipt_long_rounded, 'GST Number', _text(c['gst_number']), const Color(0xFF475569)),
+      _infoTile(Icons.vpn_key_rounded, 'Credentials', '${c['credential_count'] ?? 0}', const Color(0xFF16A34A),
+          soft: const Color(0xFFF0FDF4)),
+      _infoTile(Icons.event_rounded, 'Created On', _text(_formatDate(c['created_at']?.toString())),
+          const Color(0xFF2563EB)),
+      if (isMainAdmin)
+        _infoTile(Icons.badge_rounded, 'Created By', _text(c['created_by_name'], 'Main Admin'), const Color(0xFF0052CC)),
+    ];
 
-    return Container(
-      height: 76,
-      decoration: BoxDecoration(
-        color: index.isEven ? Colors.white : const Color(0xFFF8FBFF),
-        border: const Border(
-          bottom: BorderSide(color: Color(0xFFD7E2F2), width: 1),
+    final actions = Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      alignment: WrapAlignment.end,
+      children: [
+        OutlinedButton.icon(
+          onPressed: () => _openOnboarding(clientId: id),
+          icon: const Icon(Icons.edit_rounded, size: 17),
+          label: const Text('Edit'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFF0052CC),
+            side: const BorderSide(color: Color(0xFF93B4EC)),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
         ),
+        if (status == 'draft' || status == 'pending' || status == 'verified')
+          ElevatedButton.icon(
+            onPressed: () => _updateStatus(
+              id,
+              status == 'draft' ? 'pending' : status == 'pending' ? 'verified' : 'complete',
+            ),
+            icon: Icon(
+              status == 'verified' ? Icons.task_alt_rounded : Icons.arrow_forward_rounded,
+              size: 17,
+              color: Colors.white,
+            ),
+            label: Text(
+              status == 'draft' ? 'Mark Pending' : status == 'pending' ? 'Verify' : 'Mark Complete',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: status == 'draft'
+                  ? const Color(0xFFE88900)
+                  : status == 'pending'
+                      ? const Color(0xFF2563EB)
+                      : const Color(0xFF16A34A),
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+            decoration: BoxDecoration(color: const Color(0xFFE1F7E9), borderRadius: BorderRadius.circular(10)),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.check_circle, size: 16, color: Color(0xFF159447)),
+                SizedBox(width: 6),
+                Text('Onboarding done', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF159447))),
+              ],
+            ),
+          ),
+        OutlinedButton.icon(
+          onPressed: () => _confirmDelete(id, c['company_name'] ?? 'this client'),
+          icon: const Icon(Icons.delete_outline_rounded, size: 17),
+          label: const Text('Delete'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: const Color(0xFFDC2626),
+            side: const BorderSide(color: Color(0xFFFCA5A5)),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 12),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final w = box.maxWidth;
+          final cols = w >= 1100 ? 4 : w >= 700 ? 3 : 2;
+          const gap = 10.0;
+          final tw = (w - gap * (cols - 1)) / cols;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [for (final t in tiles) SizedBox(width: tw, child: t)],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFD),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: isMobile
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [_addressBlock(c), const SizedBox(height: 12), actions],
+                      )
+                    : Row(
+                        children: [
+                          Expanded(child: _addressBlock(c)),
+                          const SizedBox(width: 12),
+                          actions,
+                        ],
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _addressBlock(Map<String, dynamic> c) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.location_on_rounded, size: 20, color: Color(0xFF60A5FA)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Address', style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+                const SizedBox(height: 3),
+                Text(
+                  _text(c['address']),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+
+  Widget _infoTile(IconData icon, String label, String value, Color color, {Color? soft}) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 68),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: soft ?? const Color(0xFFF8FAFD),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Row(
         children: [
-          // S.NO
-          _plannerBodyCell(
-            flex: 1,
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: SizedBox(
-              width: 42,
-              height: 34,
-              child: TextFormField(
-                initialValue: index.toString(),
-                textAlign: TextAlign.center,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF334155),
-                ),
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: const Color(0xFFF3F7FD),
-                  contentPadding: EdgeInsets.zero,
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(7),
-                    borderSide: const BorderSide(
-                      color: Color(0xFFC7D7EA),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(7),
-                    borderSide: const BorderSide(
-                      color: Color(0xFF2563EB),
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-                onFieldSubmitted: (value) async {
-                  final newPosition = int.tryParse(value);
-                  if (newPosition == null || newPosition == index) return;
-
-                  final ok = await _confirmReorder(index, newPosition);
-                  if (!ok) {
-                    await _fetchClients();
-                    return;
-                  }
-
-                  await _updateOrder(id, newPosition);
-                },
-              ),
-            ),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(color: color.withValues(alpha: .10), borderRadius: BorderRadius.circular(9)),
+            child: Icon(icon, size: 18, color: color),
           ),
-
-          // COMPANY
-          _plannerBodyCell(
-            flex: 3,
+          const SizedBox(width: 10),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  c['company_name'] ?? '',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF25324A),
-                  ),
-                ),
-                if ((c['industry'] ?? '').toString().isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    c['industry'],
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Color(0xFF8094B2),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-
-          // CONTACT
-          _plannerBodyCell(
-            flex: 2,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  c['contact_person']?.toString().isEmpty ?? true
-                      ? '—'
-                      : c['contact_person'],
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF3B4B63),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                 const SizedBox(height: 3),
                 Text(
-                  c['email']?.toString().isEmpty ?? true
-                      ? '—'
-                      : c['email'],
+                  value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Color(0xFF8BA0BD),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // CREATED
-          _plannerBodyCell(
-            flex: 2,
-            child: Text(
-              _formatDate(c['created_at']?.toString()),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 10,
-                color: Color(0xFF49617F),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-
-          // COMPLETION
-          _plannerBodyCell(
-            flex: 3,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      '$percent%',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF29405F),
-                      ),
-                    ),
-                    const Spacer(),
-                    if (percent == 100)
-                      const Icon(
-                        Icons.check_circle_rounded,
-                        size: 15,
-                        color: Color(0xFF16A34A),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: (percent.clamp(0, 100)) / 100,
-                    minHeight: 6,
-                    backgroundColor: const Color(0xFFDCE7F5),
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                      Color(0xFF16A34A),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // STATUS
-          _plannerBodyCell(
-            flex: 2,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 6,
-              ),
-              decoration: BoxDecoration(
-                color: colors['bg'],
-                borderRadius: BorderRadius.circular(7),
-                border: Border.all(
-                  color: colors['fg']!.withValues(alpha: 0.18),
-                ),
-              ),
-              child: Text(
-                status.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w900,
-                  color: colors['fg'],
-                  letterSpacing: 0.3,
-                ),
-              ),
-            ),
-          ),
-
-          // ACTIVE
-          _plannerBodyCell(
-            flex: 2,
-            child: InkWell(
-              onTap: () => _toggleClientStatus(id, active),
-              borderRadius: BorderRadius.circular(7),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: active
-                      ? const Color(0xFFE8F8EF)
-                      : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(
-                    color: active
-                        ? const Color(0xFF9BE3B8)
-                        : const Color(0xFFD3DCE7),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      active
-                          ? Icons.check_circle_rounded
-                          : Icons.pause_circle_outline_rounded,
-                      size: 13,
-                      color: active
-                          ? const Color(0xFF159447)
-                          : const Color(0xFF64748B),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      active ? 'ACTIVE' : 'IN-ACTIVE',
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w900,
-                        color: active
-                            ? const Color(0xFF159447)
-                            : const Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // CREATED BY
-          if (isMainAdmin)
-            _plannerBodyCell(
-              flex: 2,
-              child: Text(
-                createdByName,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF31506F),
-                ),
-              ),
-            ),
-
-          // ACTIONS
-          _plannerBodyCell(
-            flex: 4,
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedButton(
-                  onPressed: () => _openOnboarding(clientId: id),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Color(0xFFC9D6E6)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    padding: const EdgeInsets.all(9),
-                    minimumSize: const Size(40, 36),
-                  ),
-                  child: const Icon(
-                    Icons.edit_outlined,
-                    size: 15,
-                    color: Color(0xFF4B6079),
-                  ),
-                ),
-                const SizedBox(width: 7),
-
-                if (status == 'draft' || status == 'pending')
-                  ElevatedButton(
-                    onPressed: () => _updateStatus(
-                      id,
-                      status == 'draft' ? 'pending' : 'verified',
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: status == 'draft'
-                          ? const Color(0xFFE88900)
-                          : const Color(0xFF2563EB),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(7),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 10,
-                      ),
-                      elevation: 0,
-                    ),
-                    child: Text(
-                      status == 'draft' ? 'Mark Pending' : 'Verify',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  )
-                else if (status == 'verified')
-                  ElevatedButton(
-                    onPressed: () => _updateStatus(id, 'complete'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF16A34A),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(7),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 11,
-                        vertical: 10,
-                      ),
-                      elevation: 0,
-                    ),
-                    child: const Text(
-                      'Mark Complete',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  )
-                else
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 11,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE1F7E9),
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.check_circle,
-                          size: 14,
-                          color: Color(0xFF159447),
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'Done',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF159447),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                const SizedBox(width: 7),
-
-                IconButton(
-                  onPressed: () => _confirmDelete(
-                    id,
-                    c['company_name'] ?? 'this client',
-                  ),
-                  tooltip: 'Delete client',
-                  style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xFFFFE5E5),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(7),
-                    ),
-                    padding: const EdgeInsets.all(9),
-                  ),
-                  icon: const Icon(
-                    Icons.delete_outline_rounded,
-                    size: 18,
-                    color: Color(0xFFDC2626),
-                  ),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
                 ),
               ],
             ),
@@ -1343,8 +1235,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
 
 
 
-  static const TextStyle _th = TextStyle(
-      fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569), letterSpacing: 0.5);
+
 }
 
 class AnimatedVisibility extends StatelessWidget {
