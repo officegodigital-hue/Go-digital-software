@@ -3028,5 +3028,167 @@ router.get('/performance/detail', async (req, res) => {
   }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// Page / Ads Handler — "Add Additional Task" from Employee Workspace
+//
+//   GET  /additional-task/options?employee=   → { allowed, clients: [{ name, deliverables }] }
+//   POST /additional-task  { employee, client, deliverable, date, count, description }
+//
+// Creates (or adds rows to) the handler's own additional task list for that
+// client / deliverable / date. It shows as a client card with the
+// ADDITIONAL TASK ribbon ("Added by <name> (Page Handler)") in My Tasks.
+// ═════════════════════════════════════════════════════════════════════════════
+const COMMON_DELIVERABLES = [
+  'Poster', 'Reel', 'Carousel', 'Story', 'Video', 'Meta Ads', 'Google Ads',
+  'Instagram Post', 'Facebook Post', 'YouTube Video', 'Landing Page', 'Blog', 'Report',
+];
+
+/** Page / Ads Handler = role says so, or named as page / ads handler on any assignment. */
+async function handlerRoleOf(employee) {
+  const [[u]] = await db.query(
+    'SELECT id, full_name, role FROM employee_users WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1',
+    [employee],
+  );
+  if (!u) return { user: null, role: null };
+  const text = norm(u.role);
+  if (text.includes('ads')) return { user: u, role: 'Ads Handler' };
+  if (text.includes('page')) return { user: u, role: 'Page Handler' };
+  const [rows] = await db.query(
+    `SELECT page_handling, ads_handling FROM task_assignments
+     WHERE is_assigned = 1 AND (COALESCE(page_handling, '') <> '' OR COALESCE(ads_handling, '') <> '')`,
+  );
+  for (const a of rows) {
+    if (namesEmployee(a.page_handling, u.full_name)) return { user: u, role: 'Page Handler' };
+    if (namesEmployee(a.ads_handling, u.full_name)) return { user: u, role: 'Ads Handler' };
+  }
+  return { user: u, role: null };
+}
+
+router.get('/additional-task/options', async (req, res) => {
+  const employee = employeeFrom(req);
+  if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
+  try {
+    const { role } = await handlerRoleOf(employee);
+    const [clients] = await db.query(
+      'SELECT company_name FROM clients WHERE is_active = 1 ORDER BY company_name',
+    );
+    const [assignments] = await db.query('SELECT * FROM task_assignments WHERE is_assigned = 1');
+    const byClient = new Map();
+    for (const a of assignments) {
+      const k = norm(a.client_name);
+      if (!byClient.has(k)) byClient.set(k, new Set());
+      for (const r of ROLES) for (const t of parseTasks(a[r.tasks])) if (t.name) byClient.get(k).add(t.name);
+    }
+    const seen = new Set();
+    const list = [];
+    for (const c of clients) {
+      const name = String(c.company_name || '').trim();
+      if (!name || seen.has(norm(name))) continue;
+      seen.add(norm(name));
+      const own = [...(byClient.get(norm(name)) || [])];
+      const all = [...own];
+      for (const d of COMMON_DELIVERABLES) if (!all.some((x) => norm(x) === norm(d))) all.push(d);
+      list.push({ name, deliverables: all, assigned: own });
+    }
+    return res.json({ success: true, allowed: Boolean(role), role, clients: list });
+  } catch (err) {
+    console.error('GET /workspace-tasks/additional-task/options ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+router.post('/additional-task', async (req, res) => {
+  const employee = employeeFrom(req);
+  const client = String(req.body?.client || '').trim();
+  const deliverable = String(req.body?.deliverable || '').trim().replace(/\s+/g, ' ');
+  const date = dateKey(req.body?.date);
+  const count = Math.min(Math.max(parseInt(req.body?.count, 10) || 1, 1), 50);
+  const description = String(req.body?.description || '').trim();
+
+  if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
+  if (!client) return res.status(400).json({ success: false, message: 'Choose a client' });
+  if (!deliverable) return res.status(400).json({ success: false, message: 'Enter the deliverable' });
+  if (deliverable.length > 120) return res.status(400).json({ success: false, message: 'Deliverable name is too long' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ success: false, message: 'Choose a valid date' });
+  if (date < appDay()) return res.status(400).json({ success: false, message: 'The date cannot be in the past' });
+
+  const connection = await db.getConnection();
+  try {
+    const { user, role } = await handlerRoleOf(employee);
+    if (!user) return res.status(404).json({ success: false, message: 'Employee not found' });
+    if (!role) {
+      return res.status(403).json({ success: false, message: 'Only Page Handlers and Ads Handlers can add additional tasks here' });
+    }
+    const [[activeClient]] = await connection.query(
+      'SELECT company_name FROM clients WHERE is_active = 1 AND LOWER(TRIM(company_name)) = LOWER(TRIM(?)) LIMIT 1',
+      [client],
+    );
+    if (!activeClient) return res.status(400).json({ success: false, message: `${client} is not an active client` });
+    const clientName = activeClient.company_name;
+
+    await connection.beginTransaction();
+    // Same client + deliverable + date → add rows to that list.
+    const [[existing]] = await connection.query(
+      `SELECT id, no_of_rows FROM task_list
+       WHERE additional_task_id IS NOT NULL AND task_assignment_id IS NULL
+         AND employee_id = ? AND LOWER(TRIM(client_name)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(deliverables)) = LOWER(TRIM(?)) AND DATE(submission_date) = ?
+       ORDER BY id DESC LIMIT 1 FOR UPDATE`,
+      [user.id, clientName, deliverable, date],
+    );
+    let listId;
+    let startNo = 1;
+    if (existing) {
+      listId = existing.id;
+      const [[mx]] = await connection.query(
+        'SELECT COALESCE(MAX(s_no), 0) AS m FROM time_tracking_task_items WHERE task_list_id = ? AND parent_item_id IS NULL',
+        [listId],
+      );
+      startNo = Number(mx.m) + 1;
+      await connection.query('UPDATE task_list SET no_of_rows = ? WHERE id = ?', [startNo - 1 + count, listId]);
+    } else {
+      const [ins] = await connection.query(
+        `INSERT INTO task_list
+           (client_name, employee_id, employee_name, deliverables, submission_date, no_of_rows)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [clientName, user.id, user.full_name, deliverable, date, count],
+      );
+      listId = ins.insertId;
+      await connection.query('UPDATE task_list SET additional_task_id = ? WHERE id = ?', [listId, listId]);
+    }
+    for (let i = 0; i < count; i += 1) {
+      await connection.query(
+        `INSERT INTO time_tracking_task_items
+           (task_list_id, s_no, sub_no, submit_date, task_description, duration_secs,
+            comment, performance, status, cc_assigned_by_name, cc_assigned_at)
+         VALUES (?, ?, 0, ?, ?, 0, '', 'N/A', 'IDLE', ?, NOW())`,
+        [listId, startNo + i, date, description || deliverable, user.full_name],
+      );
+    }
+    await connection.commit();
+
+    emit(req, { type: 'additional_task_added', employee: user.full_name, client: clientName });
+    return res.status(201).json({
+      success: true,
+      message: `${count} ${deliverable} row${count === 1 ? '' : 's'} added for ${clientName}`,
+      data: {
+        task_list_id: listId,
+        client: clientName,
+        deliverable,
+        due_date: date,
+        rows: count,
+        role,
+        section: 'My Tasks',
+      },
+    });
+  } catch (err) {
+    try { await connection.rollback(); } catch (_) { /* ignore */ }
+    console.error('POST /workspace-tasks/additional-task ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router;
 

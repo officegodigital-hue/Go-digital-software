@@ -1113,14 +1113,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                       ),
                     ),
 
-                    Text(title,
-                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF14532D))),
-                    Text(stale ? staleText : _runningTimerText(),
-                        style: TextStyle(
-                            fontSize: stale ? 10 : 11.5,
-                            fontWeight: FontWeight.w900,
-                            color: stale ? const Color(0xFFB91C1C) : const Color(0xFF166534))),
-
+                    
                   ],
                 ),
                 const SizedBox(width: 8),

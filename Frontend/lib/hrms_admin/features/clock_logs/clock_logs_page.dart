@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
 import '../../../services/hrms_clock_logs_api.dart';
 import 'employee_clock_calendar_drawer.dart';
 import '../employees/employee_profile_page.dart';
@@ -90,7 +91,7 @@ class _MobileClockLogs extends StatelessWidget {
                 ),
               ),
             )
-          : SingleChildScrollView(
+          : AdminPageScrollView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 22),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -255,22 +256,22 @@ class _MobileMetric extends StatelessWidget {
             style: const TextStyle(color: Color(0xFF50649E), fontSize: 11),
           ),
           Expanded(
-              child: Align(
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
                 alignment: Alignment.bottomLeft,
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.bottomLeft,
-                  child: Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w800,
-              fontSize: 25,
-            ),
-          ),
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 25,
+                  ),
                 ),
               ),
             ),
+          ),
         ],
       ),
     ),
@@ -851,18 +852,20 @@ class _MobileDailyLogRow extends StatelessWidget {
                 ),
               ),
               _StatusBadge(status: item['status']?.toString() ?? 'Absent'),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: () => onEdit(item),
+                icon: const Icon(
+                  Icons.calendar_month_outlined,
+                  color: _blue,
+                  size: 22,
+                ),
+                tooltip: 'Open employee calendar',
+              ),
             ],
           ),
           const SizedBox(height: 10),
           _ClockValues(item: item),
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              onPressed: () => onEdit(item),
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: 'Edit attendance',
-            ),
-          ),
         ],
       ),
     );
@@ -894,18 +897,20 @@ class _MobileHistoryRow extends StatelessWidget {
               ),
             ),
             _StatusBadge(status: item['status']?.toString() ?? 'Absent'),
+            const SizedBox(width: 4),
+            IconButton(
+              onPressed: () => onEdit(item),
+              icon: const Icon(
+                Icons.calendar_month_outlined,
+                color: _blue,
+                size: 22,
+              ),
+              tooltip: 'Open employee calendar',
+            ),
           ],
         ),
         const SizedBox(height: 9),
         _ClockValues(item: item),
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
-            onPressed: () => onEdit(item),
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit attendance',
-          ),
-        ),
       ],
     ),
   );
@@ -988,6 +993,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   List<Map<String, dynamic>> _logs = const [];
   bool _loading = true;
   String? _error;
+  String? _expandedLogKey;
   Timer? _refreshTimer;
   int _loadRequest = 0;
 
@@ -1080,6 +1086,15 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     }
   }
 
+  void _movePeriod(int amount) {
+    setState(() {
+      _date = _monthly
+          ? DateTime(_date.year, _date.month + amount, 1)
+          : _date.add(Duration(days: amount));
+    });
+    _load();
+  }
+
   void _openEmployeeCalendar(Map<String, dynamic> employee) {
     final id =
         (employee['employeeId'] as num?)?.toInt() ??
@@ -1135,29 +1150,167 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     final choices = matches.isEmpty ? _employees : matches;
     final selected = await showDialog<Map<String, dynamic>>(
       context: context,
+      barrierColor: const Color(0x990D1D35),
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Select employee'),
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        titlePadding: const EdgeInsets.all(16),
+        title: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE1EDFF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.people_outline_rounded,
+                color: _blue,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Select employee',
+                    style: TextStyle(
+                      color: Color(0xFF0A203D),
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 6),
+                  Text(
+                    'Choose an employee to open their calendar.',
+                    style: TextStyle(color: Color(0xFF596783), fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Close',
+              onPressed: () => Navigator.pop(dialogContext),
+              icon: const Icon(Icons.close_rounded, color: Color(0xFF596783)),
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 44),
+              padding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+        contentPadding: EdgeInsets.zero,
         content: SizedBox(
-          width: 400,
-          height: 360,
-          child: ListView.builder(
-            itemCount: choices.length,
-            itemBuilder: (context, index) {
-              final person = choices[index];
-              return ListTile(
-                title: Text(person['employeeName']?.toString() ?? 'Employee'),
-                subtitle: Text(person['staffId']?.toString() ?? ''),
-                trailing: const Icon(
-                  Icons.calendar_month_outlined,
-                  color: _blue,
-                ),
-                onTap: () => Navigator.pop(dialogContext, person),
-              );
-            },
+          width: 520,
+          height: (choices.length * 77.0 + 16).clamp(
+            0.0,
+            MediaQuery.sizeOf(dialogContext).height * .45,
+          ),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              border: Border.symmetric(horizontal: BorderSide(color: _line)),
+            ),
+            child: ListView.separated(
+              padding: const EdgeInsets.all(8),
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 1, color: _line),
+              itemCount: choices.length,
+              itemBuilder: (context, index) {
+                final person = choices[index];
+                final mobile = MediaQuery.sizeOf(context).width < 600;
+                final name = person['employeeName']?.toString() ?? 'Employee';
+                final words = name
+                    .trim()
+                    .split(RegExp(r'\s+'))
+                    .where((word) => RegExp(r'[a-zA-Z0-9]').hasMatch(word));
+                final initials = words
+                    .take(2)
+                    .map((word) => word[0])
+                    .join()
+                    .toUpperCase();
+                const colors = [
+                  Color(0xFF0963FF),
+                  Color(0xFF009572),
+                  Color(0xFFBC500D),
+                  Color(0xFF8542ED),
+                  Color(0xFFCB2452),
+                ];
+                final color = colors[index % colors.length];
+                return ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  hoverColor: const Color(0xFFEAF3FF),
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: mobile ? 8 : 12,
+                    vertical: 6,
+                  ),
+                  leading: Container(
+                    width: 40,
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      initials.isEmpty ? 'E' : initials,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    name,
+                    style: TextStyle(
+                      color: const Color(0xFF101747),
+                      fontSize: mobile ? 15 : 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'ID: ${person['staffId'] ?? person['employeeId'] ?? person['id'] ?? ''}',
+                    style: TextStyle(
+                      color: const Color(0xFF536280),
+                      fontSize: 13,
+                    ),
+                  ),
+                  trailing: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F8FF),
+                      border: Border.all(color: const Color(0xFFBCD7FF)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.calendar_month_outlined,
+                      color: _blue,
+                      size: 24,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(dialogContext, person),
+                );
+              },
+            ),
           ),
         ),
+        actionsPadding: const EdgeInsets.all(12),
         actions: [
-          TextButton(
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF53607C),
+              side: const BorderSide(color: Color(0xFFB6C1D4)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
@@ -1190,7 +1343,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         onOpenCalendar: _chooseEmployeeCalendar,
       );
     }
-    final narrow = MediaQuery.sizeOf(context).width < 700;
+    final narrow = MediaQuery.sizeOf(context).width < 1150;
     return Scaffold(
       backgroundColor: _page,
       bottomNavigationBar: MediaQuery.sizeOf(context).width < 600
@@ -1200,41 +1353,63 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         children: [
           const AdminTopNav(activeRoute: '/admin/clock-logs'),
           Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                narrow ? 16 : 38,
-                18,
-                narrow ? 16 : 38,
-                28,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1900),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const AdminPageHeader(
-                        title: 'Employee Clock Logs',
-                        breadcrumb: 'Clock Logs',
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final side = narrow ? 16.0 : 38.0;
+                final contentWidth = (constraints.maxWidth - side * 2).clamp(
+                  0.0,
+                  1900.0,
+                );
+                final inset = (constraints.maxWidth - contentWidth) / 2;
+                return CustomScrollView(
+                  slivers: [
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(inset, 18, inset, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _desktopHeader(),
+                            const SizedBox(height: 20),
+                            _filters(narrow),
+                            const SizedBox(height: 20),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 20),
-                      _filters(narrow),
-                      const SizedBox(height: 20),
-                      if (_loading)
-                        const Center(
+                    ),
+                    if (!_loading && _error == null)
+                      SliverPersistentHeader(
+                        pinned: true,
+                        delegate: _ClockLogsHeaderDelegate(
                           child: Padding(
-                            padding: EdgeInsets.all(42),
-                            child: CircularProgressIndicator(),
+                            padding: EdgeInsets.symmetric(horizontal: inset),
+                            child: Container(
+                              color: Colors.white,
+                              child: _tableHeader(
+                                contentWidth < 1280 ? 1280 : contentWidth,
+                              ),
+                            ),
                           ),
-                        )
-                      else if (_error != null)
-                        _message(_error!, retry: _load)
-                      else
-                        _table(),
-                    ],
-                  ),
-                ),
-              ),
+                        ),
+                      ),
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(inset, 0, inset, 28),
+                      sliver: SliverToBoxAdapter(
+                        child: _loading
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(42),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              )
+                            : _error != null
+                            ? _message(_error!, retry: _load)
+                            : _table(),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -1242,48 +1417,142 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     );
   }
 
-  Widget _filters(bool narrow) => Wrap(
-    spacing: 16,
-    runSpacing: 12,
-    crossAxisAlignment: WrapCrossAlignment.center,
+  Widget _desktopHeader() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      SizedBox(
-        width: narrow ? double.infinity : 400,
-        child: TextField(
-          controller: _employeeSearchController,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            hintText: 'Search by name, employee ID or email',
-            hintStyle: const TextStyle(color: Color(0xFF50649E), fontSize: 14),
-            prefixIcon: const Icon(Icons.search_rounded, color: _navy),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _line),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _blue),
-            ),
-          ),
+      const Text(
+        'ATTENDANCE  /  CLOCK LOGS',
+        style: TextStyle(
+          color: Color(0xFF64749A),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.1,
         ),
       ),
-      _toggle(),
-      OutlinedButton.icon(
-        onPressed: _pickDate,
-        icon: const Icon(Icons.calendar_month_outlined),
-        label: Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)),
-        style: _fieldStyle(),
+      const SizedBox(height: 12),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Employee Clock Logs',
+                  style: TextStyle(
+                    color: Color(0xFF071540),
+                    fontSize: 29,
+                    height: 1.05,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Review employee attendance and work sessions.',
+                  style: TextStyle(color: Color(0xFF62739C), fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: _chooseEmployeeCalendar,
+            icon: const Icon(Icons.calendar_month_outlined, size: 21),
+            label: const Text('Employee calendar'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _blue,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(7),
+              ),
+            ),
+          ),
+        ],
       ),
-      OutlinedButton.icon(
-        onPressed: _chooseEmployeeCalendar,
-        icon: const Icon(Icons.calendar_view_month_outlined),
-        label: const Text('Employee calendar'),
-        style: _fieldStyle(),
-      ),
+      const SizedBox(height: 20),
+      const Divider(height: 1, color: _line),
     ],
+  );
+
+  Widget _filters(bool narrow) {
+    final search = TextField(
+      controller: _employeeSearchController,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        hintText: 'Search by name, employee ID or email',
+        hintStyle: const TextStyle(color: Color(0xFF50649E), fontSize: 14),
+        prefixIcon: const Icon(Icons.search_rounded, color: _navy),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(7),
+          borderSide: const BorderSide(color: _line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(7),
+          borderSide: const BorderSide(color: _blue),
+        ),
+      ),
+    );
+    final controls = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _toggle(),
+        const SizedBox(width: 22),
+        _periodArrow(Icons.chevron_left_rounded, () => _movePeriod(-1)),
+        const SizedBox(width: 12),
+        OutlinedButton(
+          onPressed: _pickDate,
+          style: _fieldStyle(),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.calendar_month_outlined, size: 21),
+              const SizedBox(width: 14),
+              Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)),
+              const SizedBox(width: 44),
+              const Icon(Icons.keyboard_arrow_down_rounded, size: 21),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        _periodArrow(Icons.chevron_right_rounded, () => _movePeriod(1)),
+      ],
+    );
+    if (narrow) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          search,
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: controls,
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: search),
+        const SizedBox(width: 26),
+        Container(width: 1, height: 42, color: _line),
+        const SizedBox(width: 24),
+        controls,
+      ],
+    );
+  }
+
+  Widget _periodArrow(IconData icon, VoidCallback onPressed) => OutlinedButton(
+    onPressed: onPressed,
+    style: OutlinedButton.styleFrom(
+      foregroundColor: _navy,
+      side: const BorderSide(color: _line),
+      minimumSize: const Size(46, 46),
+      padding: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+    ),
+    child: Icon(icon, size: 25),
   );
 
   Widget _summary() {
@@ -1452,18 +1721,13 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     ),
   );
 
-  Widget _toggle() => Container(
-    decoration: BoxDecoration(
-      border: Border.all(color: const Color(0xFF777B86)),
-      borderRadius: BorderRadius.circular(23),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _toggleButton('Day', !_monthly),
-        _toggleButton('Month', _monthly),
-      ],
-    ),
+  Widget _toggle() => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _toggleButton('Day', !_monthly),
+      const SizedBox(width: 28),
+      _toggleButton('Month', _monthly),
+    ],
   );
 
   Widget _toggleButton(String label, bool active) => InkWell(
@@ -1474,23 +1738,20 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         _load();
       }
     },
-    borderRadius: BorderRadius.circular(22),
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(7, 11, 7, 9),
       decoration: BoxDecoration(
-        color: active ? const Color(0xFFE2E6FA) : Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        border: active
+            ? const Border(bottom: BorderSide(color: _blue, width: 2.5))
+            : null,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (active)
-            const Padding(
-              padding: EdgeInsets.only(right: 7),
-              child: Icon(Icons.check, size: 18),
-            ),
-          Text(label, style: const TextStyle(fontSize: 16)),
-        ],
+      child: Text(
+        label,
+        style: TextStyle(
+          color: active ? const Color(0xFF071540) : const Color(0xFF66749A),
+          fontSize: 14,
+          fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+        ),
       ),
     ),
   );
@@ -1498,14 +1759,38 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   ButtonStyle _fieldStyle() => OutlinedButton.styleFrom(
     foregroundColor: const Color(0xFF273754),
     side: const BorderSide(color: _line),
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-    textStyle: const TextStyle(fontSize: 16),
+    minimumSize: const Size(245, 46),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    textStyle: const TextStyle(fontSize: 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+  );
+
+  Widget _tableHeader(double tableWidth) => SingleChildScrollView(
+    controller: _tableHeaderScrollCtrl,
+    scrollDirection: Axis.horizontal,
+    physics: const NeverScrollableScrollPhysics(),
+    child: SizedBox(
+      width: tableWidth,
+      child: _row(const [
+        'S.No',
+        'Employee',
+        'Date',
+        'Check-in',
+        'Check-out',
+        'Break time',
+        'Worked',
+        'Status',
+        'Work location',
+        'Details',
+        'Action',
+      ], header: true),
+    ),
   );
 
   Widget _table() => LayoutBuilder(
     builder: (_, constraints) {
-      final tableWidth = constraints.maxWidth < 1620
-          ? 1620.0
+      final tableWidth = constraints.maxWidth < 1280
+          ? 1280.0
           : constraints.maxWidth;
       return Container(
         width: double.infinity,
@@ -1517,56 +1802,25 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
-            // Sticky header
+            // The page owns vertical scrolling; the table only scrolls sideways.
             SingleChildScrollView(
-              controller: _tableHeaderScrollCtrl,
+              controller: _tableBodyScrollCtrl,
               scrollDirection: Axis.horizontal,
-              physics: const NeverScrollableScrollPhysics(),
               child: SizedBox(
                 width: tableWidth,
-                child: _row(const [
-                  'S.No',
-                  'Employee',
-                  'Date',
-                  'Check In',
-                  'Check Out',
-                  'Break Begins',
-                  'Break Ends',
-                  'Break Review',
-                  'Break Time',
-                  'Worked',
-                  'Status',
-                  'Work Location',
-                  'Method',
-                  'Action',
-                ], header: true),
-              ),
-            ),
-            // Scrollable body
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 520),
-              child: SingleChildScrollView(
-                controller: _tableBodyScrollCtrl,
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: tableWidth,
-                  child: SingleChildScrollView(
-                    primary: false,
-                    child: Column(
-                      children: [
-                        if (_visibleLogs.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.all(40),
-                            child: Text(
-                              'No clock logs found for the selected period.',
-                            ),
-                          ),
-                        ..._visibleLogs.asMap().entries.map(
-                          (e) => _logRow(e.value, e.key + 1),
+                child: Column(
+                  children: [
+                    if (_visibleLogs.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Text(
+                          'No clock logs found for the selected period.',
                         ),
-                      ],
+                      ),
+                    ..._visibleLogs.asMap().entries.map(
+                      (e) => _logEntry(e.value, e.key + 1, tableWidth),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -1576,7 +1830,26 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     },
   );
 
-  Widget _logRow(Map<String, dynamic> item, int index) {
+  String _logKey(Map<String, dynamic> item, int index) =>
+      '${item['attendanceId'] ?? item['id'] ?? item['employeeId'] ?? index}-${item['date'] ?? index}';
+
+  Widget _logEntry(Map<String, dynamic> item, int index, double tableWidth) {
+    final key = _logKey(item, index);
+    final expanded = _expandedLogKey == key;
+    return Column(
+      children: [
+        _logRow(item, index, key, expanded),
+        if (expanded) _expandedDetails(item, tableWidth),
+      ],
+    );
+  }
+
+  Widget _logRow(
+    Map<String, dynamic> item,
+    int index,
+    String key,
+    bool expanded,
+  ) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
     final staffId =
         item['staffId']?.toString() ??
@@ -1595,24 +1868,151 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       item['date']?.toString() ?? '-',
       item['checkIn']?.toString() ?? '-',
       item['checkOut']?.toString() ?? '-',
-      item['breakStart']?.toString() ?? '-',
-      item['breakEnd']?.toString() ?? '-',
-      _breakReview(item),
       _worked(item['breakMinutes']),
       _worked(item['workingMinutes']),
       _status(item['status']?.toString() ?? 'Absent'),
       item['workMode']?.toString() ?? 'Not set',
-      item['method']?.toString() ?? '-',
+      IconButton(
+        onPressed: () =>
+            setState(() => _expandedLogKey = expanded ? null : key),
+        icon: Icon(
+          expanded
+              ? Icons.keyboard_arrow_up_rounded
+              : Icons.keyboard_arrow_right_rounded,
+          size: 24,
+          color: const Color(0xFF071540),
+        ),
+        tooltip: expanded ? 'Hide details' : 'Show details',
+      ),
       IconButton(
         onPressed: () => _openEmployeeCalendar(item),
-        icon: const Icon(Icons.edit_outlined, size: 19),
+        icon: const Icon(Icons.edit_calendar_outlined, size: 22),
         tooltip: 'Edit attendance',
+        style: IconButton.styleFrom(
+          foregroundColor: _blue,
+          backgroundColor: const Color(0xFFF2F7FF),
+          side: const BorderSide(color: Color(0xFFB8D3FF)),
+          minimumSize: const Size(36, 36),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       ),
     ]);
   }
 
+  Widget _expandedDetails(Map<String, dynamic> item, double tableWidth) =>
+      Container(
+        width: tableWidth,
+        padding: const EdgeInsets.fromLTRB(84, 0, 16, 16),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: _line)),
+        ),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 64),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FBFF),
+            border: Border.all(color: const Color(0xFFD9E5F6)),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Row(
+            children: [
+              Container(width: 4, height: 44, color: _blue),
+              const SizedBox(width: 20),
+              Expanded(
+                child: _detailValue(
+                  'Break begins',
+                  item['breakStart']?.toString() ?? '-',
+                ),
+              ),
+              _detailDivider(),
+              Expanded(
+                child: _detailValue(
+                  'Break ends',
+                  item['breakEnd']?.toString() ?? '-',
+                ),
+              ),
+              _detailDivider(),
+              Expanded(child: _breakDetail(item)),
+              _detailDivider(),
+              Expanded(
+                child: _detailValue(
+                  'Method',
+                  item['method']?.toString() ?? '-',
+                  emphasized: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _breakDetail(Map<String, dynamic> item) {
+    final breaks = (item['breaks'] as List? ?? const []).whereType<Map>();
+    final reasons = breaks
+        .map((entry) => entry['employeeReason']?.toString().trim() ?? '')
+        .where((reason) => reason.isNotEmpty)
+        .toList();
+    final hasOverdue = breaks.any(
+      (entry) => ((entry['overdueMinutes'] as num?)?.toInt() ?? 0) > 0,
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Break reason',
+          style: TextStyle(color: Color(0xFF65759B), fontSize: 12),
+        ),
+        const SizedBox(height: 6),
+        if (hasOverdue)
+          _breakReview(item)
+        else
+          Text(
+            reasons.isEmpty ? '-' : reasons.join(', '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF071540),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _detailDivider() => Container(
+    width: 1,
+    height: 38,
+    margin: const EdgeInsets.symmetric(horizontal: 24),
+    color: _line,
+  );
+
+  Widget _detailValue(String label, String value, {bool emphasized = false}) =>
+      Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Color(0xFF65759B), fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: const Color(0xFF071540),
+              fontSize: 13,
+              fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      );
+
   Widget _row(List<dynamic> values, {bool header = false}) => Container(
-    height: header ? 58 : 80,
+    height: header ? 48 : 64,
     decoration: const BoxDecoration(
       border: Border(bottom: BorderSide(color: _line)),
     ),
@@ -1620,24 +2020,9 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       children: List.generate(
         values.length,
         (i) => Expanded(
-          flex: const [
-            5,
-            22,
-            11,
-            11,
-            11,
-            11,
-            13,
-            10,
-            11,
-            10,
-            13,
-            12,
-            10,
-            10,
-          ][i],
+          flex: const [5, 19, 12, 11, 11, 11, 11, 14, 13, 8, 8][i],
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Align(
               alignment: Alignment.centerLeft,
               child: values[i] is Widget
@@ -1649,7 +2034,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                         color: header
                             ? const Color(0xFF1B1D25)
                             : const Color(0xFF283956),
-                        fontSize: header ? 14 : 14,
+                        fontSize: header ? 13 : 13,
                         fontWeight: header ? FontWeight.w600 : FontWeight.w400,
                       ),
                     ),
@@ -1723,8 +2108,8 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     return Row(
       children: [
         Container(
-          width: 52,
-          height: 52,
+          width: 42,
+          height: 42,
           alignment: Alignment.center,
           decoration: const BoxDecoration(
             color: Color(0xFFEAF0FA),
@@ -1734,12 +2119,12 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             initial,
             style: const TextStyle(
               color: _navy,
-              fontSize: 16,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1752,7 +2137,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF17264A),
-                  fontSize: 14,
+                  fontSize: 13,
                 ),
               ),
               const SizedBox(height: 3),
@@ -1760,7 +2145,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                 id,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xFF52638E), fontSize: 12),
+                style: const TextStyle(color: Color(0xFF52638E), fontSize: 11),
               ),
             ],
           ),
@@ -1812,8 +2197,8 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         : const Color(0xFFE9F6EC);
 
     return Container(
-      width: 130,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      width: 112,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
@@ -1829,7 +2214,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         style: TextStyle(
           color: color,
           fontWeight: FontWeight.w700,
-          fontSize: 13,
+          fontSize: 12,
         ),
       ),
     );
@@ -2171,4 +2556,22 @@ class _BreakReviewDialogState extends State<_BreakReviewDialog> {
       ],
     ),
   );
+}
+
+class _ClockLogsHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _ClockLogsHeaderDelegate({required this.child});
+  final Widget child;
+
+  @override
+  double get minExtent => 48;
+  @override
+  double get maxExtent => 48;
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => child;
+  @override
+  bool shouldRebuild(covariant _ClockLogsHeaderDelegate oldDelegate) => true;
 }

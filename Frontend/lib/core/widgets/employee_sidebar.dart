@@ -283,7 +283,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                                 if (!(_isSidebarCollapsed && !widget.isMobileDrawer)) ...[
                                   const SizedBox(width: 12),
                                   const Text(
-                                    'Home',
+                                    'Workspace',
                                     style: TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,

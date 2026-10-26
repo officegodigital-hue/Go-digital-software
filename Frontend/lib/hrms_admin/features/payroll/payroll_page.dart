@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../services/hrms_payroll_api.dart';
 import '../../shared/widgets/admin_top_nav.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
 
 abstract final class _PayrollColors {
   static const blue = Color(0xFF075EF7);
@@ -160,7 +161,7 @@ class _PayrollPageState extends State<PayrollPage> {
                           ],
                         ),
                       )
-                    : SingleChildScrollView(
+                    : AdminPageScrollView(
                         padding: EdgeInsets.fromLTRB(
                             mobile ? 16 : 28, 18, mobile ? 16 : 28, 28),
                         child: Center(
