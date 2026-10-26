@@ -121,7 +121,7 @@ async function runAutoCheckout() {
   return { checked, today };
 }
 
-async function _doCheckout(session, checkoutAt, eventType, reason) {
+async function _doCheckout(session, checkoutAt, eventType, reason, auditAt = checkoutAt) {
   const checkIn = sqlDateTime(session.check_in_at);
   const rawMinutes = checkIn ? attendancePolicy.minutesBetween(checkIn, checkoutAt) : 0;
   const [[breakRow]] = await db.query(
@@ -155,8 +155,19 @@ async function _doCheckout(session, checkoutAt, eventType, reason) {
     `INSERT INTO hrms_attendance_checkout_audit
        (attendance_id, employee_id, event_type, checkout_at, reason)
      VALUES (?, ?, ?, ?, ?)`,
-    [session.id, session.employee_id, eventType, checkoutAt, reason]
+    [session.id, session.employee_id, eventType, auditAt, reason]
   );
+}
+
+function shiftEndForDate(workDate, shiftEnd, latestAllowed) {
+  const normalizedTime = String(shiftEnd || '').match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(workDate)) || !normalizedTime) {
+    return latestAllowed;
+  }
+  const value = `${workDate} ${normalizedTime[1]}:${normalizedTime[2]}:${normalizedTime[3] || '00'}`;
+  // Never save a future checkout. This also keeps overnight shifts safe when
+  // their configured end falls after the 11:59 PM close job.
+  return value <= latestAllowed ? value : latestAllowed;
 }
 
 /**
@@ -167,6 +178,8 @@ async function _doCheckout(session, checkoutAt, eventType, reason) {
 async function runEndOfDayClose() {
   const today = attendancePolicy.todayIstDate();
   const closeAt = today + ' 23:59:00';
+  const rules = await attendancePolicy.getTimeSettings(db);
+  const attendanceEndsAt = shiftEndForDate(today, rules.shiftEnd, closeAt);
   let closed = 0;
 
   const [openSessions] = await db.query(
@@ -179,11 +192,17 @@ async function runEndOfDayClose() {
   );
 
   for (const session of openSessions) {
-    await _doCheckout(session, closeAt, 'end_of_day_auto_close', 'Session auto-closed at end of day');
+    await _doCheckout(
+      session,
+      attendanceEndsAt,
+      'end_of_day_auto_close',
+      `Session auto-closed at 11:59 PM; worked time ended at the configured shift end (${rules.shiftEnd})`,
+      closeAt
+    );
     closed++;
   }
 
   return { closed, today };
 }
 
-module.exports = { runAutoCheckout, runEndOfDayClose };
+module.exports = { runAutoCheckout, runEndOfDayClose, shiftEndForDate };
