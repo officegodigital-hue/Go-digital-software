@@ -1431,7 +1431,10 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
   String _fmt(dynamic raw) {
     if (raw == null) return '--';
     try {
-      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T')).toLocal();
+      // Attendance timestamps are recorded wall-clock values. Keep those clock
+      // components unchanged even when an older API response includes a UTC
+      // suffix, otherwise 10:43 AM is incorrectly displayed as 4:13 PM in IST.
+      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T'));
       final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
       final m = dt.minute.toString().padLeft(2, '0');
       final ampm = dt.hour >= 12 ? 'PM' : 'AM';
@@ -1442,7 +1445,7 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
   String _fmtDate(dynamic raw) {
     if (raw == null) return '--';
     try {
-      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T')).toLocal();
+      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T'));
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
     } catch (_) { return '--'; }
@@ -1613,8 +1616,8 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
               ],
               const SizedBox(height: 8),
               Wrap(spacing: 10, runSpacing: 6, children: [
-                _CorrChip('Recorded in', _fmt(c['check_in_at'])),
-                _CorrChip('Recorded out', _fmt(c['check_out_at'])),
+                _CorrChip('Check in', _fmt(c['check_in_at'])),
+                _CorrChip('Check out', _fmt(c['check_out_at'])),
                 if (c['requested_check_in_at'] != null) _CorrChip('Requested in', _fmt(c['requested_check_in_at'])),
                 if (c['requested_check_out_at'] != null) _CorrChip('Requested out', _fmt(c['requested_check_out_at'])),
               ]),
