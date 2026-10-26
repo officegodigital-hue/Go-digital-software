@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../../services/hrms_clock_logs_api.dart';
+import '../../../services/hrms_clock_logs_api.dart';
 
 const _blue = Color(0xFF1264F5);
 const _navy = Color(0xFF081C67);

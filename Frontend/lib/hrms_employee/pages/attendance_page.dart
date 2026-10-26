@@ -306,6 +306,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
   }
 
   Future<void> _openCorrectionRequest() async {
+    final compact = MediaQuery.sizeOf(context).width < 600;
     DateTime selected = DateTime.now().subtract(const Duration(days: 1));
     String type = 'automatic_absence';
     final checkIn = TextEditingController();
@@ -319,7 +320,8 @@ class _AttendanceViewState extends State<_AttendanceView> {
             inputDecorationTheme: InputDecorationTheme(
               filled: true,
               fillColor: const Color(0xFFF7F9FD),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+              isDense: compact,
+              contentPadding: EdgeInsets.symmetric(horizontal: compact ? 12 : 14, vertical: compact ? 10 : 15),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: employeeLine)),
               enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: employeeLine)),
               focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: employeeBlue, width: 1.5)),
@@ -328,17 +330,18 @@ class _AttendanceViewState extends State<_AttendanceView> {
           child: AlertDialog(
           backgroundColor: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-          contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 4),
-          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-          title: const Row(children: [Icon(Icons.edit_calendar_outlined, color: employeeBlue), SizedBox(width: 10), Text('Request Correction', style: TextStyle(color: employeeNavy, fontWeight: FontWeight.w800))]),
+          titlePadding: EdgeInsets.fromLTRB(compact ? 16 : 24, compact ? 16 : 24, compact ? 16 : 24, 8),
+          contentPadding: EdgeInsets.fromLTRB(compact ? 16 : 24, 8, compact ? 16 : 24, 4),
+          actionsPadding: EdgeInsets.fromLTRB(compact ? 16 : 24, 8, compact ? 16 : 24, compact ? 12 : 20),
+          title: Row(children: [Icon(Icons.edit_calendar_outlined, color: employeeBlue, size: compact ? 20 : 24), const SizedBox(width: 10), Flexible(child: Text('Request Correction', style: TextStyle(color: employeeNavy, fontSize: compact ? 20 : null, fontWeight: FontWeight.w800)))]),
           content: SizedBox(
-            width: 420,
+            width: compact ? 300 : 420,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 ListTile(
                   contentPadding: EdgeInsets.zero,
+                  dense: compact,
                   title: const Text('Attendance date', style: TextStyle(fontSize: 13, color: employeeMuted)),
                   subtitle: Text(DateFormat('dd MMM yyyy').format(selected), style: const TextStyle(fontWeight: FontWeight.w600, color: employeeNavy)),
                   trailing: const Icon(Icons.calendar_today_outlined, color: employeeBlue),
@@ -352,34 +355,37 @@ class _AttendanceViewState extends State<_AttendanceView> {
                     if (picked != null) update(() => selected = picked);
                   },
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: compact ? 8 : 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  style: compact ? const TextStyle(fontSize: 14, color: employeeNavy) : null,
                   initialValue: type,
                   decoration: const InputDecoration(hintText: 'Choose correction type'),
                   items: const [
-                    DropdownMenuItem(value: 'missed_check_in', child: Text('Missed check-in')),
-                    DropdownMenuItem(value: 'missed_check_out', child: Text('Missed check-out')),
-                    DropdownMenuItem(value: 'incorrect_time', child: Text('Incorrect time')),
-                    DropdownMenuItem(value: 'automatic_absence', child: Text('Incorrect automatic absence')),
+                    DropdownMenuItem(value: 'missed_check_in', child: Text('Missed check-in', maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    DropdownMenuItem(value: 'missed_check_out', child: Text('Missed check-out', maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    DropdownMenuItem(value: 'incorrect_time', child: Text('Incorrect time', maxLines: 1, overflow: TextOverflow.ellipsis)),
+                    DropdownMenuItem(value: 'automatic_absence', child: Text('Incorrect automatic absence', maxLines: 1, overflow: TextOverflow.ellipsis)),
                   ],
                   onChanged: (value) => update(() => type = value!),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: compact ? 8 : 12),
                 if (type == 'incorrect_time') ...[
                   Row(children: [
-                    Expanded(child: _CorrectionTimeField(label: 'Check-in', value: checkIn.text, onTap: () async { await _pickCorrectionTime(checkIn); update(() {}); })),
+                    Expanded(child: _CorrectionTimeField(compact: compact, label: 'Check-in', value: checkIn.text, onTap: () async { await _pickCorrectionTime(checkIn); update(() {}); })),
                     const SizedBox(width: 12),
-                    Expanded(child: _CorrectionTimeField(label: 'Check-out', value: checkOut.text, onTap: () async { await _pickCorrectionTime(checkOut); update(() {}); })),
+                    Expanded(child: _CorrectionTimeField(compact: compact, label: 'Check-out', value: checkOut.text, onTap: () async { await _pickCorrectionTime(checkOut); update(() {}); })),
                   ]),
-                  const SizedBox(height: 12),
+                  SizedBox(height: compact ? 8 : 12),
                 ] else ...[
-                  if (type != 'missed_check_out') _CorrectionTimeField(label: 'Correct check-in time', value: checkIn.text, onTap: () async { await _pickCorrectionTime(checkIn); update(() {}); }),
-                  if (type != 'missed_check_out') const SizedBox(height: 12),
-                  if (type == 'missed_check_out') _CorrectionTimeField(label: 'Correct check-out time', value: checkOut.text, onTap: () async { await _pickCorrectionTime(checkOut); update(() {}); }),
-                  if (type == 'missed_check_out') const SizedBox(height: 12),
+                  if (type != 'missed_check_out') _CorrectionTimeField(compact: compact, label: 'Correct check-in time', value: checkIn.text, onTap: () async { await _pickCorrectionTime(checkIn); update(() {}); }),
+                  if (type != 'missed_check_out') SizedBox(height: compact ? 8 : 12),
+                  if (type == 'missed_check_out') _CorrectionTimeField(compact: compact, label: 'Correct check-out time', value: checkOut.text, onTap: () async { await _pickCorrectionTime(checkOut); update(() {}); }),
+                  if (type == 'missed_check_out') SizedBox(height: compact ? 8 : 12),
                 ],
                 TextField(
                   controller: reason,
+                  style: compact ? const TextStyle(fontSize: 14) : null,
                   maxLines: 2,
                   decoration: const InputDecoration(hintText: 'Reason for this correction'),
                 ),
@@ -388,7 +394,7 @@ class _AttendanceViewState extends State<_AttendanceView> {
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            FilledButton(style: FilledButton.styleFrom(backgroundColor: employeeBlue, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 13), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9))), onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
+            FilledButton(style: FilledButton.styleFrom(backgroundColor: employeeBlue, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(horizontal: compact ? 16 : 20, vertical: compact ? 10 : 13), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9))), onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
           ],
         ),
         ),
@@ -440,10 +446,6 @@ class _AttendanceViewState extends State<_AttendanceView> {
     ]);
 
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      if (widget.mobile) ...[
-        Align(alignment: Alignment.centerRight, child: OutlinedButton.icon(onPressed: _openCorrectionRequest, icon: const Icon(Icons.edit_calendar_outlined), label: const Text('Request Correction'))),
-        const SizedBox(height: 12),
-      ],
       if (_loading) const LinearProgressIndicator(),
       if (widget.mobile) ...[
         const MobileEmployeeHeader(showGreeting: false),
@@ -456,6 +458,8 @@ class _AttendanceViewState extends State<_AttendanceView> {
         const SizedBox(height: 5),
         Text('Your attendance for $monthLabel',
             style: const TextStyle(color: employeeMuted, fontSize: 16)),
+        const SizedBox(height: 12),
+        SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: _openCorrectionRequest, icon: const Icon(Icons.edit_calendar_outlined), label: const Text('Request Correction'))),
         const SizedBox(height: 18),
         calendar,
         const SizedBox(height: 16),
@@ -665,7 +669,10 @@ class _CalendarDay extends StatelessWidget {
         color: status == 'OFF' ? const Color(0xFFF6F9FD) : Colors.white,
         border: Border.all(color: employeeLine, width: .7),
       ),
-      child: Column(
+      child: Center(child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
@@ -699,6 +706,7 @@ class _CalendarDay extends StatelessWidget {
             const SizedBox(height: 3),
             Text(
               timeStr,
+              maxLines: 1,
               style: const TextStyle(
                 fontSize: 9,
                 fontWeight: FontWeight.w700,
@@ -707,7 +715,7 @@ class _CalendarDay extends StatelessWidget {
             ),
           ],
         ],
-      ),
+      ))),
     ));
   }
 }
@@ -917,11 +925,13 @@ class _CorrectionTimeField extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onTap,
+    this.compact = false,
   });
 
   final String label;
   final String value;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => Material(
@@ -930,7 +940,7 @@ class _CorrectionTimeField extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
           child: Container(
-            height: 56,
+            height: compact ? 44 : 56,
             padding: const EdgeInsets.symmetric(horizontal: 14),
             decoration: BoxDecoration(
               color: const Color(0xFFF7F9FD),
@@ -944,12 +954,12 @@ class _CorrectionTimeField extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: value.isEmpty ? const Color(0xFF596174) : employeeNavy,
-                    fontSize: 16,
+                    fontSize: compact ? 14 : 16,
                     fontWeight: value.isEmpty ? FontWeight.w400 : FontWeight.w700,
                   ),
                 ),
               ),
-              const Icon(Icons.schedule_outlined, color: employeeBlue, size: 23),
+              Icon(Icons.schedule_outlined, color: employeeBlue, size: compact ? 20 : 23),
             ]),
           ),
         ),

@@ -100,6 +100,7 @@ async function getPayrollPolicy() {
 
 async function getProfile(req, res) {
   try {
+    const attendanceRules = await policy.getTimeSettings(db);
     const profileId = Number(req.params.id || req.params.profileId);
     // employeeUserId fallback: used when the person doesn't yet have an HRMS profile row
     const fallbackUserId = Number(req.query.employeeUserId || 0);
@@ -180,7 +181,8 @@ async function getProfile(req, res) {
     const [records] = employeeUserId
       ? await db.query(
           `SELECT id, DATE_FORMAT(attendance_date,'%Y-%m-%d') AS attendance_date,
-                  check_in_at, check_out_at, is_late, attendance_status, check_in_method,
+                  check_in_at, check_out_at, is_late, attendance_status,
+                  admin_status_override, check_in_method,
                   working_minutes
            FROM attendance_records
            WHERE employee_id = ? AND attendance_date BETWEEN ? AND ?
@@ -296,21 +298,24 @@ async function getProfile(req, res) {
         workingDays += 1;
         const attStatus = record && record.attendance_status ? String(record.attendance_status).toLowerCase().trim() : '';
 
-        if (attStatus === 'absent') {
+        if (record && record.admin_status_override === 'present') {
+          status = 'present';
+          presentCount += 1;
+        } else if ((record && record.admin_status_override === 'absent') ||
+            (attStatus === 'absent' && !record.check_in_at)) {
           status = 'absent';
           absentCount += 1;
           if (pol.deductExplicitAbsence) { lopDays += 1; isLop = true; }
         } else if (record && record.check_in_at) {
-          if (Number(record.is_late) || attStatus === 'late') {
-            status = 'late';
-            lateCount += 1;
-          } else if (record.check_out_at && policy.isEarlyExit && policy.isEarlyExit(workedMinutes(record))) {
-            status = 'early_exit';
-            presentCount += 1;
-          } else {
-            status = 'present';
-            presentCount += 1;
-          }
+          status = policy.displayStatus({
+            checkInAt: record.check_in_at,
+            checkOutAt: record.check_out_at,
+            attendanceDate: date,
+            adminOverride: record.admin_status_override,
+            status: attStatus,
+          }, attendanceRules).toLowerCase().replace(/ /g, '_');
+          if (status === 'late') lateCount += 1;
+          else presentCount += 1;
         } else if (leaveSet.has(date)) {
           const leaveInfo = leaveSet.get(date);
           status = 'leave';
@@ -435,6 +440,7 @@ async function getProfile(req, res) {
     return ok(res, {
       employee: {
         id: profile.id,
+        employeeUserId,
         name: String(profile.full_name || '').trim(),
         employeeCode: profile.employee_code || '',
         department: profile.department || '',

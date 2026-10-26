@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../services/hrms_payroll_api.dart';
 import '../../shared/widgets/admin_top_nav.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
 
 abstract final class _PayrollColors {
   static const blue = Color(0xFF075EF7);
@@ -160,7 +161,7 @@ class _PayrollPageState extends State<PayrollPage> {
                           ],
                         ),
                       )
-                    : SingleChildScrollView(
+                    : AdminPageScrollView(
                         padding: EdgeInsets.fromLTRB(
                             mobile ? 16 : 28, 18, mobile ? 16 : 28, 28),
                         child: Center(
@@ -303,9 +304,13 @@ class _PayrollHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mobile = MediaQuery.sizeOf(context).width < 600;
     return Row(
       children: [
-        const Expanded(child: AdminPageHeader(title: 'Payroll')),
+        Expanded(child: AdminPageHeader(
+          title: 'Payroll',
+          fitBreadcrumb: MediaQuery.sizeOf(context).width < 600,
+        )),
         Tooltip(
           message: 'Generate the month-end draft after attendance and leave are final. Live salary previews update automatically every day.',
           child: FilledButton.icon(
@@ -321,7 +326,13 @@ class _PayrollHeader extends StatelessWidget {
           label: Text(generating ? 'Generating…' : 'Generate month-end draft'),
           style: FilledButton.styleFrom(
             backgroundColor: _PayrollColors.blue,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: EdgeInsets.symmetric(
+              horizontal: mobile ? 10 : 16,
+              vertical: mobile ? 8 : 14,
+            ),
+            minimumSize: mobile ? const Size(0, 36) : null,
+            textStyle: mobile ? const TextStyle(fontSize: 12, fontWeight: FontWeight.w600) : null,
+            iconSize: mobile ? 18 : null,
           ),
           ),
         ),
@@ -391,8 +402,16 @@ class _PayrollKpi extends StatelessWidget {
         decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
-          const Spacer(),
-          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 23, fontWeight: FontWeight.w800)),
+          Expanded(
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.bottomLeft,
+                  child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 23, fontWeight: FontWeight.w800)),
+                ),
+              ),
+            ),
         ]),
       );
     }

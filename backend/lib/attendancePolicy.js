@@ -29,15 +29,79 @@ function isLateCheckIn(dateTimeSql) { const time = String(dateTimeSql).slice(11,
 function isLateAt(date, timeZone) { return timeToSeconds(partsInZone(date, timeZone).time) > timeToSeconds(settings.lateAfter); }
 function isAbsentCheckIn(dateTimeSql) { const time = String(dateTimeSql).slice(11, 19); return timeToSeconds(time) > timeToSeconds(settings.absentAfter); }
 function isAbsentAt(date, timeZone) { return timeToSeconds(partsInZone(date, timeZone).time) > timeToSeconds(settings.absentAfter); }
-function minutesBetween(startSql, endSql) { const start = new Date(String(startSql).replace(' ', 'T')); const end = new Date(String(endSql).replace(' ', 'T')); if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0; return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000)); }
+function minutesBetween(startSql, endSql) {
+  if (!startSql || !endSql) return 0;
+  const parse = value => value instanceof Date ? value : new Date(String(value).replace(' ', 'T'));
+  const start = parse(startSql);
+  const end = parse(endSql);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return 0;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+}
 function isEarlyExit(workingMinutes) { return Number(workingMinutes || 0) < Number(settings.requiredWorkMinutes || REQUIRED_MINUTES); }
 function formatDisplayTime(dateTimeSql) { if (!dateTimeSql) return '-'; const time = String(dateTimeSql).slice(11, 19); const parts = time.split(':'); const h = Number(parts[0]); const suffix = h >= 12 ? 'PM' : 'AM'; const hour12 = ((h + 11) % 12) + 1; return String(hour12).padStart(2, '0') + ':' + parts[1] + ' ' + suffix; }
-function displayStatus(row) { if (row.adminOverride === 'present') return 'Present'; if (row.adminOverride === 'absent') return 'Absent'; if (row.status === 'on_leave') return 'On Leave'; if (!row.checkInAt) return 'Absent'; if (row.checkOutAt && isEarlyExit(minutesBetween(row.checkInAt, row.checkOutAt))) return 'Early Exit'; if (row.isLate || row.status === 'late' || row.status === 'absent') return 'Late'; return 'Present'; }
+function shiftFor(row, rules) {
+  const parse = value => value instanceof Date ? new Date(value) : new Date(String(value).replace(' ', 'T'));
+  const checkIn = parse(row.checkInAt);
+  if (isNaN(checkIn.getTime())) return null;
+  const atTime = (base, time) => {
+    const result = new Date(base);
+    const [hour, minute, second] = String(time).split(':').map(Number);
+    result.setHours(hour || 0, minute || 0, second || 0, 0);
+    return result;
+  };
+  // The attendance date anchors overnight shifts when the arrival is after midnight.
+  const base = row.attendanceDate ? parse(String(row.attendanceDate).slice(0, 10) + 'T00:00:00') : checkIn;
+  const start = atTime(base, rules.shiftStart);
+  const end = atTime(base, rules.shiftEnd);
+  if (end <= start) {
+    if (!row.attendanceDate && checkIn < end) start.setDate(start.getDate() - 1);
+    else end.setDate(end.getDate() + 1);
+  }
+  const late = atTime(start, rules.lateAfter);
+  if (late < start) late.setDate(late.getDate() + 1);
+  return { checkIn, end, late, checkOut: row.checkOutAt ? parse(row.checkOutAt) : null };
+}
+
+function displayStatus(row, rules = settings) {
+  if (row.adminOverride === 'present') return 'Present';
+  if (row.adminOverride === 'absent') return 'Absent';
+  if (row.status === 'on_leave') return 'On Leave';
+  if (!row.checkInAt) return 'Absent';
+  const shift = shiftFor(row, rules);
+  if (shift) {
+    if (shift.checkOut && shift.checkOut < shift.end) return 'Early Exit';
+    if (shift.checkIn > shift.late) return 'Late';
+  } else if (Number(row.isLate) || row.status === 'late' || row.status === 'absent') {
+    return 'Late';
+  }
+  return 'Present';
+}
 function weekdayShort(dateStr) { const p = dateStr.split('-').map(Number); return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay()]; }
 function addDays(dateStr, days) { const p = dateStr.split('-').map(Number); const next = new Date(Date.UTC(p[0], p[1] - 1, p[2]) + days * 86400000); return next.getUTCFullYear() + '-' + String(next.getUTCMonth() + 1).padStart(2, '0') + '-' + String(next.getUTCDate()).padStart(2, '0'); }
 function weekdaysForDate(dateStr) { const p = dateStr.split('-').map(Number); const day = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay(); const monday = addDays(dateStr, day === 0 ? -6 : 1 - day); return [0, 1, 2, 3, 4].map(function (offset) { return addDays(monday, offset); }); }
 function normalizeTime(value, label) { const match = /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.exec(String(value || '').trim()); if (!match) throw new Error(label + ' must use HH:mm'); return String(value).trim().length === 5 ? String(value).trim() + ':00' : String(value).trim(); }
 async function ensureTimeSettings(db) { await db.query(`CREATE TABLE IF NOT EXISTS hrms_attendance_time_settings (id TINYINT PRIMARY KEY, shift_start TIME NOT NULL, shift_end TIME NOT NULL, late_after TIME NOT NULL, absent_after TIME NULL, break_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 60, break_grace_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 5, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)`); try { await db.query('ALTER TABLE hrms_attendance_time_settings ADD COLUMN absent_after TIME NULL AFTER late_after'); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; } try { await db.query('ALTER TABLE hrms_attendance_time_settings ADD COLUMN break_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 60 AFTER absent_after'); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; } try { await db.query('ALTER TABLE hrms_attendance_time_settings ADD COLUMN break_grace_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 5 AFTER break_minutes'); } catch (error) { if (error.code !== 'ER_DUP_FIELDNAME') throw error; } await db.query('INSERT IGNORE INTO hrms_attendance_time_settings (id, shift_start, shift_end, late_after, absent_after, break_minutes, break_grace_minutes) VALUES (1, ?, ?, ?, ?, 60, 5)', [defaults.shiftStart, defaults.shiftEnd, defaults.lateAfter, defaults.absentAfter]); await db.query('UPDATE hrms_attendance_time_settings SET absent_after = ? WHERE id = 1 AND absent_after IS NULL', [defaults.absentAfter]); }
-async function getTimeSettings(db) { await ensureTimeSettings(db); const [rows] = await db.query('SELECT shift_start, shift_end, late_after, absent_after, break_minutes, break_grace_minutes FROM hrms_attendance_time_settings WHERE id = 1'); if (rows[0]) { settings = { shiftStart: String(rows[0].shift_start), shiftEnd: String(rows[0].shift_end), lateAfter: String(rows[0].late_after), absentAfter: String(rows[0].absent_after || defaults.absentAfter), breakMinutes: Number(rows[0].break_minutes || 60), breakGraceMinutes: Number(rows[0].break_grace_minutes ?? 5), requiredWorkMinutes: REQUIRED_MINUTES }; try { const [policies] = await db.query("SELECT required_work_minutes FROM hrms_attendance_policies WHERE scope_type='global' AND scope_id IS NULL AND is_active=1 AND effective_from <= CURDATE() ORDER BY effective_from DESC,id DESC LIMIT 1"); if (policies[0]) settings.requiredWorkMinutes = Number(policies[0].required_work_minutes || REQUIRED_MINUTES); } catch (_) {} if (timeToSeconds(settings.lateAfter) < timeToSeconds(settings.shiftStart)) settings.lateAfter = settings.shiftStart; if (timeToSeconds(settings.absentAfter) < timeToSeconds(settings.lateAfter)) settings.absentAfter = settings.lateAfter; await db.query('UPDATE hrms_attendance_time_settings SET late_after = ?, absent_after = ? WHERE id = 1', [settings.lateAfter, settings.absentAfter]); } return { ...settings }; }
-async function updateTimeSettings(db, value) { const next = { shiftStart: normalizeTime(value.shiftStart, 'Check-in time'), shiftEnd: normalizeTime(value.shiftEnd, 'Check-out time'), lateAfter: normalizeTime(value.lateAfter, 'Late-after time'), absentAfter: normalizeTime(value.absentAfter || settings.absentAfter || defaults.absentAfter, 'Absent-after time'), breakMinutes: Number(value.breakMinutes ?? settings.breakMinutes ?? 60), breakGraceMinutes: Number(value.breakGraceMinutes ?? settings.breakGraceMinutes ?? 5), requiredWorkMinutes: REQUIRED_MINUTES }; if (!Number.isInteger(next.breakMinutes) || next.breakMinutes < 0 || next.breakMinutes > 180) throw new Error('Break time must be between 0 and 180 minutes'); if (!Number.isInteger(next.breakGraceMinutes) || next.breakGraceMinutes < 0 || next.breakGraceMinutes > 60) throw new Error('Break grace period must be between 0 and 60 minutes'); const startSeconds = timeToSeconds(next.shiftStart); const endSeconds = timeToSeconds(next.shiftEnd); if (startSeconds === endSeconds) throw new Error('Check-out time must be different from check-in time.'); if (timeToSeconds(next.lateAfter) < startSeconds) next.lateAfter = next.shiftStart; if (timeToSeconds(next.absentAfter) < timeToSeconds(next.lateAfter)) next.absentAfter = next.lateAfter; await ensureTimeSettings(db); await db.query('UPDATE hrms_attendance_time_settings SET shift_start = ?, shift_end = ?, late_after = ?, absent_after = ?, break_minutes = ?, break_grace_minutes = ? WHERE id = 1', [next.shiftStart, next.shiftEnd, next.lateAfter, next.absentAfter, next.breakMinutes, next.breakGraceMinutes]); settings = next; return { ...settings }; }
+async function getTimeSettings(db) {
+  await ensureTimeSettings(db);
+  const [rows] = await db.query('SELECT shift_start, shift_end, late_after, absent_after, break_minutes, break_grace_minutes FROM hrms_attendance_time_settings WHERE id = 1');
+  const row = rows[0] || {};
+  const next = {
+    shiftStart: String(row.shift_start || defaults.shiftStart),
+    shiftEnd: String(row.shift_end || defaults.shiftEnd),
+    lateAfter: String(row.late_after || defaults.lateAfter),
+    absentAfter: String(row.absent_after || defaults.absentAfter),
+    breakMinutes: Number(row.break_minutes ?? 60),
+    breakGraceMinutes: Number(row.break_grace_minutes ?? 5),
+    requiredWorkMinutes: REQUIRED_MINUTES,
+  };
+  try {
+    const [policies] = await db.query("SELECT required_work_minutes FROM hrms_attendance_policies WHERE scope_type='global' AND scope_id IS NULL AND is_active=1 AND effective_from <= CURDATE() ORDER BY effective_from DESC,id DESC LIMIT 1");
+    if (policies[0]) next.requiredWorkMinutes = Number(policies[0].required_work_minutes ?? REQUIRED_MINUTES);
+  } catch (error) {
+    if (error.code !== 'ER_NO_SUCH_TABLE') throw error;
+  }
+  settings = next;
+  return { ...next };
+}
+async function updateTimeSettings(db, value) { await getTimeSettings(db); const next = { shiftStart: normalizeTime(value.shiftStart, 'Check-in time'), shiftEnd: normalizeTime(value.shiftEnd, 'Check-out time'), lateAfter: normalizeTime(value.lateAfter, 'Late-after time'), absentAfter: normalizeTime(value.absentAfter || settings.absentAfter || defaults.absentAfter, 'Absent-after time'), breakMinutes: Number(value.breakMinutes ?? settings.breakMinutes ?? 60), breakGraceMinutes: Number(value.breakGraceMinutes ?? settings.breakGraceMinutes ?? 5), requiredWorkMinutes: settings.requiredWorkMinutes }; if (!Number.isInteger(next.breakMinutes) || next.breakMinutes < 0 || next.breakMinutes > 180) throw new Error('Break time must be between 0 and 180 minutes'); if (!Number.isInteger(next.breakGraceMinutes) || next.breakGraceMinutes < 0 || next.breakGraceMinutes > 60) throw new Error('Break grace period must be between 0 and 60 minutes'); const startSeconds = timeToSeconds(next.shiftStart); const endSeconds = timeToSeconds(next.shiftEnd); if (startSeconds === endSeconds) throw new Error('Check-out time must be different from check-in time.'); if (timeToSeconds(next.lateAfter) < startSeconds) next.lateAfter = next.shiftStart; if (timeToSeconds(next.absentAfter) < timeToSeconds(next.lateAfter)) next.absentAfter = next.lateAfter; await ensureTimeSettings(db); await db.query('UPDATE hrms_attendance_time_settings SET shift_start = ?, shift_end = ?, late_after = ?, absent_after = ?, break_minutes = ?, break_grace_minutes = ? WHERE id = 1', [next.shiftStart, next.shiftEnd, next.lateAfter, next.absentAfter, next.breakMinutes, next.breakGraceMinutes]); settings = next; return { ...settings }; }
 module.exports = { TIME_ZONE, REQUIRED_MINUTES, partsInZone, todayIstDate, nowIstDateTime, isLateCheckIn, isLateAt, isAbsentCheckIn, isAbsentAt, minutesBetween, isEarlyExit, formatDisplayTime, displayStatus, weekdayShort, weekdaysForDate, getTimeSettings, updateTimeSettings, get LATE_AFTER() { return settings.lateAfter; }, get ABSENT_AFTER() { return settings.absentAfter; }, get SHIFT_START() { return settings.shiftStart; }, get SHIFT_END() { return settings.shiftEnd; } };

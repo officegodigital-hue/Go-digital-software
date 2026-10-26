@@ -8,6 +8,7 @@ import '../../../services/api_config.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/hrms_approvals_api.dart';
 import '../../shared/widgets/admin_top_nav.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
 
 abstract final class _ApprovalsColors {
   static const blue = Color(0xFF075EF7);
@@ -221,7 +222,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                           ],
                         ),
                       )
-                    : SingleChildScrollView(
+                    : AdminPageScrollView(
                         padding: EdgeInsets.fromLTRB(
                             mobile ? 16 : 28, 18, mobile ? 16 : 28, 28),
                         child: Center(
@@ -236,12 +237,12 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                     children: [
                                       _MainTabBtn(label: 'Leave & Extra Hours', active: _activeTab == 0, onTap: () => setState(() => _activeTab = 0)),
                                       const SizedBox(width: 10),
-                                      _MainTabBtn(
+                                      Flexible(child: _MainTabBtn(
                                         label: 'Attendance Corrections',
                                         active: _activeTab == 1,
                                         badge: _correctionsPendingCount,
                                         onTap: () { setState(() => _activeTab = 1); _loadCorrections(); },
-                                      ),
+                                      )),
                                     ],
                                   ),
                                 ),
@@ -391,8 +392,16 @@ class _ApprovalKpi extends StatelessWidget {
         decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
-          const Spacer(),
-          Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+          Expanded(
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.bottomLeft,
+                child: Text(value, style: TextStyle(color: color, fontSize: 25, fontWeight: FontWeight.w800)),
+              ),
+            ),
+          ),
         ]),
       );
     }
@@ -1363,8 +1372,9 @@ class _MainTabBtn extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-          color: active ? Colors.white : const Color(0xFF596176))),
+        Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+          color: active ? Colors.white : const Color(0xFF596176)))),
         if (badge > 0) ...[
           const SizedBox(width: 8),
           Container(
@@ -1422,7 +1432,10 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
   String _fmt(dynamic raw) {
     if (raw == null) return '--';
     try {
-      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T')).toLocal();
+      // Attendance timestamps are recorded wall-clock values. Keep those clock
+      // components unchanged even when an older API response includes a UTC
+      // suffix, otherwise 10:43 AM is incorrectly displayed as 4:13 PM in IST.
+      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T'));
       final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
       final m = dt.minute.toString().padLeft(2, '0');
       final ampm = dt.hour >= 12 ? 'PM' : 'AM';
@@ -1433,7 +1446,7 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
   String _fmtDate(dynamic raw) {
     if (raw == null) return '--';
     try {
-      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T')).toLocal();
+      final dt = DateTime.parse('$raw'.replaceFirst(' ', 'T'));
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
     } catch (_) { return '--'; }
@@ -1604,8 +1617,8 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
               ],
               const SizedBox(height: 8),
               Wrap(spacing: 10, runSpacing: 6, children: [
-                _CorrChip('Recorded in', _fmt(c['check_in_at'])),
-                _CorrChip('Recorded out', _fmt(c['check_out_at'])),
+                _CorrChip('Check in', _fmt(c['check_in_at'])),
+                _CorrChip('Check out', _fmt(c['check_out_at'])),
                 if (c['requested_check_in_at'] != null) _CorrChip('Requested in', _fmt(c['requested_check_in_at'])),
                 if (c['requested_check_out_at'] != null) _CorrChip('Requested out', _fmt(c['requested_check_out_at'])),
               ]),
@@ -1701,7 +1714,7 @@ void _showReasonDialog(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Leave Request',
+                        const Text('Permission Request',
                           style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
                             color: Color(0xFF8A94A6), letterSpacing: .06)),
                         const SizedBox(height: 4),

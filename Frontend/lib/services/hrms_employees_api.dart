@@ -18,9 +18,9 @@ class HrmsEmployeesApi {
 
   static Future<Map<String, dynamic>> createRole(String role) async {
     final response = await http.post(
-      Uri.parse('${ApiConfig.baseUrl}/hrms/roles'),
+      Uri.parse('${ApiConfig.baseUrl}/employees/user-roles'),
       headers: await _headers(),
-      body: jsonEncode({'role': role}),
+      body: jsonEncode({'roleName': role, 'userType': 'employee'}),
     );
     return _decode(response);
   }

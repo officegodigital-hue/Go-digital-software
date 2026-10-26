@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
 import '../employees/leave_policy_dialog.dart';
 import '../payroll/payroll_page.dart';
 import '../dashboard/widgets/manage_time_dialog.dart';
@@ -24,7 +25,7 @@ class SettingsPage extends StatelessWidget {
         children: [
           const AdminTopNav(activeRoute: '/admin/settings'),
           Expanded(
-            child: SingleChildScrollView(
+            child: AdminPageScrollView(
               padding: EdgeInsets.fromLTRB(
                   mobile ? 14 : 28, mobile ? 14 : 20, mobile ? 14 : 28, 28),
               child: Center(

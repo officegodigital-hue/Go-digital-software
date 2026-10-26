@@ -25,10 +25,20 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
   };
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchData());
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthService>();
+    if (auth.token != null && auth.token != _loadedToken) {
+      _loadedToken = auth.token;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _fetchData();
+      });
+    } else if (auth.isInitialized && auth.token == null) {
+      _loading = false;
+    }
   }
+
+  String? _loadedToken;
 
   List<String> _getBaseUrls() {
     return ['${ApiConfig.baseUrl}/attendance'];
@@ -51,7 +61,7 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
                 'Accept': 'application/json',
               },
             )
-            .timeout(const Duration(seconds: 4));
+            .timeout(const Duration(seconds: 15));
 
         if (res.statusCode == 200) {
           final body = jsonDecode(res.body);
@@ -69,7 +79,15 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
       } catch (_) {}
     }
 
-    if (mounted) setState(() => _loading = false);
+    if (mounted) {
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Could not load extra hours. Please try again.'),
+          action: SnackBarAction(label: 'Retry', onPressed: _fetchData),
+        ),
+      );
+    }
   }
 
   Future<void> _showLogDialog(BuildContext context) async {
@@ -79,6 +97,8 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
     final hoursCtrl = TextEditingController(text: '2h 00m');
     final reasonCtrl = TextEditingController();
     bool submitting = false;
+    String? submitError;
+    final messenger = ScaffoldMessenger.of(context);
 
     await showDialog<void>(
       context: context,
@@ -97,8 +117,8 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
                     final picked = await showDatePicker(
                       context: context,
                       initialDate: DateTime.now(),
-                      firstDate: DateTime(2025),
-                      lastDate: DateTime(2028),
+                      firstDate: DateTime(DateTime.now().year - 10),
+                      lastDate: DateTime(DateTime.now().year + 1),
                     );
                     if (picked != null) {
                       setModalState(() {
@@ -122,12 +142,15 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: reasonCtrl,
+                  maxLength: 255,
                   maxLines: 3,
                   decoration: const InputDecoration(
                     labelText: 'Reason',
                     hintText: 'Describe tasks completed...',
                   ),
                 ),
+                if (submitError != null)
+                  Text(submitError!, style: const TextStyle(color: Colors.red)),
               ],
             ),
           ),
@@ -141,51 +164,67 @@ class _EmployeeExtraHoursPageState extends State<EmployeeExtraHoursPage> {
                   ? null
                   : () async {
                       final token = context.read<AuthService>().token;
-                      if (token == null) return;
+                      if (token == null) {
+                        setModalState(
+                          () => submitError = 'Please sign in again.',
+                        );
+                        return;
+                      }
 
-                      setModalState(() => submitting = true);
+                      setModalState(() {
+                        submitting = true;
+                        submitError = null;
+                      });
 
                       final payload = {
                         'work_date': dateCtrl.text,
                         'hours_worked': hoursCtrl.text.trim(),
                         'reason': reasonCtrl.text.trim(),
-                        'regular_out': '06:00 PM',
-                        'actual_out': 'Overtime Session',
                       };
 
                       bool ok = false;
                       for (final base in _getBaseUrls()) {
                         try {
-                          final res = await http.post(
-                            Uri.parse('$base/extra-hours/log'),
-                            headers: {
-                              'Authorization': 'Bearer $token',
-                              'Content-Type': 'application/json',
-                            },
-                            body: jsonEncode(payload),
-                          );
-                          if (res.statusCode == 200) {
+                          final res = await http
+                              .post(
+                                Uri.parse('$base/extra-hours/log'),
+                                headers: {
+                                  'Authorization': 'Bearer $token',
+                                  'Content-Type': 'application/json',
+                                },
+                                body: jsonEncode(payload),
+                              )
+                              .timeout(const Duration(seconds: 15));
+                          final body = jsonDecode(res.body);
+                          if (res.statusCode >= 200 &&
+                              res.statusCode < 300 &&
+                              body['success'] == true) {
                             ok = true;
                             break;
                           }
-                        } catch (_) {}
+                          submitError = body['message']?.toString();
+                        } catch (_) {
+                          submitError =
+                              'Could not submit extra hours. Please try again.';
+                        }
                       }
 
                       if (mounted) {
-                        Navigator.pop(ctx);
+                        if (!ctx.mounted) return;
                         if (ok) {
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          Navigator.pop(ctx);
+                          messenger.showSnackBar(
                             const SnackBar(
                               content: Text('Extra hours logged successfully!'),
                             ),
                           );
                           _fetchData();
                         } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Failed to submit extra hours.'),
-                            ),
-                          );
+                          setModalState(() {
+                            submitting = false;
+                            submitError ??=
+                                'Failed to submit extra hours. Please try again.';
+                          });
                         }
                       }
                     },

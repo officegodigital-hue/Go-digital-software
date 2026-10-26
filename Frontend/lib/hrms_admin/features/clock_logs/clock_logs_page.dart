@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../shared/widgets/admin_top_nav.dart';
-import '../../../../services/hrms_clock_logs_api.dart';
+import '../../shared/widgets/admin_page_scroll_view.dart';
+import '../../../services/hrms_clock_logs_api.dart';
 import 'employee_clock_calendar_drawer.dart';
 import '../employees/employee_profile_page.dart';
 
@@ -90,7 +91,7 @@ class _MobileClockLogs extends StatelessWidget {
                 ),
               ),
             )
-          : SingleChildScrollView(
+          : AdminPageScrollView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 22),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,12 +159,14 @@ class _MobileClockLogs extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(width: double.infinity,
+                  SizedBox(
+                    width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: onOpenCalendar,
                       icon: const Icon(Icons.calendar_month_outlined),
                       label: const Text('Employee attendance calendar'),
-                    )),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -252,13 +255,21 @@ class _MobileMetric extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Color(0xFF50649E), fontSize: 11),
           ),
-          const Spacer(),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w800,
-              fontSize: 25,
+          Expanded(
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.bottomLeft,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 25,
+                  ),
+                ),
+              ),
             ),
           ),
         ],
@@ -320,14 +331,14 @@ class _MobileLogCard extends StatelessWidget {
     final lower = status.toLowerCase();
     final color = lower.contains('absent')
         ? const Color(0xFFF04438)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFF9200)
         : lower == 'no record'
         ? const Color(0xFF667085)
         : const Color(0xFF149B2B);
     final bg = lower.contains('absent')
         ? const Color(0xFFFFEBEB)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFFF1DB)
         : const Color(0xFFE9F6EC);
     final minutes = item['workingMinutes'] is int
@@ -542,7 +553,13 @@ class _MobileDateHistory extends StatelessWidget {
                 ),
               ),
             ),
-            ...entry.value.asMap().entries.map((e) => _MobileDailyLogRow(item: e.value, index: e.key + 1, onEdit: onEdit)),
+            ...entry.value.asMap().entries.map(
+              (e) => _MobileDailyLogRow(
+                item: e.value,
+                index: e.key + 1,
+                onEdit: onEdit,
+              ),
+            ),
             const SizedBox(height: 5),
           ],
         ),
@@ -589,14 +606,20 @@ class _MobileEmployeeHistory extends StatelessWidget {
     }
     return Column(
       children: groups.values
-          .map((records) => _MobileEmployeeHistoryCard(records: records, onEdit: onEdit))
+          .map(
+            (records) =>
+                _MobileEmployeeHistoryCard(records: records, onEdit: onEdit),
+          )
           .toList(),
     );
   }
 }
 
 class _MobileEmployeeHistoryCard extends StatelessWidget {
-  const _MobileEmployeeHistoryCard({required this.records, required this.onEdit});
+  const _MobileEmployeeHistoryCard({
+    required this.records,
+    required this.onEdit,
+  });
   final List<Map<String, dynamic>> records;
   final ValueChanged<Map<String, dynamic>> onEdit;
 
@@ -720,7 +743,9 @@ class _MobileEmployeeHistoryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          ...sorted.map((item) => _MobileHistoryRow(item: item, onEdit: onEdit)),
+          ...sorted.map(
+            (item) => _MobileHistoryRow(item: item, onEdit: onEdit),
+          ),
         ],
       ),
     );
@@ -766,7 +791,11 @@ class _HistoryCount extends StatelessWidget {
 }
 
 class _MobileDailyLogRow extends StatelessWidget {
-  const _MobileDailyLogRow({required this.item, required this.index, required this.onEdit});
+  const _MobileDailyLogRow({
+    required this.item,
+    required this.index,
+    required this.onEdit,
+  });
   final Map<String, dynamic> item;
   final int index;
   final ValueChanged<Map<String, dynamic>> onEdit;
@@ -891,7 +920,7 @@ class _StatusBadge extends StatelessWidget {
     final lower = status.toLowerCase();
     final color = lower.contains('absent')
         ? const Color(0xFFF04438)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFF9200)
         : lower == 'no record'
         ? const Color(0xFF667085)
@@ -960,19 +989,22 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   List<Map<String, dynamic>> _logs = const [];
   bool _loading = true;
   String? _error;
+  String? _expandedLogKey;
   Timer? _refreshTimer;
+  int _loadRequest = 0;
 
   @override
   void initState() {
     super.initState();
     _load();
     _refreshTimer = Timer.periodic(
-      const Duration(minutes: 1),
+      const Duration(seconds: 30),
       (_) => _load(silent: true),
     );
     _tableBodyScrollCtrl.addListener(() {
       if (_tableHeaderScrollCtrl.hasClients &&
-          (_tableHeaderScrollCtrl.offset - _tableBodyScrollCtrl.offset).abs() > 0.5) {
+          (_tableHeaderScrollCtrl.offset - _tableBodyScrollCtrl.offset).abs() >
+              0.5) {
         _tableHeaderScrollCtrl.jumpTo(_tableBodyScrollCtrl.offset);
       }
     });
@@ -1001,6 +1033,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   }
 
   Future<void> _load({bool silent = false}) async {
+    final request = ++_loadRequest;
     if (!silent) {
       setState(() {
         _loading = true;
@@ -1013,7 +1046,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         monthly: _monthly,
         employeeId: _employeeId,
       );
-      if (!mounted) return;
+      if (!mounted || request != _loadRequest) return;
       setState(() {
         _employees = (data['employees'] as List? ?? const [])
             .whereType<Map>()
@@ -1027,7 +1060,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         if (silent) _error = null;
       });
     } catch (error) {
-      if (mounted && !silent) {
+      if (mounted && request == _loadRequest && !silent) {
         setState(() {
           _loading = false;
           _error = error.toString().replaceFirst('Exception: ', '');
@@ -1049,8 +1082,18 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     }
   }
 
+  void _movePeriod(int amount) {
+    setState(() {
+      _date = _monthly
+          ? DateTime(_date.year, _date.month + amount, 1)
+          : _date.add(Duration(days: amount));
+    });
+    _load();
+  }
+
   void _openEmployeeCalendar(Map<String, dynamic> employee) {
-    final id = (employee['employeeId'] as num?)?.toInt() ??
+    final id =
+        (employee['employeeId'] as num?)?.toInt() ??
         (employee['id'] as num?)?.toInt();
     if (id == null) return;
     final name = employee['employeeName']?.toString() ?? 'Employee';
@@ -1078,8 +1121,9 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         ),
       ),
       transitionBuilder: (context, animation, _, child) => SlideTransition(
-        position: Tween(begin: const Offset(1, 0), end: Offset.zero)
-            .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+        position: Tween(begin: const Offset(1, 0), end: Offset.zero).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        ),
         child: child,
       ),
     );
@@ -1088,13 +1132,15 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   Future<void> _chooseEmployeeCalendar() async {
     if (_employees.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No active employees are available.')));
+        const SnackBar(content: Text('No active employees are available.')),
+      );
       return;
     }
     final query = _employeeSearchController.text.trim().toLowerCase();
     final matches = _employees.where((employee) {
       if (query.isEmpty) return true;
-      return (employee['employeeName']?.toString().toLowerCase() ?? '').contains(query) ||
+      return (employee['employeeName']?.toString().toLowerCase() ?? '')
+              .contains(query) ||
           (employee['staffId']?.toString().toLowerCase() ?? '').contains(query);
     }).toList();
     final choices = matches.isEmpty ? _employees : matches;
@@ -1112,14 +1158,21 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
               return ListTile(
                 title: Text(person['employeeName']?.toString() ?? 'Employee'),
                 subtitle: Text(person['staffId']?.toString() ?? ''),
-                trailing: const Icon(Icons.calendar_month_outlined, color: _blue),
+                trailing: const Icon(
+                  Icons.calendar_month_outlined,
+                  color: _blue,
+                ),
                 onTap: () => Navigator.pop(dialogContext, person),
               );
             },
           ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Cancel'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
     if (selected != null && mounted) _openEmployeeCalendar(selected);
@@ -1148,7 +1201,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         onOpenCalendar: _chooseEmployeeCalendar,
       );
     }
-    final narrow = MediaQuery.sizeOf(context).width < 700;
+    final narrow = MediaQuery.sizeOf(context).width < 1150;
     return Scaffold(
       backgroundColor: _page,
       bottomNavigationBar: MediaQuery.sizeOf(context).width < 600
@@ -1158,7 +1211,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         children: [
           const AdminTopNav(activeRoute: '/admin/clock-logs'),
           Expanded(
-            child: SingleChildScrollView(
+            child: AdminPageScrollView(
               padding: EdgeInsets.fromLTRB(
                 narrow ? 16 : 38,
                 18,
@@ -1171,10 +1224,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const AdminPageHeader(
-                        title: 'Employee Clock Logs',
-                        breadcrumb: 'Clock Logs',
-                      ),
+                      _desktopHeader(),
                       const SizedBox(height: 20),
                       _filters(narrow),
                       const SizedBox(height: 20),
@@ -1200,51 +1250,142 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     );
   }
 
-  Widget _filters(bool narrow) => Wrap(
-    spacing: 16,
-    runSpacing: 12,
-    crossAxisAlignment: WrapCrossAlignment.center,
+  Widget _desktopHeader() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      SizedBox(
-        width: narrow ? double.infinity : 400,
-        child: TextField(
-          controller: _employeeSearchController,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            hintText: 'Search by name, employee ID or email',
-            hintStyle: const TextStyle(
-              color: Color(0xFF50649E),
-              fontSize: 14,
-            ),
-            prefixIcon: const Icon(Icons.search_rounded, color: _navy),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _line),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _blue),
-            ),
-          ),
+      const Text(
+        'ATTENDANCE  /  CLOCK LOGS',
+        style: TextStyle(
+          color: Color(0xFF64749A),
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.1,
         ),
       ),
-      _toggle(),
-      OutlinedButton.icon(
-        onPressed: _pickDate,
-        icon: const Icon(Icons.calendar_month_outlined),
-        label: Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)),
-        style: _fieldStyle(),
+      const SizedBox(height: 12),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Employee Clock Logs',
+                  style: TextStyle(
+                    color: Color(0xFF071540),
+                    fontSize: 29,
+                    height: 1.05,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Review employee attendance and work sessions.',
+                  style: TextStyle(color: Color(0xFF62739C), fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: _chooseEmployeeCalendar,
+            icon: const Icon(Icons.calendar_month_outlined, size: 21),
+            label: const Text('Employee calendar'),
+            style: FilledButton.styleFrom(
+              backgroundColor: _blue,
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(7),
+              ),
+            ),
+          ),
+        ],
       ),
-      OutlinedButton.icon(
-        onPressed: _chooseEmployeeCalendar,
-        icon: const Icon(Icons.calendar_view_month_outlined),
-        label: const Text('Employee calendar'),
-        style: _fieldStyle(),
-      ),
+      const SizedBox(height: 20),
+      const Divider(height: 1, color: _line),
     ],
+  );
+
+  Widget _filters(bool narrow) {
+    final search = TextField(
+      controller: _employeeSearchController,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        hintText: 'Search by name, employee ID or email',
+        hintStyle: const TextStyle(color: Color(0xFF50649E), fontSize: 14),
+        prefixIcon: const Icon(Icons.search_rounded, color: _navy),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(7),
+          borderSide: const BorderSide(color: _line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(7),
+          borderSide: const BorderSide(color: _blue),
+        ),
+      ),
+    );
+    final controls = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _toggle(),
+        const SizedBox(width: 22),
+        _periodArrow(Icons.chevron_left_rounded, () => _movePeriod(-1)),
+        const SizedBox(width: 12),
+        OutlinedButton(
+          onPressed: _pickDate,
+          style: _fieldStyle(),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.calendar_month_outlined, size: 21),
+              const SizedBox(width: 14),
+              Text(_monthly ? _monthLabel(_date) : _dayLabel(_date)),
+              const SizedBox(width: 44),
+              const Icon(Icons.keyboard_arrow_down_rounded, size: 21),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        _periodArrow(Icons.chevron_right_rounded, () => _movePeriod(1)),
+      ],
+    );
+    if (narrow) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          search,
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: controls,
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        Expanded(child: search),
+        const SizedBox(width: 26),
+        Container(width: 1, height: 42, color: _line),
+        const SizedBox(width: 24),
+        controls,
+      ],
+    );
+  }
+
+  Widget _periodArrow(IconData icon, VoidCallback onPressed) => OutlinedButton(
+    onPressed: onPressed,
+    style: OutlinedButton.styleFrom(
+      foregroundColor: _navy,
+      side: const BorderSide(color: _line),
+      minimumSize: const Size(46, 46),
+      padding: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+    ),
+    child: Icon(icon, size: 25),
   );
 
   Widget _summary() {
@@ -1413,18 +1554,13 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     ),
   );
 
-  Widget _toggle() => Container(
-    decoration: BoxDecoration(
-      border: Border.all(color: const Color(0xFF777B86)),
-      borderRadius: BorderRadius.circular(23),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _toggleButton('Day', !_monthly),
-        _toggleButton('Month', _monthly),
-      ],
-    ),
+  Widget _toggle() => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _toggleButton('Day', !_monthly),
+      const SizedBox(width: 28),
+      _toggleButton('Month', _monthly),
+    ],
   );
 
   Widget _toggleButton(String label, bool active) => InkWell(
@@ -1435,23 +1571,20 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         _load();
       }
     },
-    borderRadius: BorderRadius.circular(22),
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(7, 11, 7, 9),
       decoration: BoxDecoration(
-        color: active ? const Color(0xFFE2E6FA) : Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        border: active
+            ? const Border(bottom: BorderSide(color: _blue, width: 2.5))
+            : null,
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (active)
-            const Padding(
-              padding: EdgeInsets.only(right: 7),
-              child: Icon(Icons.check, size: 18),
-            ),
-          Text(label, style: const TextStyle(fontSize: 16)),
-        ],
+      child: Text(
+        label,
+        style: TextStyle(
+          color: active ? const Color(0xFF071540) : const Color(0xFF66749A),
+          fontSize: 14,
+          fontWeight: active ? FontWeight.w700 : FontWeight.w600,
+        ),
       ),
     ),
   );
@@ -1459,14 +1592,16 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   ButtonStyle _fieldStyle() => OutlinedButton.styleFrom(
     foregroundColor: const Color(0xFF273754),
     side: const BorderSide(color: _line),
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-    textStyle: const TextStyle(fontSize: 16),
+    minimumSize: const Size(245, 46),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    textStyle: const TextStyle(fontSize: 14),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
   );
 
   Widget _table() => LayoutBuilder(
     builder: (_, constraints) {
-      final tableWidth = constraints.maxWidth < 1620
-          ? 1620.0
+      final tableWidth = constraints.maxWidth < 1280
+          ? 1280.0
           : constraints.maxWidth;
       return Container(
         width: double.infinity,
@@ -1489,41 +1624,36 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                   'S.No',
                   'Employee',
                   'Date',
-                  'Check In',
-                  'Check Out',
-                  'Break Begins',
-                  'Break Ends',
-                  'Break Review',
-                  'Break Time',
+                  'Check-in',
+                  'Check-out',
+                  'Break time',
                   'Worked',
                   'Status',
-                  'Work Location',
-                  'Method',
+                  'Work location',
+                  'Details',
                   'Action',
                 ], header: true),
               ),
             ),
-            // Scrollable body
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 520),
-              child: SingleChildScrollView(
-                controller: _tableBodyScrollCtrl,
-                scrollDirection: Axis.horizontal,
-                child: SizedBox(
-                  width: tableWidth,
-                  child: SingleChildScrollView(
-                    primary: false,
-                    child: Column(
-                      children: [
-                        if (_visibleLogs.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.all(40),
-                            child: Text('No clock logs found for the selected period.'),
-                          ),
-                        ..._visibleLogs.asMap().entries.map((e) => _logRow(e.value, e.key + 1)),
-                      ],
+            // The page owns vertical scrolling; the table only scrolls sideways.
+            SingleChildScrollView(
+              controller: _tableBodyScrollCtrl,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: tableWidth,
+                child: Column(
+                  children: [
+                    if (_visibleLogs.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(40),
+                        child: Text(
+                          'No clock logs found for the selected period.',
+                        ),
+                      ),
+                    ..._visibleLogs.asMap().entries.map(
+                      (e) => _logEntry(e.value, e.key + 1, tableWidth),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -1533,7 +1663,26 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     },
   );
 
-  Widget _logRow(Map<String, dynamic> item, int index) {
+  String _logKey(Map<String, dynamic> item, int index) =>
+      '${item['attendanceId'] ?? item['id'] ?? item['employeeId'] ?? index}-${item['date'] ?? index}';
+
+  Widget _logEntry(Map<String, dynamic> item, int index, double tableWidth) {
+    final key = _logKey(item, index);
+    final expanded = _expandedLogKey == key;
+    return Column(
+      children: [
+        _logRow(item, index, key, expanded),
+        if (expanded) _expandedDetails(item, tableWidth),
+      ],
+    );
+  }
+
+  Widget _logRow(
+    Map<String, dynamic> item,
+    int index,
+    String key,
+    bool expanded,
+  ) {
     final name = item['employeeName']?.toString() ?? 'Former employee';
     final staffId =
         item['staffId']?.toString() ??
@@ -1552,24 +1701,151 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       item['date']?.toString() ?? '-',
       item['checkIn']?.toString() ?? '-',
       item['checkOut']?.toString() ?? '-',
-      item['breakStart']?.toString() ?? '-',
-      item['breakEnd']?.toString() ?? '-',
-      _breakReview(item),
       _worked(item['breakMinutes']),
       _worked(item['workingMinutes']),
       _status(item['status']?.toString() ?? 'Absent'),
       item['workMode']?.toString() ?? 'Not set',
-      item['method']?.toString() ?? '-',
+      IconButton(
+        onPressed: () =>
+            setState(() => _expandedLogKey = expanded ? null : key),
+        icon: Icon(
+          expanded
+              ? Icons.keyboard_arrow_up_rounded
+              : Icons.keyboard_arrow_right_rounded,
+          size: 24,
+          color: const Color(0xFF071540),
+        ),
+        tooltip: expanded ? 'Hide details' : 'Show details',
+      ),
       IconButton(
         onPressed: () => _openEmployeeCalendar(item),
-        icon: const Icon(Icons.edit_outlined, size: 19),
+        icon: const Icon(Icons.edit_calendar_outlined, size: 22),
         tooltip: 'Edit attendance',
+        style: IconButton.styleFrom(
+          foregroundColor: _blue,
+          backgroundColor: const Color(0xFFF2F7FF),
+          side: const BorderSide(color: Color(0xFFB8D3FF)),
+          minimumSize: const Size(36, 36),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       ),
     ]);
   }
 
+  Widget _expandedDetails(Map<String, dynamic> item, double tableWidth) =>
+      Container(
+        width: tableWidth,
+        padding: const EdgeInsets.fromLTRB(84, 0, 16, 16),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: _line)),
+        ),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 64),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FBFF),
+            border: Border.all(color: const Color(0xFFD9E5F6)),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Row(
+            children: [
+              Container(width: 4, height: 44, color: _blue),
+              const SizedBox(width: 20),
+              Expanded(
+                child: _detailValue(
+                  'Break begins',
+                  item['breakStart']?.toString() ?? '-',
+                ),
+              ),
+              _detailDivider(),
+              Expanded(
+                child: _detailValue(
+                  'Break ends',
+                  item['breakEnd']?.toString() ?? '-',
+                ),
+              ),
+              _detailDivider(),
+              Expanded(child: _breakDetail(item)),
+              _detailDivider(),
+              Expanded(
+                child: _detailValue(
+                  'Method',
+                  item['method']?.toString() ?? '-',
+                  emphasized: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _breakDetail(Map<String, dynamic> item) {
+    final breaks = (item['breaks'] as List? ?? const []).whereType<Map>();
+    final reasons = breaks
+        .map((entry) => entry['employeeReason']?.toString().trim() ?? '')
+        .where((reason) => reason.isNotEmpty)
+        .toList();
+    final hasOverdue = breaks.any(
+      (entry) => ((entry['overdueMinutes'] as num?)?.toInt() ?? 0) > 0,
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Break reason',
+          style: TextStyle(color: Color(0xFF65759B), fontSize: 12),
+        ),
+        const SizedBox(height: 6),
+        if (hasOverdue)
+          _breakReview(item)
+        else
+          Text(
+            reasons.isEmpty ? '-' : reasons.join(', '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF071540),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _detailDivider() => Container(
+    width: 1,
+    height: 38,
+    margin: const EdgeInsets.symmetric(horizontal: 24),
+    color: _line,
+  );
+
+  Widget _detailValue(String label, String value, {bool emphasized = false}) =>
+      Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: Color(0xFF65759B), fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: const Color(0xFF071540),
+              fontSize: 13,
+              fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      );
+
   Widget _row(List<dynamic> values, {bool header = false}) => Container(
-    height: header ? 58 : 80,
+    height: header ? 48 : 64,
     decoration: const BoxDecoration(
       border: Border(bottom: BorderSide(color: _line)),
     ),
@@ -1577,9 +1853,9 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
       children: List.generate(
         values.length,
         (i) => Expanded(
-          flex: const [5, 22, 11, 11, 11, 11, 13, 10, 11, 10, 13, 12, 10, 10][i],
+          flex: const [5, 19, 12, 11, 11, 11, 11, 14, 13, 8, 8][i],
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Align(
               alignment: Alignment.centerLeft,
               child: values[i] is Widget
@@ -1591,7 +1867,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                         color: header
                             ? const Color(0xFF1B1D25)
                             : const Color(0xFF283956),
-                        fontSize: header ? 14 : 14,
+                        fontSize: header ? 13 : 13,
                         fontWeight: header ? FontWeight.w600 : FontWeight.w400,
                       ),
                     ),
@@ -1665,8 +1941,8 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     return Row(
       children: [
         Container(
-          width: 52,
-          height: 52,
+          width: 42,
+          height: 42,
           alignment: Alignment.center,
           decoration: const BoxDecoration(
             color: Color(0xFFEAF0FA),
@@ -1676,12 +1952,12 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
             initial,
             style: const TextStyle(
               color: _navy,
-              fontSize: 16,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1694,7 +1970,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF17264A),
-                  fontSize: 14,
+                  fontSize: 13,
                 ),
               ),
               const SizedBox(height: 3),
@@ -1702,7 +1978,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                 id,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xFF52638E), fontSize: 12),
+                style: const TextStyle(color: Color(0xFF52638E), fontSize: 11),
               ),
             ],
           ),
@@ -1740,22 +2016,22 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     final lower = value.toLowerCase();
     final color = lower.contains('absent')
         ? const Color(0xFFF04438)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFF9200)
         : lower == 'no record'
         ? const Color(0xFF667085)
         : const Color(0xFF3BB95A);
     final bg = lower.contains('absent')
         ? const Color(0xFFFFEBEB)
-        : lower.contains('late')
+        : (lower.contains('late') || lower.replaceAll('_', ' ') == 'early exit')
         ? const Color(0xFFFFF1DB)
         : lower == 'no record'
         ? const Color(0xFFF1F3F5)
         : const Color(0xFFE9F6EC);
 
     return Container(
-      width: 130,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      width: 112,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(6),
@@ -1771,7 +2047,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         style: TextStyle(
           color: color,
           fontWeight: FontWeight.w700,
-          fontSize: 13,
+          fontSize: 12,
         ),
       ),
     );
