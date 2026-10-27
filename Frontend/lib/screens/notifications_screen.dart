@@ -5666,5 +5666,3 @@ class _ChatBackdropPainter extends CustomPainter {
         oldDelegate.secondary != secondary;
   }
 }
-
-
