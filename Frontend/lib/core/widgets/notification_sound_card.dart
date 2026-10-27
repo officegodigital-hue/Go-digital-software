@@ -64,7 +64,7 @@ class NotificationSoundPrefs {
     if (_localReady || !isAndroid) return;
     await _local.initialize(
       const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        android: AndroidInitializationSettings('@drawable/ic_notification'),
       ),
     );
     final android = _local.resolvePlatformSpecificImplementation<
@@ -156,7 +156,7 @@ class NotificationSoundPrefs {
             priority: Priority.high,
             playSound: true,
             sound: ch.sound,
-            icon: '@mipmap/ic_launcher',
+            icon: '@drawable/ic_notification',
             timeoutAfter: 4000,
           ),
         ),

@@ -7,3 +7,5 @@ backend/.env
 .dart_tool/
 build/Godigital_attendance/frontend/web/*.exe
 Godigital_attendance/frontend/web/*.exe
+
+backend/config/firebase-service-account.json

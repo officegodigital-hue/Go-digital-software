@@ -143,6 +143,9 @@ async function sendToEmployees(names, { title, body, data = {}, sender = '' }) {
   try {
     const devices = await tokensFor(people);
     if (!devices.length) return;
+    // Sender's profile photo on the right of the notification (like Zomato /
+    // WhatsApp). Needs PUBLIC_API_URL so the phone can download it.
+    const imageUrl = await avatarUrlFor(sender);
     const text = String(body || '').slice(0, 300);
     const payloadData = Object.fromEntries(
       Object.entries({ ...data, title, body: text }).map(([k, v]) => [k, String(v ?? '')]),
@@ -163,6 +166,9 @@ async function sendToEmployees(names, { title, body, data = {}, sender = '' }) {
               sound: channel.sound,
               defaultVibrateTimings: true,
               visibility: 'public',
+              icon: 'ic_notification',  // android/app/src/main/res/drawable/ic_notification.png
+              color: '#0052CC',          // GoDigital blue behind the small icon
+              ...(imageUrl ? { imageUrl } : {}),
             },
           },
           apns: {
@@ -189,6 +195,29 @@ async function sendToEmployees(names, { title, body, data = {}, sender = '' }) {
     }
   } catch (err) {
     console.error('Push send failed:', err.message);
+  }
+}
+
+// ── Sender photo for the notification ───────────────────────────────────────
+const PUBLIC_API_URL = String(process.env.PUBLIC_API_URL || '').replace(/\/+$/, '');
+const photoCache = new Map(); // name → { at, has }
+async function avatarUrlFor(name) {
+  const who = String(name || '').trim();
+  if (!who || !PUBLIC_API_URL) return null;
+  const k = key(who);
+  const hit = photoCache.get(k);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.has ? hit.url : null;
+  try {
+    const [[row]] = await db.query(
+      `SELECT profile_photo FROM employee_users WHERE LOWER(TRIM(full_name)) = ? LIMIT 1`,
+      [k],
+    );
+    const has = !!(row && String(row.profile_photo || '').trim());
+    const url = `${PUBLIC_API_URL}/api/push/avatar/${encodeURIComponent(who)}.jpg`;
+    photoCache.set(k, { at: Date.now(), has, url });
+    return has ? url : null;
+  } catch (_) {
+    return null;
   }
 }
 
@@ -370,6 +399,27 @@ router.post('/register', async (req, res) => {
   } catch (err) {
     console.error('POST /push/register ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/push/avatar/:name.jpg — profile photo as an image (for notifications)
+router.get('/avatar/:name', async (req, res) => {
+  const name = String(req.params.name || '').replace(/\.(jpg|jpeg|png)$/i, '').trim();
+  try {
+    const [[row]] = await db.query(
+      'SELECT profile_photo FROM employee_users WHERE LOWER(TRIM(full_name)) = ? LIMIT 1',
+      [key(name)],
+    );
+    const raw = String(row?.profile_photo || '').trim();
+    if (!raw) return res.status(404).end();
+    const m = raw.match(/^data:(image\/[a-z+]+);base64,(.*)$/i);
+    const type = m ? m[1] : 'image/jpeg';
+    const buf = Buffer.from(m ? m[2] : raw, 'base64');
+    res.set('Content-Type', type);
+    res.set('Cache-Control', 'public, max-age=600');
+    return res.send(buf);
+  } catch (err) {
+    return res.status(500).end();
   }
 });
 

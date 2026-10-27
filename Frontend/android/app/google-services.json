@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1016911176608",
+    "project_id": "godigital-53b1c",
+    "storage_bucket": "godigital-53b1c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1016911176608:android:3b868e007371b009df7ac5",
+        "android_client_info": {
+          "package_name": "com.example.godigital_portal"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4pVfGGUpdQaoqIaqLrY5jNZOMeSBTwVI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
