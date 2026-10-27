@@ -209,6 +209,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   String? _selectedFileName;
   int _unreadTotal = 0; 
 
+  // Client groups (Employee Workspace team chats) + people's photos / colours.
+  bool _isClientGroup = false;
+  List<Map<String, dynamic>> clientGroups = [];
+  final Map<String, List<Map<String, dynamic>>> _clientChatLogs = {};
+  final Map<String, Map<String, dynamic>> _people = {};
+  final Map<String, ImageProvider> _photoCache = {};
+  Map<String, dynamic>? _myUser;
+
   @override
   void initState() {
     super.initState();
@@ -220,11 +228,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       if (!mounted) return;
 
+      final user = authService.user;
       setState(() {
         _loggedInEmployee = loggedInName;
+        if (user != null) _myUser = Map<String, dynamic>.from(user);
       });
 
       await _fetchHubData();
+      _fetchPeople();
+      _fetchClientGroups();
       _connectSocket();
     });
   }
@@ -266,6 +278,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       _socket!.on('receive_group_message', (payload) {
         _handleSocketMessage(payload);
+      });
+
+      _socket!.on('workspace_client_chat', (payload) {
+        _handleClientChatEvent(payload);
       });
 
       _socket!.on('messages_seen', (payload) {
@@ -320,7 +336,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         incoming['isGroup']?.toString() == '1';
 
     final isForMe = isGroup
-        ? _isGroupChat && recipient == _selectedChatTarget
+        ? _isMyGroup(recipient)
         : (recipient == _loggedInEmployee || sender == _loggedInEmployee);
 
     if (!isForMe) return;
@@ -357,7 +373,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   bool _isCurrentConversation(Map<String, dynamic> log) {
-    if (_selectedChatTarget.isEmpty) return false;
+    if (_selectedChatTarget.isEmpty || _isClientGroup) return false;
     if (_isGroupChat) {
       return log['isGroup'] == true && log['recipientName'] == _selectedChatTarget;
     }
@@ -458,7 +474,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
 
       return recipient == _loggedInEmployee;
-    }).length;
+    }).length + _clientUnreadTotal;
   }
 
   Future<void> _fetchHubData() async {
@@ -2573,6 +2589,11 @@ Widget _premiumEmployeeTile({
     final text = _messageController.text.trim();
     if (text.isEmpty || _selectedChatTarget.isEmpty || _loggedInEmployee == null) return;
 
+    if (_isClientGroup) {
+      await _sendClientMessage(text);
+      return;
+    }
+
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/chat/send'),
@@ -2624,6 +2645,10 @@ Widget _premiumEmployeeTile({
 
   Future<void> _pickKbDocumentAndSend() async {
     if (_selectedChatTarget.isEmpty) return;
+    if (_isClientGroup) {
+      _showFileError('Files can be shared in client groups from Employee Workspace soon. Please send a message here.');
+      return;
+    }
 
     try {
       final result = await FilePicker.pickFiles(
@@ -2811,6 +2836,7 @@ final String sizeText = sizeInKb > 1024
 
   List<Map<String, dynamic>> get _currentStreamMessages {
     if (_selectedChatTarget.isEmpty) return [];
+    if (_isClientGroup) return _clientChatLogs[_selectedChatTarget] ?? [];
     return notificationLogs.where((log) {
       if (_isGroupChat) {
         return _isSeenValue(log["isGroup"]) && log["recipientName"] == _selectedChatTarget;
@@ -3249,6 +3275,402 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
+  // ── People: profile photo / colour ─────────────────────────────────────────
+  bool _sameName(dynamic a, dynamic b) =>
+      (a?.toString() ?? '').trim().toLowerCase() ==
+      (b?.toString() ?? '').trim().toLowerCase();
+
+  Future<void> _fetchPeople() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/workspace-tasks/people/avatars'),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      final map = <String, Map<String, dynamic>>{};
+      for (final p in (body is Map ? (body['data'] as List? ?? []) : [])) {
+        if (p is! Map) continue;
+        final key = p['full_name']?.toString().trim().toLowerCase() ?? '';
+        if (key.isNotEmpty) map[key] = Map<String, dynamic>.from(p);
+      }
+      if (!mounted) return;
+      setState(() {
+        _people
+          ..clear()
+          ..addAll(map);
+        _photoCache.clear();
+      });
+    } catch (e) {
+      debugPrint('Avatar load error: $e');
+    }
+  }
+
+  Map<String, dynamic>? _personFor(String? name) {
+    final key = (name ?? '').trim().toLowerCase();
+    if (key.isEmpty) return null;
+    if (_people.containsKey(key)) return _people[key];
+    // My own profile from the login session (if the list has not loaded yet).
+    if (_sameName(name, _loggedInEmployee)) {
+      return _myUser;
+    }
+    return null;
+  }
+
+  ImageProvider? _photoFor(String? name) {
+    final key = (name ?? '').trim().toLowerCase();
+    if (key.isEmpty) return null;
+    final cached = _photoCache[key];
+    if (cached != null) return cached;
+    final person = _personFor(name);
+    final raw = (person?['profile_photo'] ?? person?['profilePhoto'] ?? '')
+        .toString()
+        .trim();
+    if (raw.isEmpty) return null;
+    try {
+      final ImageProvider image;
+      if (raw.startsWith('http')) {
+        image = NetworkImage(raw);
+      } else if (raw.startsWith('/')) {
+        image = NetworkImage('$_socketUrl$raw');
+      } else {
+        image = MemoryImage(base64Decode(raw.split(',').last));
+      }
+      _photoCache[key] = image;
+      return image;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Color? _colorFor(String? name) {
+    final person = _personFor(name);
+    final hex = (person?['avatar_color'] ?? person?['avatarColor'] ?? '')
+        .toString()
+        .replaceAll('#', '')
+        .trim();
+    if (hex.length != 6) return null;
+    final value = int.tryParse('FF$hex', radix: 16);
+    return value == null ? null : Color(value);
+  }
+
+  String _initialsForName(String name) {
+    final supplied = _personFor(name)?['initials']?.toString().trim() ?? '';
+    if (supplied.isNotEmpty) return supplied.toUpperCase();
+    final parts = name.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  bool _isAdminName(String name) {
+    return activeEmployees.any((e) =>
+        _sameName(e['full_name'], name) &&
+        (e['user_type']?.toString().toLowerCase() == 'admin' ||
+            e['is_main_admin'] == 1 ||
+            e['is_main_admin'] == true));
+  }
+
+  String _shortTime(dynamic value) {
+    if (value == null) return '';
+    final dt = DateTime.tryParse(value.toString());
+    if (dt == null) return value.toString();
+    final local = dt.toLocal();
+    final now = DateTime.now();
+    if (local.year == now.year && local.month == now.month && local.day == now.day) {
+      return DateFormat('h:mm a').format(local);
+    }
+    return DateFormat('dd MMM').format(local);
+  }
+
+  // ── Groups: membership + unread ────────────────────────────────────────────
+  bool _isMyGroup(String name) {
+    for (final g in chatGroups) {
+      if (g is! Map || g['group_name']?.toString() != name) continue;
+      if (_sameName(g['created_by'], _loggedInEmployee)) return true;
+      try {
+        final raw = g['members'];
+        final members = raw is List ? raw : jsonDecode(raw?.toString() ?? '[]');
+        if (members is List && members.any((m) => _sameName(m, _loggedInEmployee))) {
+          return true;
+        }
+      } catch (_) {}
+      return false;
+    }
+    return false;
+  }
+
+  int get _clientUnreadTotal => clientGroups.fold<int>(
+        0,
+        (sum, c) => sum + (int.tryParse('${c['unread'] ?? 0}') ?? 0),
+      );
+
+  int get _directUnreadTotal => notificationLogs.where((l) {
+        return !_isSeenValue(l['isGroup']) &&
+            l['recipientName'] == _loggedInEmployee &&
+            l['senderName'] != _loggedInEmployee &&
+            !_isSeenValue(l['isSeen']);
+      }).length;
+
+  int get _groupUnreadTotal =>
+      notificationLogs.where((l) {
+        return _isSeenValue(l['isGroup']) &&
+            l['senderName'] != _loggedInEmployee &&
+            !_isSeenValue(l['isSeen']) &&
+            _isMyGroup(l['recipientName']?.toString() ?? '');
+      }).length +
+      _clientUnreadTotal;
+
+  // ── Client groups (Employee Workspace team chats) ──────────────────────────
+  Future<void> _fetchClientGroups() async {
+    final me = _loggedInEmployee;
+    if (me == null) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/workspace-tasks/team/groups')
+            .replace(queryParameters: {'employee': me}),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      final list = <Map<String, dynamic>>[];
+      for (final g in (body is Map ? (body['data'] as List? ?? []) : [])) {
+        if (g is Map) list.add(Map<String, dynamic>.from(g));
+      }
+      if (!mounted) return;
+      setState(() {
+        // The open group is being read right now.
+        if (_isClientGroup) {
+          for (final c in list) {
+            if (_sameName(c['client_name'], _selectedChatTarget)) c['unread'] = 0;
+          }
+        }
+        clientGroups = list;
+        _unreadTotal = _calculateUnreadTotal();
+      });
+    } catch (e) {
+      debugPrint('Client groups load error: $e');
+    }
+  }
+
+  Map<String, dynamic> _clientLog(String client, Map<String, dynamic> m) {
+    final created = DateTime.tryParse('${m['created_at'] ?? ''}')?.toLocal();
+    return {
+      'id': m['id'],
+      'senderName': m['sender_name']?.toString() ?? '',
+      'recipientName': client,
+      'message': m['message'] ?? '',
+      'time': created == null ? '' : DateFormat('dd MMM, h:mm a').format(created),
+      'isGroup': true,
+      'isClientGroup': true,
+      'isSeen': false,
+      'isFavorite': false,
+      'created_at': m['created_at'],
+    };
+  }
+
+  Future<void> _loadClientChat(String client) async {
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/workspace-tasks/team/chat')
+            .replace(queryParameters: {'client': client}),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      final rows = (body is Map ? (body['data'] as List? ?? []) : [])
+          .whereType<Map>()
+          .toList();
+      // Newest first, like the rest of the chat feed.
+      final logs = <Map<String, dynamic>>[
+        for (final m in rows.reversed) _clientLog(client, Map<String, dynamic>.from(m)),
+      ];
+      if (!mounted) return;
+      setState(() => _clientChatLogs[client] = logs);
+    } catch (e) {
+      debugPrint('Client chat load error: $e');
+    }
+  }
+
+  Future<void> _markClientSeen(String client) async {
+    final logs = _clientChatLogs[client] ?? const [];
+    final lastId = logs.isEmpty ? 0 : (int.tryParse('${logs.first['id']}') ?? 0);
+    if (mounted) {
+      setState(() {
+        for (final c in clientGroups) {
+          if (_sameName(c['client_name'], client)) c['unread'] = 0;
+        }
+        _unreadTotal = _calculateUnreadTotal();
+      });
+    }
+    if (lastId == 0 || _loggedInEmployee == null) return;
+    try {
+      await http.post(
+        Uri.parse('$_baseUrl/workspace-tasks/team/chat/seen'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'client': client,
+          'employee': _loggedInEmployee,
+          'lastId': lastId,
+        }),
+      );
+    } catch (e) {
+      debugPrint('Client chat seen error: $e');
+    }
+  }
+
+  Future<void> _openClientGroup(String client) async {
+    setState(() {
+      _selectedChatTarget = client;
+      _isGroupChat = true;
+      _isClientGroup = true;
+      _showMobileChatList = false;
+      _showEmojiPicker = false;
+      _replyingToMessage = null;
+    });
+    await _loadClientChat(client);
+    await _markClientSeen(client);
+  }
+
+  Future<void> _sendClientMessage(String text) async {
+    final client = _selectedChatTarget;
+    try {
+      final res = await http.post(
+        Uri.parse('$_baseUrl/workspace-tasks/team/chat'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'client': client,
+          'employee': _loggedInEmployee,
+          'message': text,
+        }),
+      );
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        var msg = 'Message could not be sent (${res.statusCode}).';
+        try {
+          final b = jsonDecode(res.body);
+          if (b is Map && b['message'] != null) msg = b['message'].toString();
+        } catch (_) {}
+        _showFileError(msg);
+        return;
+      }
+      _messageController.clear();
+      if (mounted) {
+        setState(() {
+          _replyingToMessage = null;
+          _showEmojiPicker = false;
+          _showMentionOverlay = false;
+        });
+      }
+      await _loadClientChat(client);
+      await _markClientSeen(client);
+      _fetchClientGroups();
+    } catch (e) {
+      debugPrint('Client message error: $e');
+      _showFileError('Message could not be sent. Please try again.');
+    }
+  }
+
+  Future<void> _handleClientChatEvent(dynamic payload) async {
+    if (!mounted || payload is! Map) return;
+    final client = payload['client']?.toString() ?? '';
+    final sender = payload['sender']?.toString() ?? '';
+    if (client.isEmpty) return;
+
+    final open = _isClientGroup && _sameName(_selectedChatTarget, client);
+    if (open) {
+      await _loadClientChat(_selectedChatTarget);
+      await _markClientSeen(_selectedChatTarget);
+    }
+    await _fetchClientGroups();
+
+    // Only groups I belong to make a sound.
+    final group = clientGroups.where((c) => _sameName(c['client_name'], client));
+    if (group.isEmpty || _sameName(sender, _loggedInEmployee) || !mounted) return;
+
+    final name = group.first['client_name']?.toString() ?? client;
+    final last = group.first['last_message'];
+    final text = last is Map ? _plainMessage(last['message']) : 'New message';
+    _playChatSound();
+    _showInPageNotification('$sender  •  $name', text);
+  }
+
+  void _openClientMembersDialog() {
+    final group = clientGroups.firstWhere(
+      (c) => _sameName(c['client_name'], _selectedChatTarget),
+      orElse: () => <String, dynamic>{},
+    );
+    final members = [
+      for (final m in (group['members'] as List? ?? const [])) m.toString(),
+    ];
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            _buildAvatar(
+              initials: '',
+              admin: false,
+              group: true,
+              client: true,
+              radius: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _selectedChatTarget,
+                style: const TextStyle(
+                  color: _ink,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 360,
+          child: members.isEmpty
+              ? const Text('No team members are assigned to this client yet.')
+              : ListView(
+                  shrinkWrap: true,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Everyone assigned to this client is in this group.',
+                        style: TextStyle(color: _muted, fontSize: 11),
+                      ),
+                    ),
+                    for (final m in members)
+                      ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: _buildAvatar(
+                          initials: _initialsForName(m),
+                          admin: _isAdminName(m),
+                          name: m,
+                          radius: 16,
+                        ),
+                        title: Text(
+                          _sameName(m, _loggedInEmployee) ? '$m (You)' : m,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSectionTabs(bool compact) {
     final tabs = [
       (Icons.chat_bubble_outline_rounded, 'Chats'),
@@ -3266,7 +3688,11 @@ final String sizeText = sizeInKb > 1024
       child: Row(
         children: List.generate(tabs.length, (index) {
           final selected = _whatsappNavIndex == index;
-          final unread = index == 0 ? _unreadTotal : 0;
+          final unread = index == 0
+              ? _directUnreadTotal
+              : index == 1
+                  ? _groupUnreadTotal
+                  : 0;
 
           return Expanded(
             child: GestureDetector(
@@ -3417,49 +3843,66 @@ final String sizeText = sizeInKb > 1024
     required String initials,
     required bool admin,
     bool group = false,
+    bool client = false,
+    String? name,
     double radius = 22,
   }) {
+    final photo = group ? null : _photoFor(name);
+    final custom = group ? null : _colorFor(name);
+    final List<Color> colors = group
+        ? (client
+            ? const [Color(0xFFF59E0B), Color(0xFFEA580C)]
+            : const [Color(0xFF0EA5E9), Color(0xFF0284C7)])
+        : custom != null
+            ? [custom, Color.lerp(custom, Colors.black, 0.18)!]
+            : admin
+                ? const [Color(0xFF7C3AED), Color(0xFF5B21B6)]
+                : const [_primary, Color(0xFF1267E8)];
+    final label = initials.trim().isNotEmpty
+        ? initials.trim()
+        : _initialsForName(name ?? '');
+
     return Container(
       width: radius * 2,
       height: radius * 2,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: group
-              ? const [Color(0xFF0EA5E9), Color(0xFF0284C7)]
-              : admin
-                  ? const [Color(0xFF7C3AED), Color(0xFF5B21B6)]
-                  : const [_primary, Color(0xFF1267E8)],
-        ),
+        gradient: LinearGradient(colors: colors),
         shape: BoxShape.circle,
+        image: photo == null
+            ? null
+            : DecorationImage(image: photo, fit: BoxFit.cover),
+        border: photo == null
+            ? null
+            : Border.all(color: Colors.white, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: (group
-                    ? _cyan
-                    : admin
-                        ? const Color(0xFF7C3AED)
-                        : _primary)
-                .withValues(alpha: 0.16),
+            color: colors.first.withValues(alpha: 0.16),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Center(
-        child: group
-            ? Icon(
-                Icons.groups_2_rounded,
-                color: Colors.white,
-                size: radius * 0.82,
-              )
-            : Text(
-                initials,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: radius * 0.55,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-      ),
+      child: photo != null
+          ? null
+          : Center(
+              child: group
+                  ? Icon(
+                      client
+                          ? Icons.business_center_rounded
+                          : Icons.groups_2_rounded,
+                      color: Colors.white,
+                      size: radius * 0.82,
+                    )
+                  : Text(
+                      label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: radius * 0.55,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+            ),
     );
   }
 
@@ -3535,6 +3978,7 @@ final String sizeText = sizeInKb > 1024
                 _buildAvatar(
                   initials: initials,
                   admin: isAdmin,
+                  name: name,
                   radius: 21,
                 ),
                 Positioned(
@@ -3685,7 +4129,9 @@ final String sizeText = sizeInKb > 1024
     required int unreadCount,
     required String lastTime,
     required VoidCallback onTap,
-    required VoidCallback onPin,
+    VoidCallback? onPin,
+    String subtitle = 'Team group',
+    bool client = false,
   }) {
     return _HoverReactionSurface(
       onTap: onTap,
@@ -3709,6 +4155,7 @@ final String sizeText = sizeInKb > 1024
               initials: '',
               admin: false,
               group: true,
+              client: client,
               radius: 21,
             ),
             const SizedBox(width: 10),
@@ -3739,9 +4186,11 @@ final String sizeText = sizeInKb > 1024
                     ],
                   ),
                   const SizedBox(height: 3),
-                  const Text(
-                    'Team group',
-                    style: TextStyle(
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
                       color: _muted,
                       fontSize: 10.5,
                       fontWeight: FontWeight.w500,
@@ -3779,22 +4228,23 @@ final String sizeText = sizeInKb > 1024
                   ),
                 ),
               ),
-            InkWell(
-              onTap: onPin,
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Icon(
-                  pinned
-                      ? Icons.push_pin_rounded
-                      : Icons.push_pin_outlined,
-                  size: 15,
-                  color: pinned
-                      ? const Color(0xFFF59E0B)
-                      : const Color(0xFF94A3B8),
+            if (onPin != null)
+              InkWell(
+                onTap: onPin,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    pinned
+                        ? Icons.push_pin_rounded
+                        : Icons.push_pin_outlined,
+                    size: 15,
+                    color: pinned
+                        ? const Color(0xFFF59E0B)
+                        : const Color(0xFF94A3B8),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -4210,6 +4660,7 @@ final String sizeText = sizeInKb > 1024
             setState(() {
               _selectedChatTarget = name;
               _isGroupChat = false;
+              _isClientGroup = false;
               _showMobileChatList = false;
               _showEmojiPicker = false;
               _replyingToMessage = null;
@@ -4226,56 +4677,136 @@ final String sizeText = sizeInKb > 1024
     List<dynamic> groups, {
     bool mobile = false,
   }) {
-    if (groups.isEmpty) {
+    final query = _searchController.text.trim().toLowerCase();
+    final clients = clientGroups.where((c) {
+      if (query.isEmpty) return true;
+      return (c['client_name']?.toString() ?? '').toLowerCase().contains(query);
+    }).toList();
+
+    if (groups.isEmpty && clients.isEmpty) {
       return _buildEmptyState(
         icon: Icons.groups_2_outlined,
         title: 'No groups found',
-        subtitle: 'Create a group to start team conversations.',
+        subtitle: 'Client groups appear here when you are assigned to an active client.',
       );
     }
 
-    return ListView.builder(
+    final items = <Widget>[];
+    if (clients.isNotEmpty) {
+      items.add(_groupSectionLabel('Client groups', clients.length, Icons.business_center_rounded));
+      for (final c in clients) {
+        items.add(_buildClientGroupItem(c));
+      }
+    }
+    if (groups.isNotEmpty) {
+      items.add(_groupSectionLabel('Team groups', groups.length, Icons.groups_2_rounded));
+      for (final g in groups) {
+        items.add(_buildTeamGroupItem(g));
+      }
+    }
+
+    return ListView(
       padding: const EdgeInsets.only(bottom: 12),
-      itemCount: groups.length,
-      itemBuilder: (context, index) {
-        final group = groups[index];
-        final name = group['group_name']?.toString() ?? 'Untitled Group';
-        final selected = _selectedChatTarget == name && _isGroupChat;
-        final pinned = pinnedChats.contains(name);
+      children: items,
+    );
+  }
 
-        final unread = notificationLogs.where((l) {
-          return _isSeenValue(l['isGroup']) &&
-              l['recipientName'] == name &&
-              l['senderName'] != _loggedInEmployee &&
-              !_isSeenValue(l['isSeen']);
-        }).length;
+  Widget _groupSectionLabel(String text, int count, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 13, color: _muted),
+          const SizedBox(width: 6),
+          Text(
+            text.toUpperCase(),
+            style: const TextStyle(
+              color: _muted,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF4FA),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                color: _muted,
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-        final msgs = notificationLogs.where((l) {
-          return _isSeenValue(l['isGroup']) &&
-              l['recipientName'] == name;
+  Widget _buildClientGroupItem(Map<String, dynamic> c) {
+    final name = c['client_name']?.toString() ?? 'Client';
+    final selected = _isClientGroup && _sameName(_selectedChatTarget, name);
+    final last = c['last_message'] is Map
+        ? Map<String, dynamic>.from(c['last_message'] as Map)
+        : null;
+    final members = (c['members'] as List?)?.length ?? 0;
+    final subtitle = last == null
+        ? '$members member${members == 1 ? '' : 's'}  •  No messages yet'
+        : '${_sameName(last['sender'], _loggedInEmployee) ? 'You' : last['sender']}: ${_plainMessage(last['message'])}';
+
+    return _buildGroupListTile(
+      name: name,
+      selected: selected,
+      pinned: false,
+      unreadCount: selected ? 0 : (int.tryParse('${c['unread'] ?? 0}') ?? 0),
+      lastTime: _shortTime(last?['created_at']),
+      subtitle: subtitle,
+      client: true,
+      onTap: () => _openClientGroup(name),
+    );
+  }
+
+  Widget _buildTeamGroupItem(dynamic group) {
+    final name = group['group_name']?.toString() ?? 'Untitled Group';
+    final selected = _selectedChatTarget == name && _isGroupChat && !_isClientGroup;
+    final pinned = pinnedChats.contains(name);
+
+    final unread = notificationLogs.where((l) {
+      return _isSeenValue(l['isGroup']) &&
+          l['recipientName'] == name &&
+          l['senderName'] != _loggedInEmployee &&
+          !_isSeenValue(l['isSeen']);
+    }).length;
+
+    final msgs = notificationLogs.where((l) {
+      return _isSeenValue(l['isGroup']) && l['recipientName'] == name;
+    });
+    final lastTime =
+        msgs.isNotEmpty ? (msgs.first['time']?.toString() ?? '') : '';
+
+    return _buildGroupListTile(
+      name: name,
+      selected: selected,
+      pinned: pinned,
+      unreadCount: unread,
+      lastTime: lastTime,
+      onTap: () {
+        setState(() {
+          _selectedChatTarget = name;
+          _isGroupChat = true;
+          _isClientGroup = false;
+          _showMobileChatList = false;
+          _showEmojiPicker = false;
+          _replyingToMessage = null;
         });
-        final lastTime =
-            msgs.isNotEmpty ? (msgs.first['time']?.toString() ?? '') : '';
-
-        return _buildGroupListTile(
-          name: name,
-          selected: selected,
-          pinned: pinned,
-          unreadCount: unread,
-          lastTime: lastTime,
-          onTap: () {
-            setState(() {
-              _selectedChatTarget = name;
-              _isGroupChat = true;
-              _showMobileChatList = false;
-              _showEmojiPicker = false;
-              _replyingToMessage = null;
-            });
-            _markMessagesSeen(name, true);
-          },
-          onPin: () => _toggleChatPin(name, true, pinned),
-        );
+        _markMessagesSeen(name, true);
       },
+      onPin: () => _toggleChatPin(name, true, pinned),
     );
   }
 
@@ -4390,31 +4921,28 @@ final String sizeText = sizeInKb > 1024
                 size: 21,
               ),
             ),
-          Container(
-            width: mobile ? 40 : 43,
-            height: mobile ? 40 : 43,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: _isGroupChat
-                    ? const [Color(0xFF0EA5E9), Color(0xFF0284C7)]
-                    : const [_primary, Color(0xFF1267E8)],
-              ),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              _isGroupChat
-                  ? Icons.groups_2_rounded
-                  : Icons.chat_bubble_rounded,
-              color: Colors.white,
-              size: mobile ? 19 : 21,
-            ),
-          ),
+          _isGroupChat
+              ? _buildAvatar(
+                  initials: '',
+                  admin: false,
+                  group: true,
+                  client: _isClientGroup,
+                  radius: mobile ? 20 : 21.5,
+                )
+              : _buildAvatar(
+                  initials: _initialsForName(target),
+                  admin: _isAdminName(target),
+                  name: _selectedChatTarget,
+                  radius: mobile ? 20 : 21.5,
+                ),
           const SizedBox(width: 10),
           Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(12),
               onTap: () {
-                if (_isGroupChat && group is Map && group.isNotEmpty) {
+                if (_isClientGroup) {
+                  _openClientMembersDialog();
+                } else if (_isGroupChat && group is Map && group.isNotEmpty) {
                   _openGroupDetailsDialog(Map<String, dynamic>.from(group));
                 }
               },
@@ -4438,9 +4966,11 @@ final String sizeText = sizeInKb > 1024
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _isGroupChat
-                          ? 'Group conversation  •  Tap for members & settings'
-                          : 'Private conversation  •  Real-time messaging',
+                      _isClientGroup
+                          ? 'Client group  •  Tap to see the team'
+                          : _isGroupChat
+                              ? 'Group conversation  •  Tap for members & settings'
+                              : 'Private conversation  •  Real-time messaging',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -4486,155 +5016,162 @@ final String sizeText = sizeInKb > 1024
           : Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        child: _HoverReactionSurface(
-          hoverAction: _buildHoverAction(
-            icon: Icons.add_reaction_outlined,
-            tooltip: 'Quick reaction',
-          ),
-          child: Container(
-            constraints: BoxConstraints(
-              maxWidth: mobile
-                  ? MediaQuery.of(context).size.width * 0.82
-                  : 590,
-            ),
-            padding: const EdgeInsets.fromLTRB(13, 11, 10, 9),
-            decoration: BoxDecoration(
-              gradient: isSentByMe
-                  ? const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFEAF2FF), Color(0xFFF2F7FF)],
-                    )
-                  : const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Colors.white, Color(0xFFFBFDFF)],
-                    ),
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(17),
-                topRight: const Radius.circular(17),
-                bottomLeft: Radius.circular(isSentByMe ? 17 : 5),
-                bottomRight: Radius.circular(isSentByMe ? 5 : 17),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (!isSentByMe) ...[
+              _buildAvatar(
+                initials: _initialsForName(sender),
+                admin: _isAdminName(sender),
+                name: sender,
+                radius: mobile ? 13 : 15,
               ),
-              border: Border.all(
-                color: isSentByMe
-                    ? const Color(0xFFCFE0FF)
-                    : const Color(0xFFE3EAF3),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _primary.withValues(alpha: isSentByMe ? 0.055 : 0.025),
-                  blurRadius: 15,
-                  offset: const Offset(0, 5),
+              const SizedBox(width: 7),
+            ],
+            Flexible(
+              child: _HoverReactionSurface(
+                hoverAction: _buildHoverAction(
+                  icon: Icons.add_reaction_outlined,
+                  tooltip: 'Quick reaction',
                 ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_isGroupChat && !isSentByMe) ...[
-                  Row(
-                    children: [
-                      Container(
-                        width: 23,
-                        height: 23,
-                        decoration: const BoxDecoration(
-                          color: _primaryLight,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Center(
-                          child: Text(
-                            sender.isEmpty ? '?' : sender[0].toUpperCase(),
-                            style: const TextStyle(
-                              color: _primary,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
-                            ),
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: mobile
+                        ? MediaQuery.of(context).size.width * 0.82
+                        : 590,
+                  ),
+                  padding: const EdgeInsets.fromLTRB(13, 11, 10, 9),
+                  decoration: BoxDecoration(
+                    gradient: isSentByMe
+                        ? const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xFFEAF2FF), Color(0xFFF2F7FF)],
+                          )
+                        : const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Colors.white, Color(0xFFFBFDFF)],
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          sender,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: _primary,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(17),
+                      topRight: const Radius.circular(17),
+                      bottomLeft: Radius.circular(isSentByMe ? 17 : 5),
+                      bottomRight: Radius.circular(isSentByMe ? 5 : 17),
+                    ),
+                    border: Border.all(
+                      color: isSentByMe
+                          ? const Color(0xFFCFE0FF)
+                          : const Color(0xFFE3EAF3),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _primary.withValues(alpha: isSentByMe ? 0.055 : 0.025),
+                        blurRadius: 15,
+                        offset: const Offset(0, 5),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                ],
-                _buildMessageContent(rawMessage),
-                const SizedBox(height: 7),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      time,
-                      style: const TextStyle(
-                        color: Color(0xFF94A3B8),
-                        fontSize: 9,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (isSentByMe) ...[
-                      const SizedBox(width: 6),
-                      Icon(
-                        isSeen ? Icons.done_all_rounded : Icons.done_rounded,
-                        size: 14,
-                        color: isSeen ? _primary : const Color(0xFF94A3B8),
-                      ),
-                      if (isSeen) ...[
-                        const SizedBox(width: 3),
-                        const Text(
-                          'Seen',
-                          style: TextStyle(
-                            color: _primary,
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w900,
-                          ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_isGroupChat && !isSentByMe) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                sender,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: _primary,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 6),
                       ],
+                      _buildMessageContent(rawMessage),
+                      const SizedBox(height: 7),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            time,
+                            style: const TextStyle(
+                              color: Color(0xFF94A3B8),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (isSentByMe) ...[
+                            const SizedBox(width: 6),
+                            Icon(
+                              isSeen ? Icons.done_all_rounded : Icons.done_rounded,
+                              size: 14,
+                              color: isSeen ? _primary : const Color(0xFF94A3B8),
+                            ),
+                            if (isSeen) ...[
+                              const SizedBox(width: 3),
+                              const Text(
+                                'Seen',
+                                style: TextStyle(
+                                  color: _primary,
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ],
+                          const Spacer(),
+                          InkWell(
+                            onTap: () => _copyMessage(rawMessage),
+                            borderRadius: BorderRadius.circular(8),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.copy_rounded,
+                                size: 14,
+                                color: _muted,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          InkWell(
+                            onTap: () {
+                              setState(() => _replyingToMessage = log);
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.reply_rounded,
+                                size: 15,
+                                color: _muted,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
-                    const Spacer(),
-                    InkWell(
-                      onTap: () => _copyMessage(rawMessage),
-                      borderRadius: BorderRadius.circular(8),
-                      child: const Padding(
-                        padding: EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.copy_rounded,
-                          size: 14,
-                          color: _muted,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    InkWell(
-                      onTap: () {
-                        setState(() => _replyingToMessage = log);
-                      },
-                      borderRadius: BorderRadius.circular(8),
-                      child: const Padding(
-                        padding: EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.reply_rounded,
-                          size: 15,
-                          color: _muted,
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ],
+              ),
             ),
-          ),
+            if (isSentByMe) ...[
+              const SizedBox(width: 7),
+              _buildAvatar(
+                initials: _initialsForName(sender),
+                admin: _isAdminName(sender),
+                name: sender,
+                radius: mobile ? 13 : 15,
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -4838,6 +5375,7 @@ final String sizeText = sizeInKb > 1024
             leading: _buildAvatar(
               initials: _employeeInitials(emp),
               admin: emp['user_type']?.toString().toLowerCase() == 'admin',
+              name: emp['full_name']?.toString(),
               radius: 15,
             ),
             title: Text(

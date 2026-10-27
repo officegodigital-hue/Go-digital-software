@@ -127,9 +127,33 @@ function rowState(row) {
   return status || 'IDLE';
 }
 
+// Active clients only: is_active = 1, and when the clients table also keeps a
+// text status (status / client_status / account_status) it must not say
+// Inactive / Disabled / Closed. Cached for 5 s (many calls per request).
+let activeClientCache = { at: 0, set: null };
+let clientStatusCols = null;
 async function activeClientSet() {
-  const [rows] = await db.query('SELECT company_name FROM clients WHERE is_active = 1');
-  return new Set(rows.map((r) => norm(r.company_name)));
+  if (activeClientCache.set && Date.now() - activeClientCache.at < 5000) return activeClientCache.set;
+  if (!clientStatusCols) {
+    try {
+      const [cols] = await db.query(
+        `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clients'`,
+      );
+      const have = new Set(cols.map((r) => r.c));
+      clientStatusCols = ['status', 'client_status', 'account_status'].filter((c) => have.has(c));
+    } catch (_) {
+      clientStatusCols = [];
+    }
+  }
+  const extra = clientStatusCols.map((c) => `, \`${c}\``).join('');
+  const [rows] = await db.query(`SELECT company_name${extra} FROM clients WHERE is_active = 1`);
+  const inactive = /^(in-?\s*active|disabled|closed|deactivated)/i;
+  const set = new Set(rows
+    .filter((r) => clientStatusCols.every((c) => !inactive.test(String(r[c] ?? '').trim())))
+    .map((r) => norm(r.company_name)));
+  activeClientCache = { at: Date.now(), set };
+  return set;
 }
 
 async function employeeIdFor(name) {
@@ -277,7 +301,11 @@ function shapeRows(rows) {
       description_rich: r.description_rich || '',
       task_description: r.task_description || '',
       comment: r.comment || '',
-      performance: r.performance || 'N/A',
+      // No task duration (additional / handler rows): finished = Achieved.
+      performance: (!r.performance || r.performance === 'N/A') && !r.task_timing_id &&
+        ['IN REVIEW', 'APPROVED'].includes(state)
+        ? 'Achieved'
+        : r.performance || 'N/A',
       status: upper(r.status || 'IDLE'),
       review_status: upper(r.review_status),
       state,
@@ -449,7 +477,48 @@ async function clientTeam(clientName, date = '') {
       }
     }
   }
-  return [...team.values()];
+
+  // Additional work on this client / date (admin, Page / Ads Handler or self added).
+  const extra = new Map();
+  try {
+    const params = [clientName];
+    let dateSql = '';
+    if (date) {
+      dateSql = 'AND DATE(submission_date) = ?';
+      params.push(date);
+    }
+    const [lists] = await db.query(
+      `SELECT id, employee_name, deliverables, no_of_rows, submission_date FROM task_list
+       WHERE additional_task_id IS NOT NULL AND LOWER(TRIM(client_name)) = LOWER(TRIM(?)) ${dateSql}
+       ORDER BY id ASC`,
+      params,
+    );
+    for (const list of lists) {
+      if (!list.employee_name) continue;
+      const rows = await loadRows(list.id, false);
+      const parents = rows.filter((r) => !r.parent_item_id);
+      const by = await assignedByFor(list.id, clientName);
+      const key = personKey(list.employee_name);
+      const entry = extra.get(key) || {
+        role: 'Additional task',
+        role_key: 'additional',
+        additional: true,
+        employee: String(list.employee_name).trim(),
+        tasks: [],
+      };
+      entry.tasks.push({
+        name: list.deliverables,
+        completed: parents.filter((r) => ['APPROVED', 'IN REVIEW'].includes(rowState(r))).length,
+        total: Math.max(Number(list.no_of_rows) || 0, parents.length),
+        added_by: by ? (by.role ? `${by.name} (${by.role})` : by.name) : 'Admin',
+        submit_date: dateKey(list.submission_date),
+      });
+      extra.set(key, entry);
+    }
+  } catch (err) {
+    console.error('clientTeam additional lists failed:', err.message);
+  }
+  return [...team.values(), ...extra.values()];
 }
 
 router.get('/cards', async (req, res) => {
@@ -658,18 +727,24 @@ async function buildMyTasks(employee, client, date) {
 
     for (const list of await additionalLists(employee, employeeId, client)) {
       if (date && dateKey(list.submission_date) !== date) continue;
+      const raw = await loadRows(list.id, false);
+      // Rows this employee added themselves (Add Additional Task) → can edit.
+      const selfAdded = raw.length > 0 && raw.every((r) => personKey(r.cc_assigned_by_name) === personKey(employee));
+      const by = await assignedByFor(list.id, list.client_name);
       groups.push({
         key: `additional:${list.id}`,
         task_list_id: list.id,
         assignment_id: null,
         role: 'additional',
-        role_label: 'Additional task',
+        role_label: selfAdded ? 'Additional task · added by you' : 'Additional task',
         deliverable: list.deliverables,
         nested: false,
         assigned_count: Number(list.no_of_rows) || 1,
         awaiting_handoff: false,
         submission_date: dateKey(list.submission_date),
-        rows: shapeRows(await loadRows(list.id, false)),
+        editable: selfAdded,
+        added_by: by ? (by.role ? `${by.name} (${by.role})` : by.name) : 'Admin',
+        rows: shapeRows(raw),
       });
     }
   return groups;
@@ -1104,6 +1179,143 @@ router.post('/team/chat', async (req, res) => {
     return res.status(201).json({ success: true, data: { id: ins.insertId } });
   } catch (err) {
     console.error('POST /workspace-tasks/team/chat ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── Client groups for the Notifications / Chat page ─────────────────────────
+// Read markers: last message id each employee has seen in each client group.
+let chatSeenReady = null;
+function ensureChatSeenTable() {
+  if (!chatSeenReady) {
+    chatSeenReady = db.query(
+      `CREATE TABLE IF NOT EXISTS workspace_client_chat_seen (
+         employee_name VARCHAR(255) NOT NULL,
+         client_name VARCHAR(255) NOT NULL,
+         last_seen_id INT NOT NULL DEFAULT 0,
+         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+         PRIMARY KEY (employee_name, client_name)
+       )`,
+    ).catch((err) => {
+      chatSeenReady = null;
+      throw err;
+    });
+  }
+  return chatSeenReady;
+}
+
+// Active clients this employee works on (assigned tasks + additional tasks).
+async function memberClients(employee) {
+  const clients = new Map();
+  for (const { assignment } of await employeeAssignments(employee)) {
+    const name = String(assignment.client_name || '').trim();
+    if (name && !clients.has(norm(name))) clients.set(norm(name), name);
+  }
+  const active = await activeClientSet();
+  try {
+    const [lists] = await db.query(
+      `SELECT DISTINCT client_name, employee_name FROM task_list
+       WHERE additional_task_id IS NOT NULL AND client_name IS NOT NULL`,
+    );
+    for (const l of lists) {
+      const name = String(l.client_name || '').trim();
+      if (!name || clients.has(norm(name)) || !active.has(norm(name))) continue;
+      if (personKey(l.employee_name) === personKey(employee)) clients.set(norm(name), name);
+    }
+  } catch (err) {
+    console.error('memberClients additional lists failed:', err.message);
+  }
+  return [...clients.values()];
+}
+
+// GET /team/groups?employee=  → client groups I belong to, with the last
+// message, unread count and members.
+router.get('/team/groups', async (req, res) => {
+  const employee = employeeFrom(req);
+  if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
+  try {
+    await ensureChatSeenTable();
+    const clients = await memberClients(employee);
+    const out = [];
+    for (const client of clients) {
+      const [[last]] = await db.query(
+        `SELECT id, sender_name, message, created_at FROM workspace_client_chat
+         WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?)) ORDER BY id DESC LIMIT 1`,
+        [client],
+      );
+      const [[seen]] = await db.query(
+        `SELECT last_seen_id FROM workspace_client_chat_seen
+         WHERE LOWER(TRIM(employee_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(client_name)) = LOWER(TRIM(?))`,
+        [employee, client],
+      );
+      const [[unread]] = await db.query(
+        `SELECT COUNT(*) AS n FROM workspace_client_chat
+         WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?)) AND id > ?
+           AND LOWER(TRIM(sender_name)) <> LOWER(TRIM(?))`,
+        [client, Number(seen?.last_seen_id) || 0, employee],
+      );
+      const team = await clientTeam(client);
+      const members = [];
+      for (const t of team) {
+        if (!members.some((m) => personKey(m) === personKey(t.employee))) members.push(t.employee);
+      }
+      out.push({
+        client_name: client,
+        members,
+        last_message: last
+          ? { id: last.id, sender: last.sender_name, message: last.message, created_at: last.created_at }
+          : null,
+        unread: Number(unread?.n) || 0,
+      });
+    }
+    // Latest conversation first, quiet groups alphabetically after.
+    out.sort((a, b) => (b.last_message?.id || 0) - (a.last_message?.id || 0)
+      || a.client_name.localeCompare(b.client_name));
+    return res.json({ success: true, data: out });
+  } catch (err) {
+    console.error('GET /workspace-tasks/team/groups ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /team/chat/seen { client, employee, lastId }
+router.post('/team/chat/seen', async (req, res) => {
+  const client = String(req.body.client || '').trim();
+  const employee = employeeFrom(req);
+  const lastId = Number(req.body.lastId) || 0;
+  if (!client || !employee) return res.status(400).json({ success: false, message: 'client and employee are required' });
+  try {
+    await ensureChatSeenTable();
+    await db.query(
+      `INSERT INTO workspace_client_chat_seen (employee_name, client_name, last_seen_id) VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE last_seen_id = GREATEST(last_seen_id, VALUES(last_seen_id))`,
+      [employee, client, lastId],
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('POST /workspace-tasks/team/chat/seen ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /people/avatars → profile photo / colour of every active user (for chat).
+router.get('/people/avatars', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT full_name, initials, avatar_color, profile_photo FROM employee_users
+       WHERE is_active = 1 OR is_active IS NULL`,
+    );
+    return res.json({
+      success: true,
+      data: rows.map((r) => ({
+        full_name: r.full_name,
+        initials: r.initials || initialsOf(r.full_name),
+        avatar_color: r.avatar_color || '',
+        profile_photo: r.profile_photo || '',
+      })),
+    });
+  } catch (err) {
+    console.error('GET /workspace-tasks/people/avatars ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -3079,11 +3291,12 @@ router.get('/additional-task/options', async (req, res) => {
       if (!byClient.has(k)) byClient.set(k, new Set());
       for (const r of ROLES) for (const t of parseTasks(a[r.tasks])) if (t.name) byClient.get(k).add(t.name);
     }
+    const active = await activeClientSet();
     const seen = new Set();
     const list = [];
     for (const c of clients) {
       const name = String(c.company_name || '').trim();
-      if (!name || seen.has(norm(name))) continue;
+      if (!name || seen.has(norm(name)) || !active.has(norm(name))) continue;
       seen.add(norm(name));
       const own = [...(byClient.get(norm(name)) || [])];
       const all = [...own];
@@ -3123,7 +3336,9 @@ router.post('/additional-task', async (req, res) => {
       'SELECT company_name FROM clients WHERE is_active = 1 AND LOWER(TRIM(company_name)) = LOWER(TRIM(?)) LIMIT 1',
       [client],
     );
-    if (!activeClient) return res.status(400).json({ success: false, message: `${client} is not an active client` });
+    if (!activeClient || !(await activeClientSet()).has(norm(activeClient.company_name))) {
+      return res.status(400).json({ success: false, message: `${client} is not an active client` });
+    }
     const clientName = activeClient.company_name;
 
     await connection.beginTransaction();
@@ -3190,5 +3405,137 @@ router.post('/additional-task', async (req, res) => {
   }
 });
 
-module.exports = router;
+// Edit / add rows on an additional task the employee added themselves.
+//   PUT  /additional-task/:listId        { employee, deliverable?, date?, description? }
+//   POST /additional-task/:listId/rows   { employee, count, description? }
+async function ownAdditionalList(connection, listId, employee) {
+  const [[list]] = await connection.query(
+    `SELECT id, client_name, deliverables, submission_date, no_of_rows, employee_id, employee_name
+     FROM task_list WHERE id = ? AND additional_task_id IS NOT NULL FOR UPDATE`,
+    [listId],
+  );
+  if (!list) return { error: [404, 'Additional task not found'] };
+  if (personKey(list.employee_name) !== personKey(employee)) {
+    return { error: [403, 'This additional task belongs to someone else'] };
+  }
+  const [rows] = await connection.query(
+    'SELECT id, s_no, status, task_description, cc_assigned_by_name FROM time_tracking_task_items WHERE task_list_id = ?',
+    [listId],
+  );
+  if (rows.length && !rows.every((r) => personKey(r.cc_assigned_by_name) === personKey(employee))) {
+    return { error: [403, 'Only additional tasks you added yourself can be edited here'] };
+  }
+  return { list, rows };
+}
 
+router.put('/additional-task/:listId', async (req, res) => {
+  const employee = employeeFrom(req);
+  const listId = Number(req.params.listId);
+  if (!employee || !listId) return res.status(400).json({ success: false, message: 'employee and task are required' });
+  const deliverable = req.body?.deliverable == null ? null : String(req.body.deliverable).trim().replace(/\s+/g, ' ');
+  const date = req.body?.date == null ? null : dateKey(req.body.date);
+  const description = req.body?.description == null ? null : String(req.body.description).trim();
+  if (deliverable !== null && !deliverable) return res.status(400).json({ success: false, message: 'Enter the deliverable name' });
+  if (deliverable && deliverable.length > 120) return res.status(400).json({ success: false, message: 'Deliverable name is too long' });
+  if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ success: false, message: 'Choose a valid date' });
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const own = await ownAdditionalList(connection, listId, employee);
+    if (own.error) {
+      await connection.rollback();
+      return res.status(own.error[0]).json({ success: false, message: own.error[1] });
+    }
+    const { list, rows } = own;
+    const oldDate = dateKey(list.submission_date);
+    if (date && date !== oldDate && date < appDay()) {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: 'The new date cannot be in the past' });
+    }
+    const newName = deliverable || list.deliverables;
+    const newDate = date || oldDate;
+    await connection.query(
+      'UPDATE task_list SET deliverables = ?, submission_date = ? WHERE id = ?',
+      [newName, newDate, listId],
+    );
+    if (newDate !== oldDate) {
+      await connection.query('UPDATE time_tracking_task_items SET submit_date = ? WHERE task_list_id = ?', [newDate, listId]);
+    }
+    // Details: rows not started yet (and rows still showing the old name).
+    if (description !== null) {
+      const ids = rows.filter((r) => upper(r.status || 'IDLE') === 'IDLE').map((r) => r.id);
+      if (ids.length) {
+        await connection.query(
+          'UPDATE time_tracking_task_items SET task_description = ? WHERE id IN (?)',
+          [description || newName, ids],
+        );
+      }
+    } else if (newName !== list.deliverables) {
+      await connection.query(
+        `UPDATE time_tracking_task_items SET task_description = ?
+         WHERE task_list_id = ? AND LOWER(TRIM(task_description)) = LOWER(TRIM(?))`,
+        [newName, listId, list.deliverables],
+      );
+    }
+    await connection.commit();
+    emit(req, { type: 'additional_task_edited', employee, client: list.client_name });
+    return res.json({
+      success: true,
+      message: 'Additional task updated',
+      data: { task_list_id: listId, client: list.client_name, deliverable: newName, due_date: newDate, section: 'My Tasks' },
+    });
+  } catch (err) {
+    try { await connection.rollback(); } catch (_) { /* ignore */ }
+    console.error('PUT /workspace-tasks/additional-task ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+router.post('/additional-task/:listId/rows', async (req, res) => {
+  const employee = employeeFrom(req);
+  const listId = Number(req.params.listId);
+  const count = Math.min(Math.max(parseInt(req.body?.count, 10) || 1, 1), 50);
+  const description = String(req.body?.description || '').trim();
+  if (!employee || !listId) return res.status(400).json({ success: false, message: 'employee and task are required' });
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const own = await ownAdditionalList(connection, listId, employee);
+    if (own.error) {
+      await connection.rollback();
+      return res.status(own.error[0]).json({ success: false, message: own.error[1] });
+    }
+    const { list, rows } = own;
+    const start = rows.reduce((m, r) => Math.max(m, Number(r.s_no) || 0), 0) + 1;
+    const due = dateKey(list.submission_date) || appDay();
+    for (let i = 0; i < count; i += 1) {
+      await connection.query(
+        `INSERT INTO time_tracking_task_items
+           (task_list_id, s_no, sub_no, submit_date, task_description, duration_secs,
+            comment, performance, status, cc_assigned_by_name, cc_assigned_at)
+         VALUES (?, ?, 0, ?, ?, 0, '', 'N/A', 'IDLE', ?, NOW())`,
+        [listId, start + i, due, description || list.deliverables, list.employee_name],
+      );
+    }
+    await connection.query('UPDATE task_list SET no_of_rows = ? WHERE id = ?', [start - 1 + count, listId]);
+    await connection.commit();
+    emit(req, { type: 'additional_task_rows', employee, client: list.client_name });
+    return res.status(201).json({
+      success: true,
+      message: `${count} row${count === 1 ? '' : 's'} added to ${list.deliverables}`,
+      data: { task_list_id: listId, rows: start - 1 + count },
+    });
+  } catch (err) {
+    try { await connection.rollback(); } catch (_) { /* ignore */ }
+    console.error('POST /workspace-tasks/additional-task/rows ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+module.exports = router;

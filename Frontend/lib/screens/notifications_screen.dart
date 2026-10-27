@@ -208,7 +208,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   final AudioPlayer _chatAudioPlayer = AudioPlayer();
   bool _showMobileChatList = true;
   String? _selectedFileName;
-  int _unreadTotal = 0; 
+  int _unreadTotal = 0;
+
+  // People's profile photo / avatar colour (by full name, lower case).
+  final Map<String, Map<String, dynamic>> _people = {};
+  final Map<String, ImageProvider> _photoCache = {};
+  Map<String, dynamic>? _myUser;
 
   @override
   void initState() {
@@ -221,11 +226,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       if (!mounted) return;
 
+      final user = authService.user;
       setState(() {
         _loggedInEmployee = loggedInName;
+        if (user != null) _myUser = Map<String, dynamic>.from(user);
       });
 
       await _fetchHubData();
+      _fetchPeople();
       // Open an employee-specific, unsent task draft.
       if (!mounted) return;
       final taskChatArgs = ModalRoute.of(context)?.settings.arguments;
@@ -2336,22 +2344,11 @@ Widget _premiumEmployeeTile({
       contentPadding: const EdgeInsets.symmetric(
         horizontal: 12,
       ),
-      secondary: Container(
-        width: 40,
-        height: 40,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xFF0052CC),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          initials,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
+      secondary: _buildAvatar(
+        initials: initials == '?' ? '' : initials,
+        admin: _isAdminName(name),
+        name: name,
+        radius: 20,
       ),
       title: Text(
         name,
@@ -3287,6 +3284,103 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
+  // ── People: profile photo / colour ─────────────────────────────────────────
+  bool _sameName(dynamic a, dynamic b) =>
+      (a?.toString() ?? '').trim().toLowerCase() ==
+      (b?.toString() ?? '').trim().toLowerCase();
+
+  Future<void> _fetchPeople() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/workspace-tasks/people/avatars'),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      final map = <String, Map<String, dynamic>>{};
+      for (final p in (body is Map ? (body['data'] as List? ?? []) : [])) {
+        if (p is! Map) continue;
+        final key = p['full_name']?.toString().trim().toLowerCase() ?? '';
+        if (key.isNotEmpty) map[key] = Map<String, dynamic>.from(p);
+      }
+      if (!mounted) return;
+      setState(() {
+        _people
+          ..clear()
+          ..addAll(map);
+        _photoCache.clear();
+      });
+    } catch (e) {
+      debugPrint('Avatar load error: $e');
+    }
+  }
+
+  Map<String, dynamic>? _personFor(String? name) {
+    final key = (name ?? '').trim().toLowerCase();
+    if (key.isEmpty) return null;
+    if (_people.containsKey(key)) return _people[key];
+    // My own profile from the login session (if the list has not loaded yet).
+    if (_sameName(name, _loggedInEmployee)) {
+      final user = context.read<AuthService>().user;
+      if (user != null) return Map<String, dynamic>.from(user);
+    }
+    return null;
+  }
+
+  ImageProvider? _photoFor(String? name) {
+    final key = (name ?? '').trim().toLowerCase();
+    if (key.isEmpty) return null;
+    final cached = _photoCache[key];
+    if (cached != null) return cached;
+    final person = _personFor(name);
+    final raw = (person?['profile_photo'] ?? person?['profilePhoto'] ?? '')
+        .toString()
+        .trim();
+    if (raw.isEmpty) return null;
+    try {
+      final ImageProvider image;
+      if (raw.startsWith('http')) {
+        image = NetworkImage(raw);
+      } else if (raw.startsWith('/')) {
+        image = NetworkImage('$_socketUrl$raw');
+      } else {
+        image = MemoryImage(base64Decode(raw.split(',').last));
+      }
+      _photoCache[key] = image;
+      return image;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Color? _colorFor(String? name) {
+    final person = _personFor(name);
+    final hex = (person?['avatar_color'] ?? person?['avatarColor'] ?? '')
+        .toString()
+        .replaceAll('#', '')
+        .trim();
+    if (hex.length != 6) return null;
+    final value = int.tryParse('FF$hex', radix: 16);
+    return value == null ? null : Color(value);
+  }
+
+  String _initialsForName(String name) {
+    final supplied = _personFor(name)?['initials']?.toString().trim() ?? '';
+    if (supplied.isNotEmpty) return supplied.toUpperCase();
+    final parts = name.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts.first[0].toUpperCase();
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  bool _isAdminName(String name) {
+    return activeEmployees.any((e) =>
+        _sameName(e['full_name'], name) &&
+        (e['user_type']?.toString().toLowerCase() == 'admin' ||
+            e['is_main_admin'] == 1 ||
+            e['is_main_admin'] == true));
+  }
+
+
   Widget _buildSectionTabs(bool compact) {
     final tabs = [
       (Icons.chat_bubble_outline_rounded, 'Chats'),
@@ -3455,49 +3549,66 @@ final String sizeText = sizeInKb > 1024
     required String initials,
     required bool admin,
     bool group = false,
+    bool client = false,
+    String? name,
     double radius = 22,
   }) {
+    final photo = group ? null : _photoFor(name);
+    final custom = group ? null : _colorFor(name);
+    final List<Color> colors = group
+        ? (client
+            ? const [Color(0xFFF59E0B), Color(0xFFEA580C)]
+            : const [Color(0xFF0EA5E9), Color(0xFF0284C7)])
+        : custom != null
+            ? [custom, Color.lerp(custom, Colors.black, 0.18)!]
+            : admin
+                ? const [Color(0xFF7C3AED), Color(0xFF5B21B6)]
+                : const [_primary, Color(0xFF1267E8)];
+    final label = initials.trim().isNotEmpty
+        ? initials.trim()
+        : _initialsForName(name ?? '');
+
     return Container(
       width: radius * 2,
       height: radius * 2,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: group
-              ? const [Color(0xFF0EA5E9), Color(0xFF0284C7)]
-              : admin
-                  ? const [Color(0xFF7C3AED), Color(0xFF5B21B6)]
-                  : const [_primary, Color(0xFF1267E8)],
-        ),
+        gradient: LinearGradient(colors: colors),
         shape: BoxShape.circle,
+        image: photo == null
+            ? null
+            : DecorationImage(image: photo, fit: BoxFit.cover),
+        border: photo == null
+            ? null
+            : Border.all(color: Colors.white, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: (group
-                    ? _cyan
-                    : admin
-                        ? const Color(0xFF7C3AED)
-                        : _primary)
-                .withValues(alpha: 0.16),
+            color: colors.first.withValues(alpha: 0.16),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: Center(
-        child: group
-            ? Icon(
-                Icons.groups_2_rounded,
-                color: Colors.white,
-                size: radius * 0.82,
-              )
-            : Text(
-                initials,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: radius * 0.55,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-      ),
+      child: photo != null
+          ? null
+          : Center(
+              child: group
+                  ? Icon(
+                      client
+                          ? Icons.business_center_rounded
+                          : Icons.groups_2_rounded,
+                      color: Colors.white,
+                      size: radius * 0.82,
+                    )
+                  : Text(
+                      label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: radius * 0.55,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+            ),
     );
   }
 
@@ -3573,6 +3684,7 @@ final String sizeText = sizeInKb > 1024
                 _buildAvatar(
                   initials: initials,
                   admin: isAdmin,
+                  name: name,
                   radius: 21,
                 ),
                 Positioned(
@@ -4428,25 +4540,19 @@ final String sizeText = sizeInKb > 1024
                 size: 21,
               ),
             ),
-          Container(
-            width: mobile ? 40 : 43,
-            height: mobile ? 40 : 43,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: _isGroupChat
-                    ? const [Color(0xFF0EA5E9), Color(0xFF0284C7)]
-                    : const [_primary, Color(0xFF1267E8)],
-              ),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              _isGroupChat
-                  ? Icons.groups_2_rounded
-                  : Icons.chat_bubble_rounded,
-              color: Colors.white,
-              size: mobile ? 19 : 21,
-            ),
-          ),
+          _isGroupChat
+              ? _buildAvatar(
+                  initials: '',
+                  admin: false,
+                  group: true,
+                  radius: mobile ? 20 : 21.5,
+                )
+              : _buildAvatar(
+                  initials: _initialsForName(target),
+                  admin: _isAdminName(target),
+                  name: _selectedChatTarget,
+                  radius: mobile ? 20 : 21.5,
+                ),
           const SizedBox(width: 10),
           Expanded(
             child: InkWell(
@@ -4524,155 +4630,162 @@ final String sizeText = sizeInKb > 1024
           : Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        child: _HoverReactionSurface(
-          hoverAction: _buildHoverAction(
-            icon: Icons.add_reaction_outlined,
-            tooltip: 'Quick reaction',
-          ),
-          child: Container(
-            constraints: BoxConstraints(
-              maxWidth: mobile
-                  ? MediaQuery.of(context).size.width * 0.82
-                  : 590,
-            ),
-            padding: const EdgeInsets.fromLTRB(13, 11, 10, 9),
-            decoration: BoxDecoration(
-              gradient: isSentByMe
-                  ? const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFEAF2FF), Color(0xFFF2F7FF)],
-                    )
-                  : const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Colors.white, Color(0xFFFBFDFF)],
-                    ),
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(17),
-                topRight: const Radius.circular(17),
-                bottomLeft: Radius.circular(isSentByMe ? 17 : 5),
-                bottomRight: Radius.circular(isSentByMe ? 5 : 17),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (!isSentByMe) ...[
+              _buildAvatar(
+                initials: _initialsForName(sender),
+                admin: _isAdminName(sender),
+                name: sender,
+                radius: mobile ? 13 : 15,
               ),
-              border: Border.all(
-                color: isSentByMe
-                    ? const Color(0xFFCFE0FF)
-                    : const Color(0xFFE3EAF3),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: _primary.withValues(alpha: isSentByMe ? 0.055 : 0.025),
-                  blurRadius: 15,
-                  offset: const Offset(0, 5),
+              const SizedBox(width: 7),
+            ],
+            Flexible(
+              child: _HoverReactionSurface(
+                hoverAction: _buildHoverAction(
+                  icon: Icons.add_reaction_outlined,
+                  tooltip: 'Quick reaction',
                 ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_isGroupChat && !isSentByMe) ...[
-                  Row(
-                    children: [
-                      Container(
-                        width: 23,
-                        height: 23,
-                        decoration: const BoxDecoration(
-                          color: _primaryLight,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Center(
-                          child: Text(
-                            sender.isEmpty ? '?' : sender[0].toUpperCase(),
-                            style: const TextStyle(
-                              color: _primary,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
-                            ),
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: mobile
+                        ? MediaQuery.of(context).size.width * 0.82
+                        : 590,
+                  ),
+                  padding: const EdgeInsets.fromLTRB(13, 11, 10, 9),
+                  decoration: BoxDecoration(
+                    gradient: isSentByMe
+                        ? const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xFFEAF2FF), Color(0xFFF2F7FF)],
+                          )
+                        : const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Colors.white, Color(0xFFFBFDFF)],
                           ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          sender,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: _primary,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(17),
+                      topRight: const Radius.circular(17),
+                      bottomLeft: Radius.circular(isSentByMe ? 17 : 5),
+                      bottomRight: Radius.circular(isSentByMe ? 5 : 17),
+                    ),
+                    border: Border.all(
+                      color: isSentByMe
+                          ? const Color(0xFFCFE0FF)
+                          : const Color(0xFFE3EAF3),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _primary.withValues(alpha: isSentByMe ? 0.055 : 0.025),
+                        blurRadius: 15,
+                        offset: const Offset(0, 5),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                ],
-                _buildMessageContent(rawMessage),
-                const SizedBox(height: 7),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      time,
-                      style: const TextStyle(
-                        color: Color(0xFF94A3B8),
-                        fontSize: 9,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (isSentByMe) ...[
-                      const SizedBox(width: 6),
-                      Icon(
-                        isSeen ? Icons.done_all_rounded : Icons.done_rounded,
-                        size: 14,
-                        color: isSeen ? _primary : const Color(0xFF94A3B8),
-                      ),
-                      if (isSeen) ...[
-                        const SizedBox(width: 3),
-                        const Text(
-                          'Seen',
-                          style: TextStyle(
-                            color: _primary,
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w900,
-                          ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_isGroupChat && !isSentByMe) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                sender,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: _primary,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 6),
                       ],
+                      _buildMessageContent(rawMessage),
+                      const SizedBox(height: 7),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            time,
+                            style: const TextStyle(
+                              color: Color(0xFF94A3B8),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (isSentByMe) ...[
+                            const SizedBox(width: 6),
+                            Icon(
+                              isSeen ? Icons.done_all_rounded : Icons.done_rounded,
+                              size: 14,
+                              color: isSeen ? _primary : const Color(0xFF94A3B8),
+                            ),
+                            if (isSeen) ...[
+                              const SizedBox(width: 3),
+                              const Text(
+                                'Seen',
+                                style: TextStyle(
+                                  color: _primary,
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ],
+                          const Spacer(),
+                          InkWell(
+                            onTap: () => _copyMessage(rawMessage),
+                            borderRadius: BorderRadius.circular(8),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.copy_rounded,
+                                size: 14,
+                                color: _muted,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          InkWell(
+                            onTap: () {
+                              setState(() => _replyingToMessage = log);
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.reply_rounded,
+                                size: 15,
+                                color: _muted,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
-                    const Spacer(),
-                    InkWell(
-                      onTap: () => _copyMessage(rawMessage),
-                      borderRadius: BorderRadius.circular(8),
-                      child: const Padding(
-                        padding: EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.copy_rounded,
-                          size: 14,
-                          color: _muted,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 3),
-                    InkWell(
-                      onTap: () {
-                        setState(() => _replyingToMessage = log);
-                      },
-                      borderRadius: BorderRadius.circular(8),
-                      child: const Padding(
-                        padding: EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.reply_rounded,
-                          size: 15,
-                          color: _muted,
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ],
+              ),
             ),
-          ),
+            if (isSentByMe) ...[
+              const SizedBox(width: 7),
+              _buildAvatar(
+                initials: _initialsForName(sender),
+                admin: _isAdminName(sender),
+                name: sender,
+                radius: mobile ? 13 : 15,
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -4876,6 +4989,7 @@ final String sizeText = sizeInKb > 1024
             leading: _buildAvatar(
               initials: _employeeInitials(emp),
               admin: emp['user_type']?.toString().toLowerCase() == 'admin',
+              name: emp['full_name']?.toString(),
               radius: 15,
             ),
             title: Text(
