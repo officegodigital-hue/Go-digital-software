@@ -1,8 +1,19 @@
 // routes/employees.js — Updated CRUD API with Role-Based Page Access & User Types
 const express = require('express');
 const router  = express.Router();
-const bcrypt  = require('bcrypt');
 const db      = require('../config/db');
+const { authenticateToken } = require('./auth');
+const {
+  passwordColumns,
+  verifyPassword,
+  decryptPassword,
+  isBcryptHash,
+  ensurePasswordSecurity,
+} = require('../lib/passwordSecurity');
+
+const MIN_PASSWORD = 6;
+const badPassword = (p) =>
+  p != null && String(p).trim() !== '' && String(p).length < MIN_PASSWORD;
 const {
   readAttendanceDetails,
   saveAttendanceDetails,
@@ -117,7 +128,7 @@ router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT id, first_name, middle_name, last_name, full_name, initials,
-             staff_id, email, username, password, role, user_type, is_main_admin,
+             staff_id, email, username, role, user_type, is_main_admin,
              is_active, created_at, updated_at,
              date_of_birth, blood_group, date_of_joining, monthly_salary,
              office_location, branch, additional_details,
@@ -159,13 +170,47 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/employees/:id/password  — Main Admin only.
+// Decrypts the stored copy so the Admin Panel can show the original
+// password. The database itself only holds the hash + encrypted copy.
+router.get('/:id/password', authenticateToken, async (req, res) => {
+  try {
+    const [[me]] = await db.query('SELECT is_main_admin FROM employee_users WHERE id = ?', [req.user.id]);
+    if (!me || Number(me.is_main_admin) !== 1) {
+      return res.status(403).json({ success: false, message: 'Only the Main Admin can view passwords' });
+    }
+    await ensurePasswordSecurity();
+    const [[row]] = await db.query(
+      'SELECT password, password_enc FROM employee_users WHERE id = ?',
+      [req.params.id],
+    );
+    if (!row) return res.status(404).json({ success: false, message: 'Employee not found' });
+
+    let plain = row.password_enc ? decryptPassword(row.password_enc) : null;
+    if (plain == null && row.password && !isBcryptHash(row.password)) plain = row.password; // not converted yet
+    if (plain == null) {
+      return res.json({
+        success: true,
+        available: false,
+        password: null,
+        message: 'Original password is not available — set a new password to store it.',
+      });
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.json({ success: true, available: true, password: plain });
+  } catch (err) {
+    console.error('GET /employees/:id/password ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // routes/employees.js — Update GET /:id route:
 
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT id, first_name, middle_name, last_name, full_name, initials,
-             staff_id, email, username, password, role, user_type, is_main_admin, is_active,
+             staff_id, email, username, role, user_type, is_main_admin, is_active,
              avatar_color, profile_photo, profile_photo_url, mobile, phone_number,
              date_of_birth, blood_group, date_of_joining, monthly_salary,
              office_location, branch, additional_details,
@@ -335,6 +380,12 @@ router.post('/', async (req, res) => {
   if (!firstName || !lastName || !email || !username || !password || !role) {
     return res.status(400).json({ success: false, message: 'Required fields are missing' });
   }
+  if (badPassword(password)) {
+    return res.status(400).json({ success: false, message: `Password must be at least ${MIN_PASSWORD} characters` });
+  }
+  // bcrypt hash for login + encrypted copy for the Main Admin view.
+  await ensurePasswordSecurity();
+  const pw = await passwordColumns(password);
 
   const connection = await db.getConnection();
   try {
@@ -354,7 +405,7 @@ router.post('/', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       firstName, middleName, lastName, fullName, initials,
-      staffId, email, username, password, role, userType, isMainAdmin ? 1 : 0,
+      staffId, email, username, pw.hash, role, userType, isMainAdmin ? 1 : 0,
       phoneNumber, aadharNumber, panCardNumber,
       bankAccountName, bankAccountNumber, bankIfscCode, bankName,
       permanentAddress, temporaryAddress, dateOfBirth || null, bloodGroup,
@@ -362,6 +413,7 @@ router.post('/', async (req, res) => {
     ]);
 
     const newEmpId = result.insertId;
+    await connection.query('UPDATE employee_users SET password_enc = ? WHERE id = ?', [pw.enc, newEmpId]);
     // The employee is added ONCE here — the Attendance app uses this profile
     // (no separate "Add Employee" in Attendance).
     const attendance = attendanceFromBody(req.body);
@@ -469,7 +521,16 @@ router.put('/:id', async (req, res) => {
     ];
 
     if (password && password.trim()) {
-      await connection.query(`UPDATE employee_users SET ${commonSql}, password=? WHERE id=?`, [...commonParams, password, empId]);
+      if (badPassword(password)) {
+        await connection.rollback();
+        return res.status(400).json({ success: false, message: `Password must be at least ${MIN_PASSWORD} characters` });
+      }
+      await ensurePasswordSecurity();
+      const pw = await passwordColumns(password);
+      await connection.query(
+        `UPDATE employee_users SET ${commonSql}, password=?, password_enc=? WHERE id=?`,
+        [...commonParams, pw.hash, pw.enc, empId],
+      );
     } else {
       await connection.query(`UPDATE employee_users SET ${commonSql} WHERE id=?`, [...commonParams, empId]);
     }
@@ -608,7 +669,7 @@ router.patch('/:id', async (req, res) => {
 // PUT /api/employees/:id/profile
 router.put('/:id/profile', async (req, res) => {
   const empId = req.params.id;
-  const { firstName, middleName = '', lastName, username, email, avatarColor, password, profilePhoto } = req.body;
+  const { firstName, middleName = '', lastName, username, email, avatarColor, password, currentPassword, profilePhoto } = req.body;
 
   try {
     const fullName = [firstName, middleName, lastName]
@@ -629,12 +690,23 @@ router.put('/:id/profile', async (req, res) => {
     const oldFullName = oldEmpRows[0].full_name;
 
     if (password && password.trim() !== '') {
+      // Changing your own password needs the current one.
+      if (badPassword(password)) {
+        return res.status(400).json({ success: false, message: `New password must be at least ${MIN_PASSWORD} characters` });
+      }
+      const [[cur]] = await db.query('SELECT password FROM employee_users WHERE id = ?', [empId]);
+      const check = await verifyPassword(currentPassword || '', cur?.password);
+      if (!check.ok) {
+        return res.status(400).json({ success: false, message: 'Current password is incorrect' });
+      }
+      await ensurePasswordSecurity();
+      const pw = await passwordColumns(password);
       await db.query(
         `UPDATE employee_users SET
            first_name = ?, middle_name = ?, last_name = ?, full_name = ?, initials = ?,
-           username = ?, email = ?, avatar_color = ?, profile_photo = ?, password = ?
+           username = ?, email = ?, avatar_color = ?, profile_photo = ?, password = ?, password_enc = ?
          WHERE id = ?`,
-        [firstName, middleName, lastName, fullName, initials, username, email, avatarColor || '', profilePhoto === undefined ? oldProfilePhoto : profilePhoto, password, empId]
+        [firstName, middleName, lastName, fullName, initials, username, email, avatarColor || '', profilePhoto === undefined ? oldProfilePhoto : profilePhoto, pw.hash, pw.enc, empId]
       );
     } else {
       await db.query(

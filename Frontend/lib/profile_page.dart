@@ -174,7 +174,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _photoChanged = true;
       });
 
-  Future<void> _saveProfile({String? passwordOverride}) async {
+  Future<void> _saveProfile({String? passwordOverride, String? currentPassword}) async {
     if (_firstNameCtrl.text.trim().isEmpty ||
         _lastNameCtrl.text.trim().isEmpty ||
         _usernameCtrl.text.trim().isEmpty ||
@@ -207,6 +207,8 @@ class _ProfilePageState extends State<ProfilePage> {
         'temporaryAddress': _tempAddressCtrl.text.trim(),
         'avatarColor': _avatarColorHex,
         if (passwordOverride != null && passwordOverride.trim().isNotEmpty) 'password': passwordOverride.trim(),
+        // The server checks it before changing the password.
+        if (passwordOverride != null && passwordOverride.trim().isNotEmpty) 'currentPassword': currentPassword ?? '',
         if (_photoChanged) 'profilePhoto': _profilePhotoDataUrl,
       };
 
@@ -338,8 +340,12 @@ class _ProfilePageState extends State<ProfilePage> {
                     ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(content: Text('New passwords do not match'), backgroundColor: Colors.redAccent));
                     return;
                   }
+                  if (newCtrl.text.trim().length < 6) {
+                    ScaffoldMessenger.of(dc).showSnackBar(const SnackBar(content: Text('New password must be at least 6 characters'), backgroundColor: Colors.redAccent));
+                    return;
+                  }
                   Navigator.pop(dc);
-                  await _saveProfile(passwordOverride: newCtrl.text);
+                  await _saveProfile(passwordOverride: newCtrl.text, currentPassword: curCtrl.text);
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: primary, foregroundColor: Colors.white),
                 child: const Text('Update Password'),

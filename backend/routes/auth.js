@@ -2,9 +2,16 @@
 
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const db = require('../config/db'); 
+const db = require('../config/db');
+const {
+  verifyPassword,
+  setUserPassword,
+  ensurePasswordSecurity,
+} = require('../lib/passwordSecurity');
+
+// Hash + encrypt any old plain-text passwords once at startup.
+ensurePasswordSecurity();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-in-production-to-random-key';
 const JWT_EXPIRY = '7d';
@@ -57,7 +64,16 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    const passwordMatch = password === user.password;
+    // bcrypt check (old plain-text values still work until converted).
+    const check = await verifyPassword(password, user.password);
+    const passwordMatch = check.ok;
+
+    if (passwordMatch && check.legacy) {
+      // Upgrade this account to hash + encrypted copy right now.
+      try { await setUserPassword(null, user.id, password); } catch (e) {
+        console.error('Password upgrade on login failed:', e.message);
+      }
+    }
 
     if (!passwordMatch) {
       console.log(`❌ Login failed: Incorrect password for "${email}"`);

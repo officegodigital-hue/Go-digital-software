@@ -450,6 +450,81 @@ async function requireInvoiceOwnership(req, res, next) {
     });
   }
 }
+// ============================================================
+// SCHEMA CHECK
+// Older / local databases may be missing columns that newer
+// features use (reminder date, invoice assignment). A missing
+// column makes MySQL throw "Unknown column" → GET /invoices 500.
+// Add them once, safely, before any invoice route runs.
+// ============================================================
+
+let invoiceSchemaReady = null;
+
+function ensureInvoiceSchema() {
+  if (!invoiceSchemaReady) {
+    invoiceSchemaReady = (async () => {
+      const columnsOf = async (table) => {
+        const [rows] = await db.query(
+          `SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+          [table],
+        );
+        return new Set(rows.map((r) => r.c));
+      };
+
+      const invoiceCols = await columnsOf('invoices');
+      const addInvoiceCol = async (name, ddl) => {
+        if (!invoiceCols.has(name)) {
+          await db.query(`ALTER TABLE invoices ADD COLUMN ${name} ${ddl}`);
+          console.log(`Invoice schema: added invoices.${name}`);
+        }
+      };
+      await addInvoiceCol('reminder_date', 'VARCHAR(20) NULL');
+      await addInvoiceCol('assigned_to', 'INT NULL');
+      await addInvoiceCol('notes', 'TEXT NULL');
+      await addInvoiceCol('created_by', 'INT NULL');
+      await addInvoiceCol('linked_quotation_id', 'INT NULL');
+
+      const itemCols = await columnsOf('invoice_items');
+      const addItemCol = async (name, ddl) => {
+        if (itemCols.size && !itemCols.has(name)) {
+          await db.query(`ALTER TABLE invoice_items ADD COLUMN ${name} ${ddl}`);
+          console.log(`Invoice schema: added invoice_items.${name}`);
+        }
+      };
+      await addItemCol('package_id', 'INT NULL');
+      await addItemCol('tax_percent', 'DECIMAL(10,2) NOT NULL DEFAULT 0');
+      await addItemCol('discount_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0');
+      await addItemCol('paid_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0');
+      await addItemCol('pending_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0');
+      await addItemCol('sort_order', 'INT NOT NULL DEFAULT 0');
+
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS invoice_assignment_history (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          invoice_id INT NOT NULL,
+          previous_assigned_to INT NULL,
+          new_assigned_to INT NOT NULL,
+          changed_by INT NULL,
+          changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_iah_invoice (invoice_id)
+        )
+      `);
+    })().catch((err) => {
+      invoiceSchemaReady = null; // try again on the next request
+      console.error('Invoice schema check failed:', err.message);
+    });
+  }
+  return invoiceSchemaReady;
+}
+
+ensureInvoiceSchema();
+
+router.use(async (req, res, next) => {
+  await ensureInvoiceSchema();
+  next();
+});
+
 router.use(authenticateToken, requireInvoiceAccess);
 
 router.get(
@@ -2421,11 +2496,20 @@ router.post(
       connection = await db.getConnection();
       await connection.beginTransaction();
 
+      // Only ACTIVE clients get the next invoice. In-Active and On Hold
+      // clients (On Hold also sets is_active = 0) are skipped — their
+      // existing invoices stay untouched and visible.
       const [invoices] = await connection.query(`
-        SELECT *
-        FROM invoices
-        WHERE maintenance_date IS NOT NULL
-          AND TRIM(maintenance_date) != ''
+        SELECT i.*
+        FROM invoices i
+        WHERE i.maintenance_date IS NOT NULL
+          AND TRIM(i.maintenance_date) != ''
+          AND EXISTS (
+            SELECT 1
+            FROM clients c
+            WHERE TRIM(LOWER(c.company_name)) = TRIM(LOWER(i.client_name))
+              AND c.is_active = 1
+          )
       `);
 
       let createdCount = 0;

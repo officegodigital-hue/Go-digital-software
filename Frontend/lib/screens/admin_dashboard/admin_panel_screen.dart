@@ -3,9 +3,11 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 
 import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
+import '../../services/auth_service.dart';
 import 'access_master_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
@@ -38,6 +40,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   bool _isFormView = false;
   bool _isSubmitting = false;
   bool _obscurePassword = true;
+  // Original password of the employee being edited (decrypted by the
+  // server for the Main Admin only). The database keeps only a hash + an
+  // encrypted copy. Unchanged → not re-sent on save.
+  String _loadedPassword = '';
+  bool _loadingPassword = false;
+  String? _passwordNote;
 
   String? _error;
   String? _modalError;
@@ -393,7 +401,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
       _emailCtrl.text = employee?['email']?.toString() ?? '';
       _usernameCtrl.text = employee?['username']?.toString() ?? '';
-      _passwordCtrl.text = employee?['password']?.toString() ?? '';
+      // Never sent with the employee list; loaded securely below.
+      _passwordCtrl.text = '';
+      _loadedPassword = '';
+      _passwordNote = null;
+      _obscurePassword = true;
 
       _phoneCtrl.text = employee?['phone_number']?.toString() ?? '';
       _aadharCtrl.text = employee?['aadhar_number']?.toString() ?? '';
@@ -433,7 +445,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     });
 
     final editId = _toInt(employee?['id']);
-    if (editId != null) _loadAttendanceDetails(editId);
+    if (editId != null) {
+      _loadAttendanceDetails(editId);
+      _loadOriginalPassword(editId);
+    }
 
     if (_selectedRole.isNotEmpty) {
       final matchedRole = allUserRolesMaster.firstWhere(
@@ -446,6 +461,40 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       if (rId != null) {
         await _fetchRoleAccessForForm(rId);
       }
+    }
+  }
+
+  /// Main Admin: show the employee's original password in the form.
+  Future<void> _loadOriginalPassword(int employeeId) async {
+    setState(() => _loadingPassword = true);
+    try {
+      final token = Provider.of<AuthService>(context, listen: false).token;
+      final res = await http.get(
+        Uri.parse('$_baseUrl/employees/$employeeId/password'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (!mounted) return;
+      final body = jsonDecode(res.body);
+      setState(() {
+        _loadingPassword = false;
+        if (res.statusCode == 200 && body is Map && body['available'] == true) {
+          _loadedPassword = '${body['password'] ?? ''}';
+          _passwordCtrl.text = _loadedPassword;
+          _passwordNote = null;
+        } else if (res.statusCode == 403) {
+          _passwordNote = 'Only the Main Admin can view passwords. Type a new one to change it.';
+        } else {
+          _passwordNote = body is Map && body['message'] != null
+              ? '${body['message']}'
+              : 'Could not load the current password. Type a new one to change it.';
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingPassword = false;
+        _passwordNote = 'Could not load the current password.';
+      });
     }
   }
 
@@ -1146,7 +1195,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           ? availablePages.map((page) => page['route']!).toList()
           : [],
       'applicationAccess': _currentRoleApplicationAccess,
-      if (_passwordCtrl.text.trim().isNotEmpty) 'password': _passwordCtrl.text,
+      // Only when it is new / changed (the server hashes + encrypts it).
+      if (_passwordCtrl.text.trim().isNotEmpty && _passwordCtrl.text != _loadedPassword)
+        'password': _passwordCtrl.text,
       'phoneNumber': _phoneCtrl.text.trim(),
       'aadharNumber': _aadharCtrl.text.trim(),
       'panCardNumber': _panCtrl.text.trim(),
@@ -2845,14 +2896,39 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                           hint: 'Enter username',
                           icon: Icons.alternate_email_rounded,
                         ),
-                        _modernTextField(
-                          controller: _passwordCtrl,
-                          label: isEditMode ? 'Password' : 'Password *',
-                          hint: isEditMode
-                              ? 'Leave blank to keep current'
-                              : 'Minimum 6 characters',
-                          icon: Icons.lock_outline_rounded,
-                          isPassword: true,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _modernTextField(
+                              controller: _passwordCtrl,
+                              label: isEditMode ? 'Password' : 'Password *',
+                              hint: isEditMode
+                                  ? (_loadingPassword ? 'Loading current password…' : 'Type a new password to change it')
+                                  : 'Minimum 6 characters',
+                              icon: Icons.lock_outline_rounded,
+                              isPassword: true,
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                const Icon(Icons.shield_rounded, size: 13, color: Color(0xFF16A34A)),
+                                const SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    _passwordNote ??
+                                        (isEditMode
+                                            ? 'Tap the eye to see it. Stored hashed + encrypted in the database.'
+                                            : 'Stored hashed + encrypted in the database.'),
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: _passwordNote == null ? _muted : const Color(0xFFB45309),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ],
                     ),
