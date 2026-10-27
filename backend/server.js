@@ -163,6 +163,8 @@ const chatRoutes = require('./routes/chat');
 const workspaceTaskRoutes = require('./routes/workspaceTasks');
    const { ensureWorkspaceTaskSchema } = require('./lib/ensureWorkspaceTaskSchema');
 
+const push = require('./lib/pushNotifications'); // mobile push (works with the app closed)
+
 const DayPlannerRoutes = require('./routes/day-planner');
 const performanceRoutes = require('./routes/performance');
 
@@ -215,6 +217,7 @@ const io = new Server(server, {
 });
 
 app.set('io', io);
+push.attachIo(io); // chat + group socket messages also go to phones as push
 
 io.on('connection', (socket) => {
   console.log(`âš¡ A user connected: ${socket.id}`);
@@ -288,6 +291,7 @@ app.use('/api/manager-review', require('./routes/manager-review'));
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/workspace-tasks', workspaceTaskRoutes);
+app.use('/api/push', push.router); // phones register here after login
 
 app.use('/api/day-planner', DayPlannerRoutes); 
 app.use('/api/performance', performanceRoutes);
@@ -359,4 +363,6 @@ server.listen(PORT, async () => {
   } catch (error) {
     console.error('Could not ensure startup database tables:', error.message);
   }
+  // Every new row in `notifications` (task assigned, review, planner …) → phone push.
+  push.startNotificationWatcher();
 });

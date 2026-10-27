@@ -1176,7 +1176,21 @@ router.post('/team/chat', async (req, res) => {
       [client, employee, message],
     );
     req.app.get('io')?.emit('workspace_client_chat', { client, id: ins.insertId, sender: employee });
-    return res.status(201).json({ success: true, data: { id: ins.insertId } });
+    res.status(201).json({ success: true, data: { id: ins.insertId } });
+    // Mobile push to everyone on this client's team (works with the app closed).
+    try {
+      const { sendToEmployees } = require('../lib/pushNotifications');
+      const team = await clientTeam(client);
+      await sendToEmployees(team.map((t) => t.employee), {
+        title: `${employee} • ${client}`,
+        body: message,
+        sender: employee,
+        data: { type: 'client_group', chat: client, isGroup: '1' },
+      });
+    } catch (err) {
+      console.error('Client chat push failed:', err.message);
+    }
+    return undefined;
   } catch (err) {
     console.error('POST /workspace-tasks/team/chat ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
@@ -3539,3 +3553,4 @@ router.post('/additional-task/:listId/rows', async (req, res) => {
 });
 
 module.exports = router;
+

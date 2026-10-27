@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/api_config.dart';
 import 'package:godigital_portal/layouts/admin_layout.dart';
+import 'package:godigital_portal/core/widgets/notification_sound_card.dart';
 
 const List<String> _avatarColorOptions = [
   '#4F46E5',
@@ -142,7 +143,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _photoChanged = true;
   });
 
-  Future<bool> _saveProfile({String? passwordOverride}) async {
+  Future<bool> _saveProfile({String? passwordOverride, String? currentPassword}) async {
     if (_firstNameController.text.trim().isEmpty ||
         _lastNameController.text.trim().isEmpty ||
         _usernameController.text.trim().isEmpty ||
@@ -168,8 +169,11 @@ class _SettingsPageState extends State<SettingsPage> {
         'username': _usernameController.text.trim(),
         'email': _emailController.text.trim(),
         'avatarColor': _avatarColorHex,
-        if (passwordOverride != null && passwordOverride.trim().isNotEmpty)
+        if (passwordOverride != null && passwordOverride.trim().isNotEmpty) ...{
           'password': passwordOverride.trim(),
+          // The server checks this against the hashed password.
+          'currentPassword': currentPassword ?? '',
+        },
         if (_photoChanged) 'profilePhoto': _profilePhotoDataUrl,
       };
       final r = await http.put(
@@ -225,9 +229,6 @@ class _SettingsPageState extends State<SettingsPage> {
     bool obscureCur = true;
     bool obscureNeu = true;
     bool obscureCon = true;
-
-    final a = context.read<AuthService>();
-    final id = a.userId;
 
     showDialog(
       context: context,
@@ -360,32 +361,21 @@ class _SettingsPageState extends State<SettingsPage> {
                     return;
                   }
 
-                  try {
-                    final r = await http.get(
-                      Uri.parse('$_baseUrl/employees/$id'),
-                      headers: {'Authorization': 'Bearer ${a.token}'},
+                  if (neu.text.trim().length < 6) {
+                    ScaffoldMessenger.of(dc).showSnackBar(
+                      const SnackBar(
+                        content: Text('New password must be at least 6 characters'),
+                        backgroundColor: Colors.redAccent,
+                      ),
                     );
-                    if (r.statusCode == 200) {
-                      final b = jsonDecode(r.body);
-                      final d = Map<String, dynamic>.from(b['data'] ?? {});
-                      final serverPassword = d['password']?.toString() ?? '';
-
-                      if (cur.text.trim() != serverPassword) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(dc).showSnackBar(
-                            const SnackBar(
-                              content: Text('Incorrect current password!'),
-                              backgroundColor: Colors.redAccent,
-                            ),
-                          );
-                        }
-                        return;
-                      }
-                    }
-                  } catch (_) {}
-
+                    return;
+                  }
                   Navigator.pop(dc);
-                  await _saveProfile(passwordOverride: neu.text);
+                  // Wrong current password → the server says so (snack bar).
+                  await _saveProfile(
+                    passwordOverride: neu.text,
+                    currentPassword: cur.text.trim(),
+                  );
                 },
                 style: _buttonStyle(),
                 child: const Text('Change Password'),
@@ -476,6 +466,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           _security(mobile),
                           const SizedBox(height: 18),
                           const GoDigitalAppPreferences(),
+                          const SizedBox(height: 18),
+                          const NotificationSoundCard(),
                           const SizedBox(height: 24),
                           _actions(mobile),
                           const SizedBox(height: 18),

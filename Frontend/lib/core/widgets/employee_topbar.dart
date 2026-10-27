@@ -11,8 +11,8 @@ import '../constants/app_colors.dart';
 import '../constants/employee_role.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_config.dart';
+import '../../services/app_notification_center.dart';
 import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
-import 'package:godigital_portal/widgets/godigital_support_button.dart';
 
 class EmployeeTopbar extends StatefulWidget {
   final EmployeeRole role;
@@ -20,7 +20,6 @@ class EmployeeTopbar extends StatefulWidget {
   final VoidCallback? onOpenAssignedTasks;
   final VoidCallback? onTapWorkingHours;
   final VoidCallback? onOpenRunningTask;
-
   /// Tapping the running chip: gets the running item
   /// ({client, due_date, section: 'My Tasks' | 'Content Calendar', task_id, …})
   /// so the dashboard can open that client's workspace on that tab.
@@ -42,8 +41,7 @@ class EmployeeTopbar extends StatefulWidget {
   State<EmployeeTopbar> createState() => _EmployeeTopbarState();
 }
 
-class _EmployeeTopbarState extends State<EmployeeTopbar>
-    with TickerProviderStateMixin {
+class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStateMixin {
   Timer? _pollingTimer;
   int _unreadCount = 0;
   String? _latestMessage;
@@ -57,11 +55,10 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
   String formattedTotalWorkingTime = "00h 00m 00s";
 
   // ── Working hours + running task (server is the source of truth) ──
-  int _baseTotalSecs = 0; // seconds worked today when last fetched
-  DateTime _baseAt = DateTime.now(); // local time of that fetch
+  int _baseTotalSecs = 0;               // seconds worked today when last fetched
+  DateTime _baseAt = DateTime.now();    // local time of that fetch
   Duration _serverOffset = Duration.zero;
-  Map<String, dynamic>?
-  _running; // {trackingItemId, client, task, sessionStartedAt}
+  Map<String, dynamic>? _running;       // {trackingItemId, client, task, sessionStartedAt}
   Timer? _tickTimer;
 
   late AnimationController _rotateController;
@@ -74,6 +71,8 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
   @override
   void initState() {
     super.initState();
+    // This top bar alerts for the notifications list itself (no double sound).
+    AppNotificationCenter.layoutPollers++;
 
     _rotateController = AnimationController(
       vsync: this,
@@ -101,6 +100,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
 
   @override
   void dispose() {
+    AppNotificationCenter.layoutPollers--;
     _pollingTimer?.cancel();
     _tickTimer?.cancel();
     _popupTimer?.cancel();
@@ -116,234 +116,236 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     return ApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/api/?$'), '');
   }
 
-  // Future<void> _checkActiveBroadcast() async {
-  //     final authService = Provider.of<AuthService>(context, listen: false);
-  //     final employeeId = authService.user?['id'];
-  //     final employeeName =
-  //         authService.user?['fullName'] ?? authService.user?['name'] ?? '';
 
-  //     if (employeeId == null || employeeName.toString().trim().isEmpty) return;
 
-  //     try {
-  //       final response =
-  //           await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
+// Future<void> _checkActiveBroadcast() async {
+//     final authService = Provider.of<AuthService>(context, listen: false);
+//     final employeeId = authService.user?['id'];
+//     final employeeName =
+//         authService.user?['fullName'] ?? authService.user?['name'] ?? '';
 
-  //       if (response.statusCode != 200) return;
+//     if (employeeId == null || employeeName.toString().trim().isEmpty) return;
 
-  //       final data = jsonDecode(response.body) as Map<String, dynamic>;
+//     try {
+//       final response =
+//           await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
 
-  //       final bool isActive = data['isActive'] ?? false;
-  //       final bool newClientOn = data['newClientEnabled'] ?? true;
-  //       final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
-  //       final String adminMessage = (data['message'] ?? '').toString().trim();
-  //       final String severity =
-  //           (data['severity'] ?? 'Warning').toString().trim();
+//       if (response.statusCode != 200) return;
 
-  //       final dynamic targetEmpId = data['targetEmployeeId'];
-  //       final String dbBroadcastId = (data['id'] ?? 0).toString();
+//       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
-  //       if (!isActive) return;
+//       final bool isActive = data['isActive'] ?? false;
+//       final bool newClientOn = data['newClientEnabled'] ?? true;
+//       final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
+//       final String adminMessage = (data['message'] ?? '').toString().trim();
+//       final String severity =
+//           (data['severity'] ?? 'Warning').toString().trim();
 
-  //       if (targetEmpId != null &&
-  //           targetEmpId.toString() != employeeId.toString()) {
-  //         return;
-  //       }
+//       final dynamic targetEmpId = data['targetEmployeeId'];
+//       final String dbBroadcastId = (data['id'] ?? 0).toString();
 
-  //       final prefs = await SharedPreferences.getInstance();
+//       if (!isActive) return;
 
-  //       // 1. ADMIN MANUAL MESSAGE
-  //       if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
-  //         final manualKey = 'manual_agreed_$employeeId';
-  //         final savedMsg = prefs.getString(manualKey) ?? '';
+//       if (targetEmpId != null &&
+//           targetEmpId.toString() != employeeId.toString()) {
+//         return;
+//       }
 
-  //         // Puthu message-ah iruntha mattum thaan open aagum, same message-ku open aagathu
-  //         if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
-  //           _showBlueWhiteAgreePopup(
-  //             adminMessage,
-  //             severity,
-  //             manualKey,
-  //             adminMessage,
-  //             employeeId,
-  //           );
-  //           return;
-  //         }
-  //       }
+//       final prefs = await SharedPreferences.getInstance();
 
-  //       // 2. AUTOMATED CLIENT / TASK POPUPS
-  //       final summaryRes = await http.get(
-  //         Uri.parse(
-  //           '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
-  //         ),
-  //       );
+//       // 1. ADMIN MANUAL MESSAGE
+//       if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
+//         final manualKey = 'manual_agreed_$employeeId';
+//         final savedMsg = prefs.getString(manualKey) ?? '';
 
-  //       if (summaryRes.statusCode != 200) return;
+//         // Puthu message-ah iruntha mattum thaan open aagum, same message-ku open aagathu
+//         if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
+//           _showBlueWhiteAgreePopup(
+//             adminMessage,
+//             severity,
+//             manualKey,
+//             adminMessage,
+//             employeeId,
+//           );
+//           return;
+//         }
+//       }
 
-  //       final summaryData =
-  //           (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
+//       // 2. AUTOMATED CLIENT / TASK POPUPS
+//       final summaryRes = await http.get(
+//         Uri.parse(
+//           '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
+//         ),
+//       );
 
-  //       // 2A. New client task assigned
-  //       final newClientsList =
-  //           List<dynamic>.from(summaryData['newClientsList'] ?? []);
+//       if (summaryRes.statusCode != 200) return;
 
-  //       if (newClientOn && newClientsList.isNotEmpty) {
-  //         final clientNames = newClientsList
-  //             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
-  //             .where((name) => name.isNotEmpty)
-  //             .toSet()
-  //             .toList()
-  //           ..sort();
+//       final summaryData =
+//           (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
 
-  //         if (clientNames.isNotEmpty) {
-  //           final namesStr = clientNames.join(', ');
-  //           final triggerMsg =
-  //               'New client task assigned for: $namesStr. '
-  //               'Please check your task panel.';
+//       // 2A. New client task assigned
+//       final newClientsList =
+//           List<dynamic>.from(summaryData['newClientsList'] ?? []);
 
-  //           final newClientKey = 'new_client_agreed_$employeeId';
-  //           final savedNewClient = prefs.getString(newClientKey) ?? '';
+//       if (newClientOn && newClientsList.isNotEmpty) {
+//         final clientNames = newClientsList
+//             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+//             .where((name) => name.isNotEmpty)
+//             .toSet()
+//             .toList()
+//           ..sort();
 
-  //           if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
-  //             _showBlueWhiteAgreePopup(
-  //               triggerMsg,
-  //               'Information',
-  //               newClientKey,
-  //               namesStr,
-  //               employeeId,
-  //             );
-  //             return;
-  //           }
-  //         }
-  //       }
+//         if (clientNames.isNotEmpty) {
+//           final namesStr = clientNames.join(', ');
+//           final triggerMsg =
+//               'New client task assigned for: $namesStr. '
+//               'Please check your task panel.';
 
-  //       // 2B. Inactive client
-  //       final inactiveList =
-  //           List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
+//           final newClientKey = 'new_client_agreed_$employeeId';
+//           final savedNewClient = prefs.getString(newClientKey) ?? '';
 
-  //       if (inactiveClientOn && inactiveList.isNotEmpty) {
-  //         final clientNames = inactiveList
-  //             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
-  //             .where((name) => name.isNotEmpty)
-  //             .toSet()
-  //             .toList()
-  //           ..sort();
+//           if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
+//             _showBlueWhiteAgreePopup(
+//               triggerMsg,
+//               'Information',
+//               newClientKey,
+//               namesStr,
+//               employeeId,
+//             );
+//             return;
+//           }
+//         }
+//       }
 
-  //         if (clientNames.isNotEmpty) {
-  //           final namesStr = clientNames.join(', ');
-  //           final triggerMsg =
-  //               'Assigned client(s) marked inactive: $namesStr.';
+//       // 2B. Inactive client
+//       final inactiveList =
+//           List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
 
-  //           final inactiveKey = 'inactive_client_agreed_$employeeId';
-  //           final savedInactive = prefs.getString(inactiveKey) ?? '';
+//       if (inactiveClientOn && inactiveList.isNotEmpty) {
+//         final clientNames = inactiveList
+//             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+//             .where((name) => name.isNotEmpty)
+//             .toSet()
+//             .toList()
+//           ..sort();
 
-  //           if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
-  //             _showBlueWhiteAgreePopup(
-  //               triggerMsg,
-  //               'Information',
-  //               inactiveKey,
-  //               namesStr,
-  //               employeeId,
-  //             );
-  //             return;
-  //           }
-  //         }
-  //       }
-  //     } catch (e) {
-  //       debugPrint("Broadcast check error: $e");
-  //     }
-  //   }
+//         if (clientNames.isNotEmpty) {
+//           final namesStr = clientNames.join(', ');
+//           final triggerMsg =
+//               'Assigned client(s) marked inactive: $namesStr.';
 
-  //   void _showBlueWhiteAgreePopup(String message, String severity, String storageKey, String contentValue, dynamic employeeId) {
-  //     if (!mounted) return;
-  //     setState(() {
-  //       _isBroadcastPopupShowing = true;
-  //     });
+//           final inactiveKey = 'inactive_client_agreed_$employeeId';
+//           final savedInactive = prefs.getString(inactiveKey) ?? '';
 
-  //     showDialog(
-  //       context: context,
-  //       barrierDismissible: false,
-  //       builder: (BuildContext dialogContext) {
-  //         return PopScope(
-  //           canPop: false,
-  //           child: AlertDialog(
-  //             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-  //             contentPadding: EdgeInsets.zero,
-  //             content: Container(
-  //               width: 420,
-  //               padding: const EdgeInsets.all(24),
-  //               decoration: BoxDecoration(
-  //                 borderRadius: BorderRadius.circular(20),
-  //                 gradient: const LinearGradient(
-  //                   begin: Alignment.topCenter,
-  //                   end: Alignment.bottomCenter,
-  //                   colors: [Color(0xFFF0F5FF), Colors.white],
-  //                 ),
-  //               ),
-  //               child: Column(
-  //                 mainAxisSize: MainAxisSize.min,
-  //                 children: [
-  //                   Container(
-  //                     padding: const EdgeInsets.all(12),
-  //                     decoration: BoxDecoration(
-  //                       color: const Color(0xFF0757D5).withValues(alpha: 0.1),
-  //                       shape: BoxShape.circle,
-  //                     ),
-  //                     child: Icon(
-  //                       severity == 'Emergency'
-  //                           ? Icons.error_outline
-  //                           : severity == 'Warning'
-  //                               ? Icons.warning_amber_rounded
-  //                               : Icons.info_outline_rounded,
-  //                       color: const Color(0xFF0757D5),
-  //                       size: 32,
-  //                     ),
-  //                   ),
-  //                   const SizedBox(height: 14),
-  //                   Text(
-  //                     '$severity Alert',
-  //                     style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF04296B)),
-  //                   ),
-  //                   const SizedBox(height: 10),
-  //                   Text(
-  //                     message,
-  //                     textAlign: TextAlign.center,
-  //                     style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
-  //                   ),
-  //                   const SizedBox(height: 24),
-  //                   SizedBox(
-  //                     width: double.infinity,
-  //                     child: ElevatedButton(
-  //                       style: ElevatedButton.styleFrom(
-  //                         backgroundColor: const Color(0xFF0757D5),
-  //                         padding: const EdgeInsets.symmetric(vertical: 14),
-  //                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-  //                         elevation: 0,
-  //                       ),
-  //                       onPressed: () async {
-  //                         final prefs = await SharedPreferences.getInstance();
-  //                         // Indha specific message / client string-ah save seithu viduvathal, adutha murai same message-ku popup varaathu
-  //                         await prefs.setString(storageKey, contentValue);
+//           if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
+//             _showBlueWhiteAgreePopup(
+//               triggerMsg,
+//               'Information',
+//               inactiveKey,
+//               namesStr,
+//               employeeId,
+//             );
+//             return;
+//           }
+//         }
+//       }
+//     } catch (e) {
+//       debugPrint("Broadcast check error: $e");
+//     }
+//   }
 
-  //                         if (dialogContext.mounted) {
-  //                           Navigator.of(dialogContext).pop();
-  //                         }
-  //                         setState(() {
-  //                           _isBroadcastPopupShowing = false;
-  //                         });
-  //                       },
-  //                       child: const Text(
-  //                         'Agree',
-  //                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-  //                       ),
-  //                     ),
-  //                   ),
-  //                 ],
-  //               ),
-  //             ),
-  //           ),
-  //         );
-  //       },
-  //     );
-  //   }
+//   void _showBlueWhiteAgreePopup(String message, String severity, String storageKey, String contentValue, dynamic employeeId) {
+//     if (!mounted) return;
+//     setState(() {
+//       _isBroadcastPopupShowing = true;
+//     });
+
+//     showDialog(
+//       context: context,
+//       barrierDismissible: false,
+//       builder: (BuildContext dialogContext) {
+//         return PopScope(
+//           canPop: false,
+//           child: AlertDialog(
+//             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+//             contentPadding: EdgeInsets.zero,
+//             content: Container(
+//               width: 420,
+//               padding: const EdgeInsets.all(24),
+//               decoration: BoxDecoration(
+//                 borderRadius: BorderRadius.circular(20),
+//                 gradient: const LinearGradient(
+//                   begin: Alignment.topCenter,
+//                   end: Alignment.bottomCenter,
+//                   colors: [Color(0xFFF0F5FF), Colors.white],
+//                 ),
+//               ),
+//               child: Column(
+//                 mainAxisSize: MainAxisSize.min,
+//                 children: [
+//                   Container(
+//                     padding: const EdgeInsets.all(12),
+//                     decoration: BoxDecoration(
+//                       color: const Color(0xFF0757D5).withValues(alpha: 0.1),
+//                       shape: BoxShape.circle,
+//                     ),
+//                     child: Icon(
+//                       severity == 'Emergency' 
+//                           ? Icons.error_outline 
+//                           : severity == 'Warning' 
+//                               ? Icons.warning_amber_rounded 
+//                               : Icons.info_outline_rounded,
+//                       color: const Color(0xFF0757D5),
+//                       size: 32,
+//                     ),
+//                   ),
+//                   const SizedBox(height: 14),
+//                   Text(
+//                     '$severity Alert',
+//                     style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF04296B)),
+//                   ),
+//                   const SizedBox(height: 10),
+//                   Text(
+//                     message,
+//                     textAlign: TextAlign.center,
+//                     style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
+//                   ),
+//                   const SizedBox(height: 24),
+//                   SizedBox(
+//                     width: double.infinity,
+//                     child: ElevatedButton(
+//                       style: ElevatedButton.styleFrom(
+//                         backgroundColor: const Color(0xFF0757D5),
+//                         padding: const EdgeInsets.symmetric(vertical: 14),
+//                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+//                         elevation: 0,
+//                       ),
+//                       onPressed: () async {
+//                         final prefs = await SharedPreferences.getInstance();
+//                         // Indha specific message / client string-ah save seithu viduvathal, adutha murai same message-ku popup varaathu
+//                         await prefs.setString(storageKey, contentValue);
+
+//                         if (dialogContext.mounted) {
+//                           Navigator.of(dialogContext).pop();
+//                         }
+//                         setState(() {
+//                           _isBroadcastPopupShowing = false;
+//                         });
+//                       },
+//                       child: const Text(
+//                         'Agree',
+//                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+//                       ),
+//                     ),
+//                   ),
+//                 ],
+//               ),
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
 
   // Independent client-status broadcast checker.
   // Uses the existing blue-and-white Agree popup.
@@ -356,9 +358,9 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     try {
       final auth = Provider.of<AuthService>(context, listen: false);
       final employeeId = (auth.user?['id'] ?? '').toString();
-      final employeeName = (auth.user?['fullName'] ?? auth.user?['name'] ?? '')
-          .toString()
-          .trim();
+      final employeeName =
+          (auth.user?['fullName'] ?? auth.user?['name'] ?? '')
+              .toString().trim();
 
       if (employeeId.isEmpty || employeeName.isEmpty) return;
 
@@ -410,7 +412,8 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
         return;
       }
 
-      final oldStatuses = Map<String, dynamic>.from(jsonDecode(oldText) as Map);
+      final oldStatuses =
+          Map<String, dynamic>.from(jsonDecode(oldText) as Map);
 
       final pendingText = prefs.getString(pendingKey);
       final pending = pendingText == null
@@ -437,9 +440,9 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
           'eventId': eventId,
           'message': entry.value
               ? 'Your assigned client $clientName has been marked Active. '
-                    'Please review your assigned tasks.'
+                'Please review your assigned tasks.'
               : 'Your assigned client $clientName has been marked Inactive. '
-                    'Please review your assigned tasks.',
+                'Please review your assigned tasks.',
         });
       }
 
@@ -482,404 +485,399 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
       _clientStatusCheckRunning = false;
     }
   }
+Future<void> _checkActiveBroadcast() async {
+  final authService = Provider.of<AuthService>(context, listen: false);
+  final employeeId = authService.user?['id'];
+  final employeeName =
+      authService.user?['fullName'] ?? authService.user?['name'] ?? '';
 
-  Future<void> _checkActiveBroadcast() async {
-    final authService = Provider.of<AuthService>(context, listen: false);
-    final employeeId = authService.user?['id'];
-    final employeeName =
-        authService.user?['fullName'] ?? authService.user?['name'] ?? '';
+  if (employeeId == null || employeeName.toString().trim().isEmpty) return;
 
-    if (employeeId == null || employeeName.toString().trim().isEmpty) return;
+  try {
+    final response =
+        await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
 
-    try {
-      final response = await http.get(
-        Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'),
-      );
+    if (response.statusCode != 200) return;
 
-      if (response.statusCode != 200) return;
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final bool isActive = data['isActive'] ?? false;
+    final bool newClientOn = data['newClientEnabled'] ?? true;
+    final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
+    final String adminMessage = (data['message'] ?? '').toString().trim();
+    final String severity =
+        (data['severity'] ?? 'Warning').toString().trim();
 
-      final bool isActive = data['isActive'] ?? false;
-      final bool newClientOn = data['newClientEnabled'] ?? true;
-      final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
-      final String adminMessage = (data['message'] ?? '').toString().trim();
-      final String severity = (data['severity'] ?? 'Warning').toString().trim();
+    final dynamic targetEmpId = data['targetEmployeeId'];
+    final String dbBroadcastId = (data['id'] ?? 0).toString();
 
-      final dynamic targetEmpId = data['targetEmployeeId'];
-      final String dbBroadcastId = (data['id'] ?? 0).toString();
+    if (!isActive) return;
 
-      if (!isActive) return;
+    if (targetEmpId != null &&
+        targetEmpId.toString() != employeeId.toString()) {
+      return;
+    }
 
-      if (targetEmpId != null &&
-          targetEmpId.toString() != employeeId.toString()) {
+    final prefs = await SharedPreferences.getInstance();
+
+    // 1. ADMIN MANUAL MESSAGE
+    if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
+      final manualKey = 'manual_agreed_$employeeId';
+      final savedMsg = prefs.getString(manualKey) ?? '';
+
+      // Puthu message-ah iruntha mattum popup open aagum
+      if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
+        _showBlueWhiteAgreePopup(
+          adminMessage,
+          severity,
+          manualKey,
+          adminMessage,
+          employeeId,
+        );
         return;
       }
+    }
 
-      final prefs = await SharedPreferences.getInstance();
+    // 2. AUTOMATED CLIENT / TASK POPUPS
+    final summaryRes = await http.get(
+      Uri.parse(
+        '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
+      ),
+    );
 
-      // 1. ADMIN MANUAL MESSAGE
-      if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
-        final manualKey = 'manual_agreed_$employeeId';
-        final savedMsg = prefs.getString(manualKey) ?? '';
+    if (summaryRes.statusCode != 200) return;
 
-        // Puthu message-ah iruntha mattum popup open aagum
-        if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
+    final summaryData =
+        (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
+
+    // 2A. New client task assigned
+    final newClientsList =
+        List<dynamic>.from(summaryData['newClientsList'] ?? []);
+
+    if (newClientOn && newClientsList.isNotEmpty) {
+      final clientNames = newClientsList
+          .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+      if (clientNames.isNotEmpty) {
+        final namesStr = clientNames.join(', ');
+        final triggerMsg =
+            'New client task assigned for: $namesStr. '
+            'Please check your task panel.';
+
+        final newClientKey = 'new_client_agreed_$employeeId';
+        final savedNewClient = prefs.getString(newClientKey) ?? '';
+
+        if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
           _showBlueWhiteAgreePopup(
-            adminMessage,
-            severity,
-            manualKey,
-            adminMessage,
+            triggerMsg,
+            'Information',
+            newClientKey,
+            namesStr,
             employeeId,
           );
           return;
         }
       }
-
-      // 2. AUTOMATED CLIENT / TASK POPUPS
-      final summaryRes = await http.get(
-        Uri.parse(
-          '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
-        ),
-      );
-
-      if (summaryRes.statusCode != 200) return;
-
-      final summaryData =
-          (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
-
-      // 2A. New client task assigned
-      final newClientsList = List<dynamic>.from(
-        summaryData['newClientsList'] ?? [],
-      );
-
-      if (newClientOn && newClientsList.isNotEmpty) {
-        final clientNames =
-            newClientsList
-                .map((c) => (c['clientName'] ?? 'Client').toString().trim())
-                .where((name) => name.isNotEmpty)
-                .toSet()
-                .toList()
-              ..sort();
-
-        if (clientNames.isNotEmpty) {
-          final namesStr = clientNames.join(', ');
-          final triggerMsg =
-              'New client task assigned for: $namesStr. '
-              'Please check your task panel.';
-
-          final newClientKey = 'new_client_agreed_$employeeId';
-          final savedNewClient = prefs.getString(newClientKey) ?? '';
-
-          if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
-            _showBlueWhiteAgreePopup(
-              triggerMsg,
-              'Information',
-              newClientKey,
-              namesStr,
-              employeeId,
-            );
-            return;
-          }
-        }
-      }
-
-      // 2B. Inactive client
-      final inactiveList = List<dynamic>.from(
-        summaryData['inactiveTodayList'] ?? [],
-      );
-
-      if (inactiveClientOn && inactiveList.isNotEmpty) {
-        final clientNames =
-            inactiveList
-                .map((c) => (c['clientName'] ?? 'Client').toString().trim())
-                .where((name) => name.isNotEmpty)
-                .toSet()
-                .toList()
-              ..sort();
-
-        if (clientNames.isNotEmpty) {
-          final namesStr = clientNames.join(', ');
-          final triggerMsg = 'Assigned client(s) marked inactive: $namesStr.';
-
-          final inactiveKey = 'inactive_client_agreed_$employeeId';
-          final savedInactive = prefs.getString(inactiveKey) ?? '';
-
-          if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
-            _showBlueWhiteAgreePopup(
-              triggerMsg,
-              'Information',
-              inactiveKey,
-              namesStr,
-              employeeId,
-            );
-            return;
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint("Broadcast check error: $e");
     }
+
+    // 2B. Inactive client
+    final inactiveList =
+        List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
+
+    if (inactiveClientOn && inactiveList.isNotEmpty) {
+      final clientNames = inactiveList
+          .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+      if (clientNames.isNotEmpty) {
+        final namesStr = clientNames.join(', ');
+        final triggerMsg =
+            'Assigned client(s) marked inactive: $namesStr.';
+
+        final inactiveKey = 'inactive_client_agreed_$employeeId';
+        final savedInactive = prefs.getString(inactiveKey) ?? '';
+
+        if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
+          _showBlueWhiteAgreePopup(
+            triggerMsg,
+            'Information',
+            inactiveKey,
+            namesStr,
+            employeeId,
+          );
+          return;
+        }
+      }
+    }
+  } catch (e) {
+    debugPrint("Broadcast check error: $e");
   }
+}
 
-  // ============================================================
-  // BLUE + WHITE BROADCAST POPUP
-  // ============================================================
 
-  void _showBlueWhiteAgreePopup(
-    String message,
-    String severity,
-    String storageKey,
-    String contentValue,
-    dynamic employeeId,
-  ) {
-    if (!mounted) return;
+// ============================================================
+// BLUE + WHITE BROADCAST POPUP
+// ============================================================
 
-    setState(() {
-      _isBroadcastPopupShowing = true;
-    });
+void _showBlueWhiteAgreePopup(
+  String message,
+  String severity,
+  String storageKey,
+  String contentValue,
+  dynamic employeeId,
+) {
+  if (!mounted) return;
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return PopScope(
-          canPop: false,
-          child: AlertDialog(
-            shape: RoundedRectangleBorder(
+  setState(() {
+    _isBroadcastPopupShowing = true;
+  });
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext dialogContext) {
+      return PopScope(
+        canPop: false,
+        child: AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          contentPadding: EdgeInsets.zero,
+          content: Container(
+            width: 420,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
-            ),
-            contentPadding: EdgeInsets.zero,
-            content: Container(
-              width: 420,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFFF0F5FF), Colors.white],
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // ------------------------------------------------
-                  // ICON
-                  // ------------------------------------------------
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0757D5).withValues(alpha: 0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      severity == 'Emergency'
-                          ? Icons.error_outline
-                          : severity == 'Warning'
-                          ? Icons.warning_amber_rounded
-                          : Icons.info_outline_rounded,
-                      color: const Color(0xFF0757D5),
-                      size: 32,
-                    ),
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  // ------------------------------------------------
-                  // TITLE
-                  // ------------------------------------------------
-                  Text(
-                    '$severity Alert',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
-                      color: Color(0xFF04296B),
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  // ------------------------------------------------
-                  // MESSAGE WITH HIGHLIGHT
-                  // ------------------------------------------------
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    child: SelectableText.rich(
-                      TextSpan(children: _buildHighlightedMessage(message)),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        color: Color(0xFF475569),
-                        height: 1.5,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // ------------------------------------------------
-                  // AGREE BUTTON
-                  // ------------------------------------------------
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0757D5),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                      ),
-                      onPressed: () async {
-                        final prefs = await SharedPreferences.getInstance();
-
-                        // Same message / same client list-ku
-                        // next time popup varaama irukka save pannum.
-                        await prefs.setString(storageKey, contentValue);
-
-                        if (dialogContext.mounted) {
-                          Navigator.of(dialogContext).pop();
-                        }
-
-                        if (mounted) {
-                          setState(() {
-                            _isBroadcastPopupShowing = false;
-                          });
-                        }
-                      },
-                      child: const Text(
-                        'Agree',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                  ),
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFF0F5FF),
+                  Colors.white,
                 ],
               ),
             ),
-          ),
-        );
-      },
-    );
-  }
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ------------------------------------------------
+                // ICON
+                // ------------------------------------------------
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0757D5).withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    severity == 'Emergency'
+                        ? Icons.error_outline
+                        : severity == 'Warning'
+                            ? Icons.warning_amber_rounded
+                            : Icons.info_outline_rounded,
+                    color: const Color(0xFF0757D5),
+                    size: 32,
+                  ),
+                ),
 
-  // ============================================================
-  // MESSAGE HIGHLIGHTER
-  // ============================================================
+                const SizedBox(height: 14),
 
-  List<TextSpan> _buildHighlightedMessage(String message) {
-    final List<TextSpan> spans = [];
+                // ------------------------------------------------
+                // TITLE
+                // ------------------------------------------------
+                Text(
+                  '$severity Alert',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                    color: Color(0xFF04296B),
+                  ),
+                ),
 
-    final RegExp regex = RegExp(
-      r'https?:\/\/[^\s]+|'
-      r'@[A-Za-z0-9_.]+|'
-      r'\b(?:click here|click|here|important|urgent|'
-      r'action required|please note|warning|emergency|'
-      r'new client|task assigned|inactive)\b',
-      caseSensitive: false,
-    );
+                const SizedBox(height: 10),
 
-    final List<_HighlightPart> highlights = [];
+                // ------------------------------------------------
+                // MESSAGE WITH HIGHLIGHT
+                // ------------------------------------------------
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  child: SelectableText.rich(
+                    TextSpan(
+                      children: _buildHighlightedMessage(message),
+                    ),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      color: Color(0xFF475569),
+                      height: 1.5,
+                    ),
+                  ),
+                ),
 
-    // ---------------------------------------------
-    // Keyword / URL / @employee highlight
-    // ---------------------------------------------
-    for (final match in regex.allMatches(message)) {
-      highlights.add(_HighlightPart(start: match.start, end: match.end));
-    }
+                const SizedBox(height: 24),
 
-    // ---------------------------------------------
-    // Highlight value after ":"
-    //
-    // Example:
-    // Assigned client(s) marked inactive: JEYASRI HOSTAL.
-    //
-    // "JEYASRI HOSTAL" will also be highlighted.
-    // ---------------------------------------------
-    final colonIndex = message.indexOf(':');
+                // ------------------------------------------------
+                // AGREE BUTTON
+                // ------------------------------------------------
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0757D5),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    onPressed: () async {
+                      final prefs =
+                          await SharedPreferences.getInstance();
 
-    if (colonIndex != -1) {
-      final valueStart = colonIndex + 1;
+                      // Same message / same client list-ku
+                      // next time popup varaama irukka save pannum.
+                      await prefs.setString(
+                        storageKey,
+                        contentValue,
+                      );
 
-      final value = message.substring(valueStart).trim();
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop();
+                      }
 
-      if (value.isNotEmpty) {
-        final actualStart = message.indexOf(value, valueStart);
-
-        if (actualStart >= 0) {
-          highlights.add(
-            _HighlightPart(start: actualStart, end: actualStart + value.length),
-          );
-        }
-      }
-    }
-
-    // Sort
-    highlights.sort((a, b) => a.start.compareTo(b.start));
-
-    // Remove overlapping ranges
-    final List<_HighlightPart> cleanHighlights = [];
-
-    int lastEnd = -1;
-
-    for (final item in highlights) {
-      if (item.start >= lastEnd) {
-        cleanHighlights.add(item);
-        lastEnd = item.end;
-      }
-    }
-
-    // ---------------------------------------------
-    // Create TextSpans
-    // ---------------------------------------------
-    int lastIndex = 0;
-
-    for (final item in cleanHighlights) {
-      // Normal text
-      if (item.start > lastIndex) {
-        spans.add(
-          TextSpan(
-            text: message.substring(lastIndex, item.start),
-            style: const TextStyle(
-              color: Color(0xFF475569),
-              fontWeight: FontWeight.w500,
+                      if (mounted) {
+                        setState(() {
+                          _isBroadcastPopupShowing = false;
+                        });
+                      }
+                    },
+                    child: const Text(
+                      'Agree',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-        );
-      }
-
-      // Highlight
-      spans.add(
-        TextSpan(
-          text: message.substring(item.start, item.end),
-          style: const TextStyle(
-            color: Color(0xFF0757D5),
-            fontWeight: FontWeight.w900,
-            decoration: TextDecoration.underline,
-            decorationColor: Color(0xFF0757D5),
-            decorationThickness: 1.5,
           ),
         ),
       );
+    },
+  );
+}
 
-      lastIndex = item.end;
+
+// ============================================================
+// MESSAGE HIGHLIGHTER
+// ============================================================
+
+List<TextSpan> _buildHighlightedMessage(String message) {
+  final List<TextSpan> spans = [];
+
+  final RegExp regex = RegExp(
+    r'https?:\/\/[^\s]+|'
+    r'@[A-Za-z0-9_.]+|'
+    r'\b(?:click here|click|here|important|urgent|'
+    r'action required|please note|warning|emergency|'
+    r'new client|task assigned|inactive)\b',
+    caseSensitive: false,
+  );
+
+  final List<_HighlightPart> highlights = [];
+
+  // ---------------------------------------------
+  // Keyword / URL / @employee highlight
+  // ---------------------------------------------
+  for (final match in regex.allMatches(message)) {
+    highlights.add(
+      _HighlightPart(
+        start: match.start,
+        end: match.end,
+      ),
+    );
+  }
+
+  // ---------------------------------------------
+  // Highlight value after ":"
+  //
+  // Example:
+  // Assigned client(s) marked inactive: JEYASRI HOSTAL.
+  //
+  // "JEYASRI HOSTAL" will also be highlighted.
+  // ---------------------------------------------
+  final colonIndex = message.indexOf(':');
+
+  if (colonIndex != -1) {
+    final valueStart = colonIndex + 1;
+
+    final value = message
+        .substring(valueStart)
+        .trim();
+
+    if (value.isNotEmpty) {
+      final actualStart =
+          message.indexOf(value, valueStart);
+
+      if (actualStart >= 0) {
+        highlights.add(
+          _HighlightPart(
+            start: actualStart,
+            end: actualStart + value.length,
+          ),
+        );
+      }
     }
+  }
 
-    // Remaining text
-    if (lastIndex < message.length) {
+  // Sort
+  highlights.sort(
+    (a, b) => a.start.compareTo(b.start),
+  );
+
+  // Remove overlapping ranges
+  final List<_HighlightPart> cleanHighlights = [];
+
+  int lastEnd = -1;
+
+  for (final item in highlights) {
+    if (item.start >= lastEnd) {
+      cleanHighlights.add(item);
+      lastEnd = item.end;
+    }
+  }
+
+  // ---------------------------------------------
+  // Create TextSpans
+  // ---------------------------------------------
+  int lastIndex = 0;
+
+  for (final item in cleanHighlights) {
+    // Normal text
+    if (item.start > lastIndex) {
       spans.add(
         TextSpan(
-          text: message.substring(lastIndex),
+          text: message.substring(
+            lastIndex,
+            item.start,
+          ),
           style: const TextStyle(
             color: Color(0xFF475569),
             fontWeight: FontWeight.w500,
@@ -888,8 +886,41 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
       );
     }
 
-    return spans;
+    // Highlight
+    spans.add(
+      TextSpan(
+        text: message.substring(
+          item.start,
+          item.end,
+        ),
+        style: const TextStyle(
+          color: Color(0xFF0757D5),
+          fontWeight: FontWeight.w900,
+          decoration: TextDecoration.underline,
+          decorationColor: Color(0xFF0757D5),
+          decorationThickness: 1.5,
+        ),
+      ),
+    );
+
+    lastIndex = item.end;
   }
+
+  // Remaining text
+  if (lastIndex < message.length) {
+    spans.add(
+      TextSpan(
+        text: message.substring(lastIndex),
+        style: const TextStyle(
+          color: Color(0xFF475569),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  return spans;
+}
 
   void _connectNotificationSocket() {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -909,13 +940,11 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
         if (!mounted || payload is! Map) return;
         final recipient = payload['recipientName']?.toString() ?? '';
         final sender = payload['senderName']?.toString() ?? '';
-        final isGroup =
-            payload['isGroup'] == true ||
+        final isGroup = payload['isGroup'] == true ||
             payload['isGroup'] == 1 ||
             payload['isGroup']?.toString() == '1';
 
-        if (isGroup || recipient != employeeName || sender == employeeName)
-          return;
+        if (isGroup || recipient != employeeName || sender == employeeName) return;
 
         final id = int.tryParse(payload['id']?.toString() ?? '') ?? 0;
         if (id != 0 && _knownNotificationIds.contains(id)) return;
@@ -928,12 +957,9 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
         try {
           final decoded = jsonDecode(raw);
           if (decoded is Map) {
-            preview =
-                decoded['preview']?.toString() ??
+            preview = decoded['preview']?.toString() ??
                 decoded['text']?.toString() ??
-                (decoded['fileName'] != null
-                    ? '📎 ${decoded['fileName']}'
-                    : raw);
+                (decoded['fileName'] != null ? '📎 ${decoded['fileName']}' : raw);
           }
         } catch (_) {}
 
@@ -962,39 +988,25 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
   Future<void> _fetchTodayWorkingHours() async {
     if (!mounted) return;
     final authService = Provider.of<AuthService>(context, listen: false);
-    final employeeName =
-        authService.user?['fullName'] ??
-        authService.user?['name'] ??
-        authService.user?['username'];
+    final employeeName = authService.user?['fullName'] ?? authService.user?['name'] ?? authService.user?['username'];
     if (employeeName == null || employeeName.toString().isEmpty) return;
     try {
       final now = DateTime.now();
-      final formattedDate =
-          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final formattedDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
       // Running item (task or Content Calendar category) + today's total —
       // the same numbers My Tasks, Live Tracking and the Day Planner use.
-      final url = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/running')
-          .replace(
-            queryParameters: {
-              'employee': employeeName.toString(),
-              'date': formattedDate,
-            },
-          );
+      final url = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/running').replace(
+        queryParameters: {'employee': employeeName.toString(), 'date': formattedDate},
+      );
       final r = await http.get(url);
       if (r.statusCode == 200 && mounted) {
         final body = jsonDecode(r.body);
-        final serverNow = DateTime.tryParse(
-          (body['serverNow'] ?? '').toString(),
-        );
+        final serverNow = DateTime.tryParse((body['serverNow'] ?? '').toString());
         setState(() {
           _baseTotalSecs = (body['totalSecs'] as num?)?.toInt() ?? 0;
           _baseAt = DateTime.now();
-          _serverOffset = serverNow != null
-              ? serverNow.difference(DateTime.now())
-              : Duration.zero;
-          _running = body['running'] is Map
-              ? Map<String, dynamic>.from(body['running'] as Map)
-              : null;
+          _serverOffset = serverNow != null ? serverNow.difference(DateTime.now()) : Duration.zero;
+          _running = body['running'] is Map ? Map<String, dynamic>.from(body['running'] as Map) : null;
         });
         _recomputeWorkingDisplay();
       }
@@ -1015,8 +1027,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     final m = (total % 3600) ~/ 60;
     final sec = total % 60;
     // Runs live with seconds while something is in progress.
-    final text =
-        '${h.toString().padLeft(2, '0')}h ${m.toString().padLeft(2, '0')}m '
+    final text = '${h.toString().padLeft(2, '0')}h ${m.toString().padLeft(2, '0')}m '
         '${sec.toString().padLeft(2, '0')}s';
     if (_runningToday || text != formattedTotalWorkingTime) {
       setState(() => formattedTotalWorkingTime = text);
@@ -1030,9 +1041,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     if (base != null) {
       secs = base + DateTime.now().difference(_baseAt).inSeconds;
     } else {
-      final started = DateTime.tryParse(
-        (_running?['sessionStartedAt'] ?? '').toString(),
-      );
+      final started = DateTime.tryParse((_running?['sessionStartedAt'] ?? '').toString());
       if (started == null) return '00:00:00';
       secs = DateTime.now().add(_serverOffset).difference(started).inSeconds;
     }
@@ -1047,12 +1056,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     final running = _running;
     if (running == null) return;
     final token = Provider.of<AuthService>(context, listen: false).token ?? '';
-    await TaskActions.run(
-      context,
-      Map<String, dynamic>.from(running),
-      'hold',
-      token: token,
-    );
+    await TaskActions.run(context, Map<String, dynamic>.from(running), 'hold', token: token);
     await _fetchTodayWorkingHours();
   }
 
@@ -1096,24 +1100,13 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF14532D),
-                      ),
-                    ),
-                    Text(
-                      _runningTimerText(),
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFF166534),
-                      ),
-                    ),
-
-                    
+                    Text(title,
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF14532D))),
+                    Text(stale ? staleText : _runningTimerText(),
+                        style: TextStyle(
+                            fontSize: stale ? 10 : 11.5,
+                            fontWeight: FontWeight.w900,
+                            color: stale ? const Color(0xFFB91C1C) : const Color(0xFF166534))),
                   ],
                 ),
                 const SizedBox(width: 8),
@@ -1121,22 +1114,13 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                   onTap: _holdRunningTask,
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF3C7),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Text(
-                      'Hold',
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w900,
-                        color: Color(0xFFB45309),
-                      ),
-                    ),
+                    child: const Text('Hold',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFFB45309))),
                   ),
                 ),
               ],
@@ -1150,13 +1134,11 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
   Future<void> _checkNewNotifications() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     final employeeName = authService.user?['fullName'];
-
+    
     if (employeeName == null || employeeName.isEmpty) return;
 
     try {
-      final url = Uri.parse(
-        '${ApiConfig.baseUrl}/notifications/${Uri.encodeComponent(employeeName)}',
-      );
+      final url = Uri.parse('${ApiConfig.baseUrl}/notifications/${Uri.encodeComponent(employeeName)}');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -1173,19 +1155,13 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
           currentIds.add(id);
 
           bool isSentByMe = row["type"] == "SENT";
-          bool isSeen =
-              row["isSeen"] == true ||
-              row["isSeen"] == 1 ||
-              row["isSeen"].toString() == "true";
+          bool isSeen = row["isSeen"] == true || row["isSeen"] == 1 || row["isSeen"].toString() == "true";
 
           if (!isSentByMe && !isSeen) {
             unread++;
           }
 
-          if (_knownNotificationIds.isNotEmpty &&
-              !_knownNotificationIds.contains(id) &&
-              !isSentByMe &&
-              !isSeen) {
+          if (_knownNotificationIds.isNotEmpty && !_knownNotificationIds.contains(id) && !isSentByMe && !isSeen) {
             hasNewNotification = true;
             try {
               final decoded = jsonDecode(row["message"]);
@@ -1206,7 +1182,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
           }
         });
 
-        if (hasNewNotification) {
+         if (hasNewNotification) {
           _playNotificationSound();
           _triggerTopRightPopup(latestMsgText ?? "You have a new notification");
         }
@@ -1224,7 +1200,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     }
   }
 
-  void _triggerTopRightPopup(String message) {
+   void _triggerTopRightPopup(String message) {
     setState(() {
       _latestMessage = message;
       _showPopup = true;
@@ -1240,7 +1216,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
     });
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     final bool isDesktop = MediaQuery.of(context).size.width >= 900;
     final bool isSmallMobile = MediaQuery.of(context).size.width < 450;
@@ -1255,7 +1231,9 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
             padding: EdgeInsets.symmetric(horizontal: isSmallMobile ? 8 : 18),
             decoration: const BoxDecoration(
               color: Colors.white,
-              border: Border(bottom: BorderSide(color: AppColors.border)),
+              border: Border(
+                bottom: BorderSide(color: AppColors.border),
+              ),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -1263,10 +1241,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                 if (!isDesktop) ...[
                   Builder(
                     builder: (ctx) => IconButton(
-                      icon: const Icon(
-                        Icons.menu_rounded,
-                        color: AppColors.textDark,
-                      ),
+                      icon: const Icon(Icons.menu_rounded, color: AppColors.textDark),
                       onPressed: () => Scaffold.of(ctx).openDrawer(),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
@@ -1288,11 +1263,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                       child: Row(
                         children: [
                           const SizedBox(width: 8),
-                          const Icon(
-                            Icons.search,
-                            size: 16,
-                            color: AppColors.textGrey,
-                          ),
+                          const Icon(Icons.search, size: 16, color: AppColors.textGrey),
                           const SizedBox(width: 6),
                           Expanded(
                             child: TextField(
@@ -1302,20 +1273,18 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                                 widget.onSearch?.call(value);
                               },
                               decoration: const InputDecoration(
-                                // GD_EMPLOYEE_SINGLE_SEARCH_BOX
-                                filled: false,
-                                fillColor: Colors.transparent,
+                                hintText: 'Search client name…',
+                                hintStyle: TextStyle(fontSize: 12, color: AppColors.textGrey),
+                                // No theme box: no blue focus line, no white fill.
                                 border: InputBorder.none,
                                 enabledBorder: InputBorder.none,
                                 focusedBorder: InputBorder.none,
                                 disabledBorder: InputBorder.none,
                                 errorBorder: InputBorder.none,
                                 focusedErrorBorder: InputBorder.none,
-                                hintText: 'Search client name…',
-                                hintStyle: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textGrey,
-                                ),
+                                filled: false,
+                                fillColor: Colors.transparent,
+                                hoverColor: Colors.transparent,
                                 isDense: true,
                                 contentPadding: EdgeInsets.zero,
                               ),
@@ -1323,16 +1292,9 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                           ),
                           if (_searchController.text.isNotEmpty)
                             IconButton(
-                              icon: const Icon(
-                                Icons.close,
-                                size: 16,
-                                color: AppColors.textGrey,
-                              ),
+                              icon: const Icon(Icons.close, size: 16, color: AppColors.textGrey),
                               padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                minWidth: 30,
-                                minHeight: 30,
-                              ),
+                              constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
                               onPressed: () {
                                 _searchController.clear();
                                 widget.onSearch?.call('');
@@ -1345,7 +1307,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                     ),
                   ),
                 ),
-
+                
                 const SizedBox(width: 8),
 
                 MouseRegion(
@@ -1374,17 +1336,12 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                       widget.onTapWorkingHours?.call();
                     },
                     child: AnimatedBuilder(
-                      animation: Listenable.merge([
-                        _rotateController,
-                        _glowAnimation,
-                      ]),
+                      animation: Listenable.merge([_rotateController, _glowAnimation]),
                       builder: (context, child) {
-                        final double angle = _isPaused
-                            ? 0.0
+                        final double angle = _isPaused 
+                            ? 0.0 
                             : _rotateController.value * 2 * 3.141592653589793;
-                        final bool isBackSide =
-                            angle > (3.141592653589793 / 2) &&
-                            angle < (3 * 3.141592653589793 / 2);
+                        final bool isBackSide = angle > (3.141592653589793 / 2) && angle < (3 * 3.141592653589793 / 2);
                         final double currentGlow = _glowAnimation.value;
 
                         return Transform(
@@ -1402,16 +1359,12 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                                 boxShadow: [
                                   // Soft, readable glow (deep blue / violet).
                                   BoxShadow(
-                                    color: const Color(
-                                      0xFF1D4ED8,
-                                    ).withValues(alpha: 0.22),
+                                    color: const Color(0xFF1D4ED8).withValues(alpha: 0.22),
                                     blurRadius: currentGlow * 1.2,
                                     spreadRadius: currentGlow * 0.15,
                                   ),
                                   BoxShadow(
-                                    color: const Color(
-                                      0xFF7C3AED,
-                                    ).withValues(alpha: 0.16),
+                                    color: const Color(0xFF7C3AED).withValues(alpha: 0.16),
                                     blurRadius: currentGlow * 1.6,
                                     spreadRadius: currentGlow * 0.1,
                                   ),
@@ -1429,17 +1382,13 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                           onTap: () {},
                           child: CustomPaint(
                             painter: MovingNeonBorderPainter(
-                              animationValue: _isPaused
-                                  ? 0.0
-                                  : _rotateController.value,
+                              animationValue: _isPaused ? 0.0 : _rotateController.value,
                               borderRadius: BorderRadius.circular(8),
                               strokeWidth: 2.5,
                             ),
                             child: Container(
                               height: 38,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
                               decoration: BoxDecoration(
                                 color: const Color.fromARGB(0, 14, 65, 141),
                                 borderRadius: BorderRadius.circular(8),
@@ -1447,11 +1396,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(
-                                    Icons.bolt_rounded,
-                                    size: 16,
-                                    color: Color(0xFFD97706),
-                                  ),
+                                  const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFD97706)),
                                   const SizedBox(width: 4),
                                   ShaderMask(
                                     shaderCallback: (bounds) {
@@ -1465,26 +1410,12 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                                           Color(0xFF0F766E),
                                           Color(0xFF0A3D91),
                                         ],
-                                        stops: const [
-                                          0.0,
-                                          0.25,
-                                          0.5,
-                                          0.75,
-                                          1.0,
-                                        ],
-                                        transform: GradientRotation(
-                                          _isPaused
-                                              ? 0.0
-                                              : _rotateController.value *
-                                                    2 *
-                                                    3.141592653589793,
-                                        ),
+                                        stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
+                                        transform: GradientRotation(_isPaused ? 0.0 : _rotateController.value * 2 * 3.141592653589793),
                                       ).createShader(bounds);
                                     },
                                     child: Text(
-                                      isSmallMobile
-                                          ? "Today: $formattedTotalWorkingTime"
-                                          : "Today Working Hours: $formattedTotalWorkingTime",
+                                      isSmallMobile ? "Today: $formattedTotalWorkingTime" : "Today Working Hours: $formattedTotalWorkingTime",
                                       style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w900,
@@ -1504,15 +1435,11 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                 ),
                 if (!isSmallMobile) _buildRunningChip(),
                 const SizedBox(width: 8),
-
+                
                 Stack(
                   children: [
                     IconButton(
-                      icon: const Icon(
-                        Icons.notifications_none_rounded,
-                        size: 20,
-                        color: AppColors.textDark,
-                      ),
+                      icon: const Icon(Icons.notifications_none_rounded, size: 20, color: AppColors.textDark),
                       onPressed: widget.onOpenNotifications,
                       padding: const EdgeInsets.all(4),
                       constraints: const BoxConstraints(),
@@ -1527,43 +1454,20 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                             color: Colors.red,
                             shape: BoxShape.circle,
                           ),
-                          constraints: const BoxConstraints(
-                            minWidth: 16,
-                            minHeight: 16,
-                          ),
+                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                           child: Text(
                             '$_unreadCount',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
                             textAlign: TextAlign.center,
                           ),
                         ),
                       ),
                   ],
                 ),
-
+                
                 if (!isSmallMobile) ...[
                   const SizedBox(width: 16),
-                  GoDigitalSupportButton(
-                    triggerBuilder: (toggleSupport) => IconButton(
-                      icon: const Icon(
-                        Icons.help_outline_rounded,
-                        size: 18,
-                        color: AppColors.textDark,
-                      ),
-                      tooltip: 'Contact Support',
-                      onPressed: toggleSupport,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 24,
-                        minHeight: 24,
-                      ),
-                      splashRadius: 20,
-                    ),
-                  ),
+                  const Icon(Icons.help_outline_rounded, size: 18, color: AppColors.textDark),
                   const SizedBox(width: 16),
                   Container(height: 30, width: 1, color: AppColors.border),
                   const SizedBox(width: 14),
@@ -1574,16 +1478,10 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                     final user = authService.user;
                     final employeeName = user?['fullName'] ?? 'Employee';
                     final employeeRole = user?['role'] ?? widget.role.title;
-                    final initials =
-                        user?['initials'] ?? _generateInitials(employeeName);
+                    final initials = user?['initials'] ?? _generateInitials(employeeName);
 
-                    final String? profilePhoto =
-                        user?['profile_photo']?.toString() ??
-                        user?['profilePhoto']?.toString();
-                    final String avatarColorHex =
-                        user?['avatar_color']?.toString() ??
-                        user?['avatarColor']?.toString() ??
-                        '';
+                    final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
+                    final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
 
                     Color avatarColor = AppColors.primary;
                     if (avatarColorHex.isNotEmpty) {
@@ -1596,9 +1494,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                     ImageProvider? profileImage;
                     if (profilePhoto != null && profilePhoto.isNotEmpty) {
                       try {
-                        profileImage = MemoryImage(
-                          base64Decode(profilePhoto.split(',').last),
-                        );
+                        profileImage = MemoryImage(base64Decode(profilePhoto.split(',').last));
                       } catch (_) {}
                     }
 
@@ -1610,14 +1506,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                           backgroundColor: avatarColor,
                           backgroundImage: profileImage,
                           child: profileImage == null
-                              ? Text(
-                                  initials,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                )
+                              ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))
                               : null,
                         ),
                         itemBuilder: (context) => [
@@ -1626,22 +1515,9 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  employeeName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: AppColors.textDark,
-                                  ),
-                                ),
+                                Text(employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark)),
                                 const SizedBox(height: 2),
-                                Text(
-                                  employeeRole,
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.textGrey,
-                                  ),
-                                ),
+                                Text(employeeRole, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
                               ],
                             ),
                           ),
@@ -1657,19 +1533,11 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                           children: [
                             Text(
                               employeeName,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textDark,
-                              ),
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
                             ),
                             Text(
                               employeeRole,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textGrey,
-                              ),
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
                             ),
                           ],
                         ),
@@ -1681,11 +1549,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                           child: profileImage == null
                               ? Text(
                                   initials,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
                                 )
                               : null,
                         ),
@@ -1711,44 +1575,26 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(8),
                     boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.15),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
-                      ),
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 10, offset: const Offset(0, 4)),
                     ],
                     border: Border.all(color: AppColors.primary, width: 1),
                   ),
                   child: Row(
                     children: [
-                      const Icon(
-                        Icons.notifications_active_rounded,
-                        color: AppColors.primary,
-                        size: 22,
-                      ),
+                      const Icon(Icons.notifications_active_rounded, color: AppColors.primary, size: 22),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text(
-                              "New Notification",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                                color: AppColors.textDark,
-                              ),
-                            ),
+                            const Text("New Notification", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textDark)),
                             const SizedBox(height: 2),
                             Text(
                               _latestMessage ?? "",
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.textGrey,
-                              ),
+                              style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
                             ),
                           ],
                         ),
@@ -1762,7 +1608,7 @@ class _EmployeeTopbarState extends State<EmployeeTopbar>
       ),
     );
   }
-
+ 
   String _generateInitials(String name) {
     if (name.isEmpty) return '?';
     final parts = name.trim().split(' ');
@@ -1823,5 +1669,8 @@ class _HighlightPart {
   final int start;
   final int end;
 
-  _HighlightPart({required this.start, required this.end});
+  _HighlightPart({
+    required this.start,
+    required this.end,
+  });
 }

@@ -5,6 +5,8 @@ import 'package:godigital_portal/core/constants/employee_role.dart';
 import 'package:godigital_portal/core/widgets/employee_sidebar.dart';
 import 'package:godigital_portal/core/widgets/employee_topbar.dart';
 import 'package:godigital_portal/services/auth_service.dart';
+import 'package:godigital_portal/services/push_notification_service.dart';
+import 'package:godigital_portal/services/app_notification_center.dart';
 
 import 'package:godigital_portal/screens/employee_dashboard/designer_dashboard_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/ads_handler_dashboard_page.dart';
@@ -164,6 +166,23 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
   void initState() {
     super.initState();
     loadMenu();
+    // Mobile push: link this phone to the logged-in employee, and open the
+    // Chat page when a chat notification is tapped.
+    PushNotificationService.onOpen = _openFromPush;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final user = context.read<AuthService>().user;
+      // App-wide alerts on every page + phone push (registers the phone too).
+      AppNotificationCenter.instance.start(context, user?['fullName']?.toString());
+    });
+  }
+
+  void _openFromPush(Map<String, dynamic> data) {
+    if (!mounted) return;
+    final type = data['type']?.toString() ?? '';
+    if (type == 'chat' || type == 'group' || type == 'client_group') {
+      saveMenu('Chat');
+    }
   }
 
   EmployeeRole _getRoleFromString(String? roleString) {

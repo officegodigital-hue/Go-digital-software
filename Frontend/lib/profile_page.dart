@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/api_config.dart';
+import 'package:godigital_portal/services/push_notification_service.dart';
+import 'package:godigital_portal/services/app_notification_center.dart';
 
 const List<String> _avatarColorOptions = [
   '#4F46E5', '#0EA5E9', '#16A34A', '#D97706',
@@ -515,6 +517,8 @@ class _ProfilePageState extends State<ProfilePage> {
               if (value == 'workspace') {
                 Navigator.of(context, rootNavigator: true).pushNamedAndRemoveUntil('/home', (route) => false);
               } else if (value == 'logout') {
+                AppNotificationCenter.instance.stop();
+                PushNotificationService.instance.unregister();
                 authService.logout();
                 Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
               }

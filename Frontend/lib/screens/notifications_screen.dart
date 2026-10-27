@@ -13,6 +13,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:audioplayers/audioplayers.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_config.dart';
+import '../../services/push_notification_service.dart';
 import '../../layouts/admin_layout.dart'; // 🟢 Correct relative path to AdminLayout
 
 
@@ -218,6 +219,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   @override
   void initState() {
     super.initState();
+    // This page plays its own sound — no duplicate phone pop-up while open.
+    PushNotificationService.chatScreenOpen = true;
     _messageController.addListener(_onMessageChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -274,6 +277,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   void dispose() {
+    PushNotificationService.chatScreenOpen = false;
     _messageController.removeListener(_onMessageChanged);
     _messageController.dispose();
     _searchController.dispose();
@@ -5666,3 +5670,5 @@ class _ChatBackdropPainter extends CustomPainter {
         oldDelegate.secondary != secondary;
   }
 }
+
+
