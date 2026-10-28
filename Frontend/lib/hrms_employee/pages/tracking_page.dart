@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -214,11 +214,14 @@ class _TrackingViewState extends State<_TrackingView> {
       final route = await HrmsTrackingApi.myRoute(
         date: DateFormat('yyyy-MM-dd').format(_routeDate),
       );
-      final routePoints = (route['points'] as List? ?? [])
-          .whereType<Map>()
-          .map((item) => _RoutePoint.fromJson(Map<String, dynamic>.from(item)))
-          .where((point) => point.latitude != 0 && point.longitude != 0)
-          .toList();
+      final routePoints =
+          (route['routePoints'] as List? ?? route['points'] as List? ?? [])
+              .whereType<Map>()
+              .map(
+                (item) => _RoutePoint.fromJson(Map<String, dynamic>.from(item)),
+              )
+              .where((point) => point.latitude != 0 && point.longitude != 0)
+              .toList();
       final routeActivities = (route['activities'] as List? ?? [])
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))

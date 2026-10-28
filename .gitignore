@@ -2,6 +2,7 @@
 # Backend
 backend/node_modules/
 backend/.env
+Frontend/web/maps-config.js
 
 # Flutter
 .dart_tool/

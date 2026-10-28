@@ -201,6 +201,8 @@ async function list(req, res) {
 const ACTIVE_WINDOW_MINUTES = 15;
 const GEOCODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h; rounded coords repeat a lot
 const geocodeCache = new Map();
+const routeCache = new Map();
+const ROUTE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function roundCoord(value) {
   return Math.round(Number(value) * 10000) / 10000; // ~11m precision
@@ -277,6 +279,124 @@ function distanceMeters(lat1, lng1, lat2, lng2) {
       Math.sin(dLng / 2);
 
   return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function decodeGooglePolyline(encoded) {
+  const points = [];
+  let index = 0;
+  let latitude = 0;
+  let longitude = 0;
+
+  while (index < encoded.length) {
+    let result = 0;
+    let shift = 0;
+    let value;
+    do {
+      value = encoded.charCodeAt(index++) - 63;
+      result |= (value & 0x1f) << shift;
+      shift += 5;
+    } while (value >= 0x20 && index < encoded.length);
+    latitude += result & 1 ? ~(result >> 1) : result >> 1;
+
+    result = 0;
+    shift = 0;
+    do {
+      value = encoded.charCodeAt(index++) - 63;
+      result |= (value & 0x1f) << shift;
+      shift += 5;
+    } while (value >= 0x20 && index < encoded.length);
+    longitude += result & 1 ? ~(result >> 1) : result >> 1;
+
+    points.push({ latitude: latitude / 1e5, longitude: longitude / 1e5 });
+  }
+  return points;
+}
+
+function routeWaypoints(points, maximum = 25) {
+  if (points.length <= maximum) return points;
+  const selected = [];
+  for (let index = 0; index < maximum; index += 1) {
+    selected.push(points[Math.round(index * (points.length - 1) / (maximum - 1))]);
+  }
+  return selected;
+}
+
+function durationSeconds(value) {
+  const match = String(value || '').match(/([0-9.]+)s/);
+  return match ? Math.round(Number(match[1])) : 0;
+}
+
+function rawRouteSummary(points) {
+  if (points.length < 2) return { distanceMeters: 0, durationSeconds: 0 };
+  let totalDistance = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    totalDistance += distanceMeters(
+      points[index - 1].latitude,
+      points[index - 1].longitude,
+      points[index].latitude,
+      points[index].longitude
+    );
+  }
+  const first = new Date(points[0].recordedAt).getTime();
+  const last = new Date(points[points.length - 1].recordedAt).getTime();
+  return {
+    distanceMeters: Math.round(totalDistance),
+    durationSeconds: Number.isFinite(first) && Number.isFinite(last)
+      ? Math.max(0, Math.round((last - first) / 1000))
+      : 0,
+  };
+}
+
+async function roadRoute(points, cacheKey) {
+  if (points.length < 2) return null;
+
+  const cached = routeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+  const apiKey = process.env.GOOGLE_ROUTES_API_KEY;
+  if (!apiKey) return null;
+
+  const selected = routeWaypoints(points);
+  const toWaypoint = (point) => ({
+    location: { latLng: { latitude: Number(point.latitude), longitude: Number(point.longitude) } },
+  });
+  try {
+    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
+      },
+      body: JSON.stringify({
+        origin: toWaypoint(selected[0]),
+        destination: toWaypoint(selected[selected.length - 1]),
+        intermediates: selected.slice(1, -1).map(toWaypoint),
+        travelMode: 'DRIVE',
+        routingPreference: 'TRAFFIC_UNAWARE',
+        polylineQuality: 'HIGH_QUALITY',
+      }),
+    });
+    if (!response.ok) {
+      console.error('Road route request failed', response.status, await response.text());
+      return null;
+    }
+    const data = await response.json();
+    const route = data.routes && data.routes[0];
+    const encoded = route && route.polyline && route.polyline.encodedPolyline;
+    if (!encoded) return null;
+
+    const value = {
+      points: decodeGooglePolyline(encoded),
+      distanceMeters: Number(route.distanceMeters || 0),
+      durationSeconds: durationSeconds(route.duration),
+    };
+    routeCache.set(cacheKey, { value: value, expiresAt: Date.now() + ROUTE_CACHE_TTL_MS });
+    return value;
+  } catch (error) {
+    console.error('Road route request failed', error.message);
+    return null;
+  }
 }
 
 async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
@@ -597,17 +717,44 @@ async function routeHistory(req, res) {
       [employeeUserId, date]
     );
 
+    const activities = pings.map(function (row) {
+      return {
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        placeName: row.address || null,
+        address: row.address || null,
+        recordedAt: row.recorded_at,
+      };
+    });
+    const validRoutePoints = activities.filter(function (point) {
+      return Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
+        && Math.abs(point.latitude) <= 90 && Math.abs(point.longitude) <= 180
+        && point.latitude !== 0 && point.longitude !== 0;
+    });
+    const cacheKey = [
+      employeeUserId,
+      date,
+      pings.length,
+      pings.length ? pings[pings.length - 1].recorded_at : '',
+    ].join(':');
+    const mappedRoute = await roadRoute(validRoutePoints, cacheKey);
+    const fallbackSummary = rawRouteSummary(validRoutePoints);
+    const routePoints = mappedRoute ? mappedRoute.points : validRoutePoints;
+    const totalDistance = mappedRoute ? mappedRoute.distanceMeters : fallbackSummary.distanceMeters;
+    const totalDuration = mappedRoute ? mappedRoute.durationSeconds : fallbackSummary.durationSeconds;
+
     return ok(res, {
       employeeUserId: employeeUserId,
       date: date,
-      points: pings.map(function (row) {
-        return {
-          latitude: Number(row.latitude),
-          longitude: Number(row.longitude),
-          address: row.address,
-          recordedAt: row.recorded_at,
-        };
-      }),
+      // Keep raw pings for activity history, and provide road geometry for maps.
+      points: activities,
+      activities: activities,
+      routePoints: routePoints,
+      distanceMeters: totalDistance,
+      durationSeconds: totalDuration,
+      averageSpeedKmh: totalDuration > 0
+        ? Number(((totalDistance / totalDuration) * 3.6).toFixed(1))
+        : 0,
     });
   } catch (error) {
     console.error('GET /hrms/tracking/route/:employeeUserId', error);

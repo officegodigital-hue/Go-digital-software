@@ -38,3 +38,22 @@ test('payslip download reads the shared admin approval and scopes to employee',a
  approval='approved';res=response();await controller.download(req,res);assert.equal(res.code,200);assert.equal(generated,1);
  assert.deepEqual(Array.from(params),[10,7]);
 });
+test('a rejected payslip request creates a new pending approval request', async () => {
+ const calls=[];
+ const controller=load('hrmsPayslipController',{
+  '../config/db':{query:async(sql,params)=>{
+   calls.push({sql,params});
+   if(sql.includes('SELECT id, pay_year, pay_month'))return [[{id:10,pay_year:2026,pay_month:10}]];
+   if(sql.includes('SELECT request.id AS payslip_request_id'))return [[{payslip_request_id:41,status:'rejected'}]];
+   if(sql.includes('INSERT INTO attendance_permission_requests'))return [{insertId:88}];
+   return [[]];
+  }},
+  '../lib/payslipPdf':{buildPayslipPdf:async()=>Buffer.from('%PDF-test')},
+ });
+ const res=response();
+ await controller.request({params:{payrollId:10},user:{id:7}},res);
+ assert.equal(res.code,200);
+ assert.equal(res.body.data.status,'pending');
+ const relink=calls.find(call=>call.sql.includes('UPDATE hrms_payslip_approval_links'));
+ assert.deepEqual(Array.from(relink.params),[88,41]);
+});

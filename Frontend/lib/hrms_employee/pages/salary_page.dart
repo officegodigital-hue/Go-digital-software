@@ -418,15 +418,17 @@ class _LivePayslipRowState extends State<_LivePayslipRow> {
   String get status => '${widget.item['request_status']}';
   String get month => '${widget.item['pay_month']}/${widget.item['pay_year']}';
   Future<void> download(BuildContext context) async {
-    if (status == 'not_requested') {
-      final confirm = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(title: const Text('Send payslip request?'), content: const Text('Send this download request to Admin for approval?'), actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Send request'))]));
+    final canRequest = status == 'not_requested' || status == 'rejected';
+    if (canRequest) {
+      final retrying = status == 'rejected';
+      final confirm = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(title: Text(retrying ? 'Send payslip request again?' : 'Send payslip request?'), content: Text(retrying ? 'Your previous request was rejected. Send a new download request to Admin?' : 'Send this download request to Admin for approval?'), actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Send request'))]));
       if (confirm != true || !mounted || !context.mounted) return;
     }
     setState(() => busy = true);
     try {
       if (status == 'approved') { await HrmsPayslipApi.download(int.parse('${widget.item['id']}')); if (!context.mounted) return; ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payslip download started.'))); }
-      else if (status == 'not_requested') { await HrmsPayslipApi.request(int.parse('${widget.item['id']}')); widget.onChanged(); }
-      else { if (!context.mounted) return; ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(status == 'rejected' ? 'Your request was rejected.' : 'Your request is awaiting Admin approval.'))); }
+      else if (canRequest) { await HrmsPayslipApi.request(int.parse('${widget.item['id']}')); widget.onChanged(); }
+      else { if (!context.mounted) return; ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your request is awaiting Admin approval.'))); }
     } catch (e) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', '')))); }
     finally { if (mounted) setState(() => busy = false); }
   }

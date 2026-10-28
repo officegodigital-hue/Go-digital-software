@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-test('web entry loads Flutter only once with or without Maps', () => {
+test('web entry loads Flutter only once with or without Maps', async () => {
   const html = fs.readFileSync(path.join(__dirname, '../web/index.html'), 'utf8');
   assert.doesNotMatch(html, /<script[^>]+src=["']flutter_bootstrap\.js/);
   const source = html.match(/<script>\s*([\s\S]*?)<\/script>/)[1];
@@ -12,7 +12,13 @@ test('web entry loads Flutter only once with or without Maps', () => {
     const scripts = [];
     let maps;
     const context = {
-      window: mapsEnabled ? {googleMapsApiKey: 'test-key'} : {},
+      window: {location: {hostname: 'localhost'}},
+      fetch: () => Promise.resolve({
+        ok: mapsEnabled,
+        text: () => Promise.resolve(
+          mapsEnabled ? "window.googleMapsApiKey = 'test-key';" : '',
+        ),
+      }),
       document: {
         createElement: () => ({}),
         body: {appendChild: script => scripts.push(script)},
@@ -20,6 +26,7 @@ test('web entry loads Flutter only once with or without Maps', () => {
       },
     };
     vm.runInNewContext(source, context);
+    await new Promise(resolve => setImmediate(resolve));
     if (mapsEnabled) { maps.onload(); maps.onerror(); }
     context.startFlutter();
     assert.equal(scripts.length, 1);

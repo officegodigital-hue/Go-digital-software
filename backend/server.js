@@ -252,6 +252,16 @@ app.use(
   express.static(path.resolve(__dirname, 'uploads'))
 );
 
+// The browser Maps key is kept in the backend environment instead of the web
+// build. Restrict this key in Google Cloud to the approved website origins.
+app.get('/api/config/maps.js', (req, res) => {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  res.set('Cache-Control', 'no-store');
+  res.type('application/javascript');
+  if (!apiKey) return res.send('');
+  return res.send(`window.googleMapsApiKey = ${JSON.stringify(apiKey)};`);
+});
+
 // â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use('/api/employees', employeeRoutes);
 app.use('/api/timings', timingRoutes);

@@ -116,17 +116,30 @@ async function request(req, res) {
     );
     if (!payroll) return fail(res, 404, 'Paid payroll item not found');
     const [[existing]] = await db.query(`
-      SELECT a.status FROM hrms_payslip_requests request
+      SELECT request.id AS payslip_request_id, a.status FROM hrms_payslip_requests request
       LEFT JOIN hrms_payslip_approval_links link ON link.payslip_request_id = request.id
       LEFT JOIN attendance_permission_requests a ON a.id = link.approval_request_id
       WHERE request.payroll_item_id = ? AND request.employee_user_id = ?`, [payrollId, req.user.id]);
-    if (existing) return ok(res, { status: existing.status }, 'Request already exists');
+    if (existing && existing.status !== 'rejected') {
+      return ok(res, { status: existing.status }, 'Request already exists');
+    }
     const today = new Date().toISOString().slice(0, 10);
     const [created] = await db.query(`
       INSERT INTO attendance_permission_requests (employee_id, request_type, request_date, reason, status, created_at)
       VALUES (?, 'payslip_download', ?, ?, 'pending', NOW())`,
       [req.user.id, today, `Payslip download request for ${payroll.pay_month}/${payroll.pay_year}`]
     );
+    if (existing) {
+      await db.query(
+        `UPDATE hrms_payslip_requests SET status = 'pending' WHERE id = ?`,
+        [existing.payslip_request_id]
+      );
+      await db.query(
+        `UPDATE hrms_payslip_approval_links SET approval_request_id = ? WHERE payslip_request_id = ?`,
+        [created.insertId, existing.payslip_request_id]
+      );
+      return ok(res, { status: 'pending' }, 'Payslip request sent to Admin again');
+    }
     const [requestRow] = await db.query(`INSERT INTO hrms_payslip_requests (payroll_item_id, employee_user_id, status) VALUES (?, ?, 'pending')`, [payrollId, req.user.id]);
     await db.query('INSERT INTO hrms_payslip_approval_links (payslip_request_id, approval_request_id) VALUES (?, ?)', [requestRow.insertId, created.insertId]);
     return ok(res, { status: 'pending' }, 'Payslip request sent to Admin');

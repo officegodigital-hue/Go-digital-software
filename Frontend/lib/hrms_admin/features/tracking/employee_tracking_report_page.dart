@@ -107,7 +107,8 @@ class _EmployeeTrackingReportPageState
         date: date,
       );
       if (!mounted) return;
-      final pts = (result['points'] as List? ?? [])
+      final pts =
+          (result['routePoints'] as List? ?? result['points'] as List? ?? [])
           .whereType<Map>()
           .map((p) => Map<String, dynamic>.from(p))
           .toList();
