@@ -1,3 +1,6 @@
+import 'package:provider/provider.dart';
+import 'auth_service.dart';
+import 'package:godigital_portal/services/auth_storage.dart';
 // lib/services/app_notification_center.dart
 //
 // One notification listener for the whole app, on every page: Home,
@@ -18,7 +21,7 @@ import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 import 'api_config.dart';
@@ -38,6 +41,7 @@ class AppNotificationCenter with WidgetsBindingObserver {
   String? _employee;
   OverlayState? _overlay;
   IO.Socket? _socket;
+  Future<void> Function()? _onAccountDeactivated;
   Timer? _pollTimer;
   Timer? _groupsTimer;
   final AudioPlayer _player = AudioPlayer();
@@ -70,6 +74,13 @@ class AppNotificationCenter with WidgetsBindingObserver {
     if (name.isEmpty) return;
     final overlay = Navigator.maybeOf(context, rootNavigator: true)?.overlay;
     if (overlay != null) _overlay = overlay;
+    _onAccountDeactivated = () async {
+      final navigator = Navigator.of(context, rootNavigator: true);
+      final auth = context.read<AuthService>();
+      stop();
+      await auth.logout();
+      if (navigator.mounted) navigator.pushNamedAndRemoveUntil('/', (_) => false);
+    };
     if (_employee == name) return;
 
     stop();
@@ -203,10 +214,12 @@ class AppNotificationCenter with WidgetsBindingObserver {
     try {
       final socket = IO.io(_socketUrl, {
         'transports': ['websocket'],
+        'auth': {'token': AuthStorage.cachedToken},
         'autoConnect': false,
         'reconnection': true,
         'forceNew': true,
       });
+      socket.on('account_deactivated', (_) { _onAccountDeactivated?.call(); });
       socket.on('receive_group_message', (payload) {
         if (payload is! Map) return;
         final sender = '${payload['senderName'] ?? ''}';

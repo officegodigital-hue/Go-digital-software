@@ -108,7 +108,8 @@ async function tokensFor(names) {
   await ensureTable();
   const [rows] = await db.query(
     `SELECT token, sound_mode FROM push_device_tokens
-     WHERE LOWER(TRIM(employee_name)) IN (${list.map(() => '?').join(',')})`,
+     WHERE EXISTS (SELECT 1 FROM employee_users u WHERE LOWER(TRIM(u.full_name))=LOWER(TRIM(employee_name)) AND u.is_active=1)
+     AND LOWER(TRIM(employee_name)) IN (${list.map(() => '?').join(',')})`,
     list,
   );
   const byToken = new Map();

@@ -11,7 +11,7 @@ import 'dart:convert';
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -724,7 +724,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          _s(e['fullName']),
+                          '${_s(e['fullName'])}${e['employmentStatus'] == 'Inactive' ? ' (Inactive)' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: _P.ink),

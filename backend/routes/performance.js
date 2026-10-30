@@ -129,12 +129,14 @@ router.get('/overview', async (req, res) => {
     }
     const expectedDays = daysBetweenInclusive(fromDate, toDate);
 
-    // 1) All active employees
+    await require('../lib/employeeLifecycle').ensureLifecycle();
+    const [employmentPeriods]=await db.query('SELECT * FROM employee_employment_periods');
+    // Include employees employed during the requested historical range.
     const [employees] = await db.query(
-      `SELECT id, full_name, initials, staff_id, role, user_type
+      `SELECT id, full_name, initials, staff_id, role, user_type, is_active
        FROM employee_users
-       WHERE is_active = 1
-       ORDER BY full_name ASC`
+       WHERE is_active=1 OR EXISTS (SELECT 1 FROM employee_employment_periods p WHERE p.employee_user_id=employee_users.id AND p.started_on<=? AND (p.ended_on IS NULL OR p.ended_on>=?))
+       ORDER BY full_name ASC`, [toDate,fromDate]
     );
 
     // 2) Task + tracking aggregation per employee, in range (one query, no N+1)
@@ -227,6 +229,11 @@ router.get('/overview', async (req, res) => {
     const data = employees.map((emp) => {
       const acc = byEmployee.get(emp.full_name) || ensure(emp.full_name);
 
+      const periods=employmentPeriods.filter(p=>Number(p.employee_user_id)===Number(emp.id));
+      let employeeExpectedDays=0;
+      for(let date=new Date(fromDate+'T00:00:00Z');date.toISOString().slice(0,10)<=toDate;date.setUTCDate(date.getUTCDate()+1)) {
+        if(require('../lib/employmentDates').employedOn(periods,date.toISOString().slice(0,10))) employeeExpectedDays++;
+      }
       const performancePct = calculatePerformanceScore({
         totalTasks: acc.totalTasks,
         completed: acc.COMPLETED,
@@ -234,7 +241,7 @@ router.get('/overview', async (req, res) => {
         rework: acc.rework,
         rejectedReview: acc.rejectedReview,
         plannerSubmittedDays: acc.plannerDaySet.size,
-        expectedDays,
+        expectedDays: employeeExpectedDays,
         productiveSecs: acc.productiveSecs,
         totalTrackedSecs: acc.totalTrackedSecs,
       });
@@ -242,6 +249,7 @@ router.get('/overview', async (req, res) => {
       return {
         id: emp.id,
         fullName: emp.full_name,
+        employmentStatus: Number(emp.is_active)?'Active':'Inactive',
         initials: emp.initials || '',
         staffId: emp.staff_id || '',
         role: emp.role || '',
@@ -260,7 +268,7 @@ router.get('/overview', async (req, res) => {
         workingSecs: acc.totalTrackedSecs,
         productivityPct: pct(acc.productiveSecs, acc.totalTrackedSecs || acc.productiveSecs),
         plannerSubmittedDays: acc.plannerDaySet.size,
-        expectedDays,
+        expectedDays: employeeExpectedDays,
         performancePct,
         performanceGrade: performanceGrade(performancePct),
       };

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import '../../../layouts/admin_layout.dart';
 import 'package:provider/provider.dart';
 import '../../../services/auth_service.dart'; 

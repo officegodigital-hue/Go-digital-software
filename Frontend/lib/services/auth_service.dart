@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 
 import 'api_config.dart';
 import 'auth_storage.dart';

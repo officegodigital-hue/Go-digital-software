@@ -437,7 +437,7 @@ async function clockLogs(req, res) {
       end = month + '-' + String(daysInMonth).padStart(2, '0');
     }
 
-    const employees = await staff.listActiveStaff(db);
+    const employees = await staff.listHistoricalStaff(db, start, end);
     const employeeIdFilter = req.query.employeeId ? Number(req.query.employeeId) : null;
     const scopedEmployees = employeeIdFilter
       ? employees.filter(function (person) { return person.id === employeeIdFilter; })
@@ -454,7 +454,7 @@ async function clockLogs(req, res) {
     // Profile ID lookup (hrms_employee_profiles.id) keyed by employee_user_id
     const [profileRows] = ids.length
       ? await db.query(
-          'SELECT id AS profile_id, employee_user_id, work_mode FROM hrms_employee_profiles WHERE employee_user_id IN (?) AND employment_status <> \'Inactive\'',
+          'SELECT id AS profile_id, employee_user_id, work_mode FROM hrms_employee_profiles WHERE employee_user_id IN (?)',
           [ids]
         ).catch(function () { return [[]]; })
       : [[]];
@@ -512,7 +512,7 @@ async function clockLogs(req, res) {
         // An active shift has no final stored duration yet. Calculate its
         // current duration on every request so Clock Logs stays live without
         // modifying historical, completed attendance records.
-        if (row.check_in_at && !row.check_out_at && sqlDate(row.attendance_date) === policy.todayIstDate()) {
+        if (Number(person?.is_active) && row.check_in_at && !row.check_out_at && sqlDate(row.attendance_date) === policy.todayIstDate()) {
           const now = policy.nowIstDateTime();
           const breakMinutesSoFar = breaks.reduce(function (total, entry) {
             if (entry.endAt) return total + Number(entry.durationMinutes || 0);
@@ -521,6 +521,7 @@ async function clockLogs(req, res) {
           item.workingMinutes = Math.max(0,
             policy.minutesBetween(sqlDateTime(row.check_in_at), now) - breakMinutesSoFar);
         }
+        item.employmentStatus = Number(person?.is_active) ? 'Active' : 'Inactive';
         item.profileId = profileIdByUserId.get(Number(row.employee_id)) || null;
         if (row.check_in_at && row.check_out_at) {
           item.workingMinutes = Math.max(0,
@@ -569,9 +570,8 @@ async function employeeCalendar(req, res) {
   }
   try {
     const attendanceRules = await policy.getTimeSettings(db);
-    const people = await staff.listActiveStaff(db);
-    const person = people.find(function (entry) { return Number(entry.id) === employeeId; });
-    if (!person) return fail(res, 404, 'Active employee not found.');
+    const person = await staff.findStaffById(db,employeeId);
+    if (!person) return fail(res,404,'Employee not found');
     const [[profile]] = await db.query(
       'SELECT department FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1',
       [employeeId]);
@@ -588,6 +588,8 @@ async function employeeCalendar(req, res) {
        AND status = 'APPROVED' AND from_date <= ? AND to_date >= ?`,
       [employeeId, end, start]);
     const today = policy.todayIstDate();
+    await require('../lib/employeeLifecycle').ensureLifecycle();
+    const [periods] = await db.query('SELECT * FROM employee_employment_periods WHERE employee_user_id=?', [employeeId]);
     const days = [];
     for (let day = 1; day <= schedule.days; day += 1) {
       const date = month + '-' + String(day).padStart(2, '0');
@@ -596,10 +598,11 @@ async function employeeCalendar(req, res) {
       const leave = leaveRows.some(function (entry) {
         return sqlDate(entry.from_date) <= date && sqlDate(entry.to_date) >= date;
       });
-      const status = date > today ? 'Future' : off === 'H' ? 'Holiday' :
+      const employed = require('../lib/employmentDates').employedOn(periods, date);
+      const status = !employed && !row ? 'Outside employment' : date > today ? 'Future' : off === 'H' ? 'Holiday' :
         off === 'OFF' ? 'Weekly Off' : leave ? 'Leave' :
         row ? serializeRecord(row, person, attendanceRules).status : 'No record';
-      days.push({ date, day, status, editable: date <= today && !off && !leave,
+      days.push({ date, day, status, editable: date <= today && !off && !leave && (employed || Boolean(row)),
         hasRecord: Boolean(row), checkIn: row ? policy.formatDisplayTime(sqlDateTime(row.check_in_at)) : '-',
         checkOut: row ? policy.formatDisplayTime(sqlDateTime(row.check_out_at)) : '-',
         adminReason: row ? row.admin_override_reason || null : null });
@@ -629,9 +632,12 @@ async function correctStatus(req, res) {
   let connection;
   try {
     const attendanceRules = await policy.getTimeSettings(db);
-    const people = await staff.listActiveStaff(db);
-    const person = people.find(function (entry) { return Number(entry.id) === employeeId; });
-    if (!person) return fail(res, 404, 'Active employee not found.');
+    const person = await staff.findStaffById(db,employeeId);
+    if (!person) return fail(res,404,'Employee not found');
+    await require('../lib/employeeLifecycle').ensureLifecycle();
+    const [employment]=await db.query('SELECT * FROM employee_employment_periods WHERE employee_user_id=?',[employeeId]);
+    const [existingRecords]=await db.query('SELECT id FROM attendance_records WHERE employee_id=? AND attendance_date=?',[employeeId,date]);
+    if (!require('../lib/employmentDates').employedOn(employment,date) && !existingRecords.length) return fail(res,409,'Attendance cannot be created outside employment dates');
     const [[profile]] = await db.query(
       'SELECT department FROM hrms_employee_profiles WHERE employee_user_id = ? LIMIT 1',
       [employeeId]);
@@ -1495,16 +1501,16 @@ async function exportCsv(req, res) {
     const attendanceRules = await policy.getTimeSettings(db);
     const date = parseDateParam(req.query.date);
     if (!date) return fail(res, 400, 'date must be YYYY-MM-DD');
-    const employees = await staff.listActiveStaff(db);
+    const employees = await staff.listHistoricalStaff(db,date,date);
     const [records] = await db.query('SELECT * FROM attendance_records WHERE attendance_date = ?', [date]);
     const byId = new Map(records.map(function (row) { return [row.employee_id, row]; }));
-    const lines = ['Employee,Staff ID,Role,Check In,Check Out,Method,Status,Working Minutes'];
+    const lines = ['Employee,Staff ID,Role,Employment Status,Check In,Check Out,Method,Status,Working Minutes'];
     employees.forEach(function (person) {
       const row = byId.get(person.id);
       const item = row ? serializeRecord(row, person, attendanceRules) : {
         checkIn: '-', checkOut: '-', method: '', status: 'Absent', workingMinutes: 0
       };
-      const cols = [person.full_name, person.staff_id, person.role, item.checkIn, item.checkOut, item.method || '', item.status, item.workingMinutes];
+      const cols = [person.full_name, person.staff_id, person.role, Number(person.is_active)?'Active':'Inactive', item.checkIn, item.checkOut, item.method || '', item.status, item.workingMinutes];
       lines.push(cols.map(function (value) {
         return '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"';
       }).join(','));

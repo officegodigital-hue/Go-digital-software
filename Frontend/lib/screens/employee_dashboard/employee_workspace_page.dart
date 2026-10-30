@@ -1,8 +1,10 @@
+import 'package:godigital_portal/services/socket_auth.dart';
+import 'package:godigital_portal/services/auth_storage.dart';
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -535,7 +537,7 @@ class _CountedTabBarState extends State<_CountedTabBar> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder().setAuthFn(authenticateSocket).setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
     )..connect();
     void refresh(dynamic _) {
       _debounce?.cancel();
@@ -1063,7 +1065,7 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
     });
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder().setAuthFn(authenticateSocket).setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
     )..connect();
     _socket!.on('task_updated', (_) {
       _refreshDebounce?.cancel();
@@ -1431,7 +1433,7 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
     _loadAll();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder().setAuthFn(authenticateSocket).setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
     )..connect();
     _socket!
       ..on('workspace_client_chat', (data) {
@@ -1954,7 +1956,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
   void _initSocketListener() {
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder()
+      io.OptionBuilder().setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()

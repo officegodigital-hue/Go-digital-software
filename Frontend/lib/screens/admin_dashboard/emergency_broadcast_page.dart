@@ -1,7 +1,7 @@
 // lib/screens/admin_dashboard/emergency_broadcast_page.dart
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'dart:convert';
 import '../../services/api_config.dart';
 import '../../layouts/admin_layout.dart';

@@ -140,7 +140,7 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder()
+      io.OptionBuilder().setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
@@ -864,7 +864,7 @@ class _AdminClientViewState extends State<_AdminClientView> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder()
+      io.OptionBuilder().setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()

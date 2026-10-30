@@ -1,8 +1,10 @@
+import 'package:godigital_portal/services/socket_auth.dart';
+import 'package:godigital_portal/services/auth_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:flutter/gestures.dart';
 import 'dart:async';
 import '../../services/api_config.dart';
@@ -345,7 +347,7 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   void _initSocketListener() {
     socket = IO.io(
       ApiConfig.socketUrl,
-      IO.OptionBuilder()
+      IO.OptionBuilder().setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()

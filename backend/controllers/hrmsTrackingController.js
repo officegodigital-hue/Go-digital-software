@@ -61,11 +61,13 @@ async function list(req, res) {
     const isSunday = weekdayIndex(date) === 0;
     const isFuture = date > today;
 
+    await require('../lib/employeeLifecycle').ensureLifecycle();
     const [profiles] = await db.query(`
-      SELECT * FROM hrms_employee_profiles
-      WHERE employment_status <> 'Inactive'
+      SELECT p.* FROM hrms_employee_profiles p
+      WHERE EXISTS (SELECT 1 FROM employee_employment_periods e WHERE e.employee_user_id=p.employee_user_id
+        AND e.started_on<=? AND (e.ended_on IS NULL OR e.ended_on>=?))
       ORDER BY full_name ASC
-    `);
+    `, [date,date]);
 
     const userIds = profiles.map(function (row) { return row.employee_user_id; }).filter(Boolean);
 

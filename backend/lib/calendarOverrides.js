@@ -52,9 +52,9 @@ function resolveEffectiveOverrides(rows, employees) {
   return result;
 }
 
-async function effectiveOverrides(start, end, employees) {
-  await ensureCalendarOverrideTables();
-  const [rows] = await db.query(`SELECT o.id, DATE_FORMAT(o.work_date,'%Y-%m-%d') work_date, o.status, o.scope_type, o.department, o.updated_at,
+async function effectiveOverrides(start, end, employees, options = {}) {
+  if (!options.skipSetup) await ensureCalendarOverrideTables();
+  const [rows] = await (options.executor || db).query(`SELECT o.id, DATE_FORMAT(o.work_date,'%Y-%m-%d') work_date, o.status, o.scope_type, o.department, o.updated_at,
     t.employee_id FROM hrms_calendar_overrides o LEFT JOIN hrms_calendar_override_targets t ON t.override_id=o.id
     WHERE o.work_date BETWEEN ? AND ? ORDER BY o.updated_at ASC, o.id ASC`, [start, end]);
   return resolveEffectiveOverrides(rows, employees);

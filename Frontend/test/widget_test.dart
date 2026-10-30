@@ -1,30 +1,29 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:godigital_portal/main.dart';
+import 'package:godigital_portal/screens/login_screen.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('Signed-out app opens the login screen', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final previous = GoogleFonts.config.allowRuntimeFetching;
+    GoogleFonts.config.allowRuntimeFetching = false;
+    addTearDown(() => GoogleFonts.config.allowRuntimeFetching = previous);
+    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(const MyApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    // The login background keeps animating, so do not wait for it to settle.
     await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(LoginScreen), findsOneWidget);
+    expect(find.text('Email or Username'), findsOneWidget);
+    expect(find.text('Password'), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(2));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
   });
 }

@@ -1,8 +1,10 @@
+import 'package:godigital_portal/services/socket_auth.dart';
+import 'package:godigital_portal/services/auth_storage.dart';
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
@@ -169,7 +171,7 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
   void _initSocketListener() {
     socket = IO.io(
       ApiConfig.socketUrl,
-      IO.OptionBuilder()
+      IO.OptionBuilder().setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()

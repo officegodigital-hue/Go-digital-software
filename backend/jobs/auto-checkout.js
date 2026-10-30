@@ -40,7 +40,8 @@ async function runAutoCheckout() {
             ep.work_mode
      FROM attendance_records ar
      JOIN hrms_employee_profiles ep ON ep.employee_user_id = ar.employee_id
-     WHERE ar.check_in_at IS NOT NULL
+     WHERE EXISTS (SELECT 1 FROM employee_users u WHERE u.id=ar.employee_id AND u.is_active=1)
+       AND ar.check_in_at IS NOT NULL
        AND ar.check_out_at IS NULL`
   );
 
@@ -185,7 +186,8 @@ async function runEndOfDayClose() {
   const [openSessions] = await db.query(
     `SELECT ar.id, ar.employee_id, ar.check_in_at
      FROM attendance_records ar
-     WHERE ar.attendance_date = ?
+     WHERE EXISTS (SELECT 1 FROM employee_users u WHERE u.id=ar.employee_id AND u.is_active=1)
+       AND ar.attendance_date = ?
        AND ar.check_in_at IS NOT NULL
        AND ar.check_out_at IS NULL`,
     [today]

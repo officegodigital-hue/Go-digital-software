@@ -93,7 +93,7 @@ test('Clock Logs reloads shift settings and keeps break deductions separate from
       if (path === '../config/db') return db;
       if (path === '../lib/attendancePolicy') return policy;
       if (path === '../lib/staffDirectory') return {
-        listActiveStaff: async () => [{id: 7, full_name: 'Employee', staff_id: '7'}],
+        listHistoricalStaff: async () => [{id: 7, full_name: 'Employee', staff_id: '7', is_active: 1}],
       };
       return {};
     },

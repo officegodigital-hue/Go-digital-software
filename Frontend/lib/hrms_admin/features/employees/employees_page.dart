@@ -1,10 +1,12 @@
+import 'employee_exit_dialog.dart';
+import 'employee_archive_page.dart';
 import 'leave_policy_dialog.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -661,24 +663,43 @@ class _EmployeesPageState extends State<EmployeesPage> {
       ),
     );
     if (saved != true || !mounted) return;
+    final changesEmployment = employee != null &&
+        selectedStatus != employee.status &&
+        (selectedStatus == 'Inactive' || employee.status == 'Inactive');
     final body = {
       'name': name.text.trim(),
       'employeeCode': id.text.trim(),
       'department': selectedDepartment,
       'workMode': selectedMode,
-      'status': selectedStatus,
+      // Account access and employment dates change through the lifecycle dialog.
+      'status': changesEmployment ? employee!.status : selectedStatus,
       'salary': salary.text.trim(),
       'salaryType': salaryType,
       if (salaryType == 'flexible') 'salaryStartDay': cycleStartDay,
       if (salaryType == 'flexible') 'salaryEndDay': cycleEndDay,
     };
-    await _runAction(() async {
+    final updated = await _runAction(() async {
       if (employee == null) {
         await HrmsEmployeesApi.create(body);
       } else {
         await HrmsEmployeesApi.update(employee.profileId, body);
       }
     });
+    if (!updated || !mounted || !changesEmployment) return;
+    final changed = await showEmployeeExitDialog(
+      context,
+      employee!.employeeUserId,
+      inactive: employee.status == 'Inactive',
+      name: name.text.trim(),
+    );
+    if (!changed || !mounted) return;
+    if (selectedStatus == 'On Leave') {
+      await _runAction(() async {
+        await HrmsEmployeesApi.updateStatus(employee.profileId, selectedStatus);
+      });
+    } else {
+      await _loadEmployees();
+    }
   }
 
   Widget _formField(TextEditingController controller, String label, {bool readOnly = false}) =>
@@ -770,81 +791,20 @@ class _EmployeesPageState extends State<EmployeesPage> {
     );
   }
 
-  Future<void> _showEmployeeDetails(_Employee employee) => showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text(employee.name),
-      content: SizedBox(
-        width: 390,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _detailRow('Employee ID', employee.id),
-            _detailRow('Department', employee.department),
-            _detailRow('Work mode', employee.workMode),
-            _detailRow('Monthly salary', employee.salary),
-            _detailRow('Status', employee.status),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Close'),
-        ),
-      ],
-    ),
-  );
-
-  Widget _detailRow(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
-    child: Row(
-      children: [
-        Expanded(
-          child: Text(label, style: const TextStyle(color: Color(0xFF657087))),
-        ),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
-      ],
-    ),
-  );
+  Future<void> _showEmployeeDetails(_Employee employee) async {
+    await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => EmployeeArchivePage(employeeId: employee.employeeUserId, name: employee.name)));
+  }
 
   Future<void> _toggleEmployee(_Employee employee) async {
-    final next = employee.status == 'Inactive' ? 'Active' : 'Inactive';
-    await _runAction(
-      () => HrmsEmployeesApi.updateStatus(employee.profileId, next),
-    );
+    final changed = await showEmployeeExitDialog(context, employee.employeeUserId,
+      inactive: employee.status == 'Inactive', name: employee.name);
+    if (changed && mounted) await _loadEmployees();
   }
 
   Future<void> _confirmDelete(_Employee employee) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Permanently delete employee?'),
-        content: Text(
-          '${employee.name} and the linked employee account will be permanently deleted from the database. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    final deleted = await _runAction(
-      () => HrmsEmployeesApi.delete(employee.profileId),
-    );
-    if (!deleted || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${employee.name} was permanently deleted.')),
-    );
+    await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => EmployeeArchivePage(employeeId: employee.employeeUserId, name: employee.name)));
   }
+
 }
 
 class _PageHeader extends StatelessWidget {
@@ -1459,6 +1419,7 @@ class _FilterDropdown extends StatelessWidget {
         ),
         DropdownButtonFormField<String>(
           initialValue: value,
+          isExpanded: true,
           onChanged: onChanged,
           decoration: _inputDecoration('', Icons.filter_alt_outlined).copyWith(
             prefixIcon: null,
@@ -1863,7 +1824,7 @@ class _CompactMobileEmployeeRow extends StatelessWidget {
                 employee.status == 'Inactive' ? 'Reactivate' : 'Deactivate',
               ),
             ),
-            const PopupMenuItem(value: 'delete', child: Text('Delete')),
+            const PopupMenuItem(value: 'delete', child: Text('History and settlement')),
           ],
         ),
       ],
@@ -1931,7 +1892,7 @@ class _TableHeader extends StatelessWidget {
           width: 260,
           child: Row(
             children: [
-              Text('Monthly Salary', style: _tableHead),
+              Flexible(child: Text('Monthly Salary', style: _tableHead, overflow: TextOverflow.ellipsis)),
               SizedBox(width: 10),
               Icon(
                 Icons.lock_outline_rounded,
@@ -2083,7 +2044,7 @@ class _EmployeeRow extends StatelessWidget {
                           : 'Deactivate',
                     ),
                   ),
-                  const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                  const PopupMenuItem(value: 'delete', child: Text('History and settlement')),
                 ],
                 icon: const Icon(
                   Icons.more_vert_rounded,
@@ -2195,11 +2156,13 @@ class _Employee {
     this.salary,
     this.status,
     this.modeColor, {
+    this.employeeUserId = 0,
     this.salaryType = 'standard',
     this.salaryStartDay,
     this.salaryEndDay,
   });
   final int profileId;
+  final int employeeUserId;
   final String name, id, department, workMode, salary, status;
   final int modeColor;
   final String salaryType;
@@ -2221,6 +2184,7 @@ class _Employee {
       (json['salary'] ?? 'Not Set').toString(),
       (json['status'] ?? 'Active').toString(),
       color is int ? color : _modeColor(mode),
+      employeeUserId: int.tryParse('${json['employeeUserId']}') ?? 0,
       salaryType: (json['salaryType'] ?? 'standard').toString(),
       salaryStartDay: json['salaryStartDay'] is int
           ? json['salaryStartDay'] as int

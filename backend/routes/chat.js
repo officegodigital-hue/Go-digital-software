@@ -609,6 +609,7 @@ router.post('/send', (req, res, next) => {
   }
 
   try {
+    if (!isGroupMsg) await require('../lib/employeeEligibility').assertActive(targetRecipient);
     const attachment = buildAttachment(req, req.file);
     let finalMessage = message || '';
 

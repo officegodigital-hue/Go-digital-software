@@ -1,6 +1,8 @@
+import 'package:godigital_portal/services/socket_auth.dart';
+import 'package:godigital_portal/services/auth_storage.dart';
 import 'package:flutter/material.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:flutter/gestures.dart';
 import 'dart:async';
 import '../../layouts/admin_layout.dart';
@@ -72,7 +74,7 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   void _initSocketListener() {
     socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder()
+      io.OptionBuilder().setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()

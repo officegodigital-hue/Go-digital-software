@@ -193,37 +193,8 @@ async function saveAttendanceDetails(employeeUserId, details = {}, basics = {}) 
   return profileId;
 }
 
-/** Admin Panel Active / Inactive → attendance employment status. */
-async function syncStatusFromAdmin(employeeUserId, isActive) {
-  if (isActive) {
-    await db.query(
-      `UPDATE hrms_employee_profiles SET employment_status = 'Active'
-       WHERE employee_user_id = ? AND employment_status = 'Inactive'`,
-      [employeeUserId],
-    );
-  } else {
-    await db.query(
-      `UPDATE hrms_employee_profiles SET employment_status = 'Inactive' WHERE employee_user_id = ?`,
-      [employeeUserId],
-    );
-  }
-}
-
-/** Attendance page status change → Admin Panel Active / Inactive. */
-async function syncStatusFromProfile(profileId) {
-  const [[p]] = await db.query(
-    'SELECT employee_user_id, employment_status FROM hrms_employee_profiles WHERE id = ?',
-    [profileId],
-  );
-  if (!p || !p.employee_user_id) return;
-  const active = String(p.employment_status || '').toLowerCase() !== 'inactive' ? 1 : 0;
-  await db.query('UPDATE employee_users SET is_active = ? WHERE id = ?', [active, p.employee_user_id]);
-}
-
 module.exports = {
   WORK_MODES,
   readAttendanceDetails,
   saveAttendanceDetails,
-  syncStatusFromAdmin,
-  syncStatusFromProfile,
 };

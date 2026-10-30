@@ -1,9 +1,10 @@
-﻿// notification_page.dart
+import 'package:godigital_portal/services/auth_storage.dart';
+// notification_page.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
@@ -266,6 +267,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       _socket = IO.io(_socketUrl, {
         'transports': ['websocket'],
+        'auth': {'token': AuthStorage.cachedToken},
         'autoConnect': false,
         'reconnection': true,
       });

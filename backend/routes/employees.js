@@ -17,7 +17,6 @@ const badPassword = (p) =>
 const {
   readAttendanceDetails,
   saveAttendanceDetails,
-  syncStatusFromAdmin,
 } = require('../lib/attendanceProfileSync');
 
 // Admin Panel → "Attendance Details" section (work location, salary, cycle).
@@ -137,6 +136,7 @@ router.get('/', async (req, res) => {
              bank_account_name, bank_account_number, bank_ifsc_code, bank_name,
              permanent_address, temporary_address
       FROM employee_users
+      WHERE ${req.query.includeInactive === 'true' && String(req.user?.userType).toLowerCase() === 'admin' ? '1=1' : 'is_active=1'}
       ORDER BY created_at DESC
     `);
 
@@ -387,6 +387,7 @@ router.post('/', async (req, res) => {
   await ensurePasswordSecurity();
   const pw = await passwordColumns(password);
 
+  await require('../lib/employeeLifecycle').ensureLifecycle();
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -413,6 +414,7 @@ router.post('/', async (req, res) => {
     ]);
 
     const newEmpId = result.insertId;
+    await connection.query('INSERT INTO employee_employment_periods (employee_user_id,started_on,created_by) VALUES (?,?,?)', [newEmpId,dateOfJoining || require('../lib/attendancePolicy').todayIstDate(),req.user.id]);
     await connection.query('UPDATE employee_users SET password_enc = ? WHERE id = ?', [pw.enc, newEmpId]);
     // The employee is added ONCE here — the Attendance app uses this profile
     // (no separate "Add Employee" in Attendance).
@@ -612,58 +614,23 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/employees/:id
-router.delete('/:id', async (req, res) => {
-  const empId = req.params.id;
+router.delete('/:id', authenticateToken, require('../controllers/hrmsEmployeesController').requireAdmin, async (req, res) => {
   try {
-    const [result] = await db.query('UPDATE employee_users SET is_active = 0 WHERE id = ?', [empId]);
-    if (result.affectedRows === 0)
-      return res.status(404).json({ success: false, message: 'Employee not found' });
-    try { await syncStatusFromAdmin(empId, false); } catch (e) { console.warn('status sync:', e.message); }
-    
-    return res.json({ success: true, message: 'Employee deactivated; history retained' });
-  } catch (err) {
-    console.error('DELETE /employees/:id ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
-  }
+    const data = await require('../lib/employeeLifecycle').deactivate(Number(req.params.id), req.body || {}, req.user.id, req.app.get('io'));
+    return res.json({ success: true, data });
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message, data: error.data }); }
 });
 
 // PATCH /api/employees/:id
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', authenticateToken, require('../controllers/hrmsEmployeesController').requireAdmin, async (req, res) => {
   try {
-    const empId = req.params.id;
-    const { isActive } = req.body;
-
-    const [result] = await db.query(
-      `
-      UPDATE employee_users
-      SET is_active = ?
-      WHERE id = ?
-      `,
-      [
-        isActive ? 1 : 0,
-        empId,
-      ]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Employee not found',
-      });
-    }
-
-    // Same Active / Inactive in the Attendance app.
-    try { await syncStatusFromAdmin(empId, !!isActive); } catch (e) { console.warn('status sync:', e.message); }
-
-    return res.json({
-      success: true,
-      message: 'Employee status updated successfully',
-    });
-
-  } catch (err) {
-    console.error('PATCH /employees/:id ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
-  }
+    if (typeof req.body.isActive !== 'boolean') return res.status(400).json({ success: false, message: 'isActive must be a boolean' });
+    const lifecycle = require('../lib/employeeLifecycle');
+    const data = req.body.isActive
+      ? await lifecycle.reactivate(Number(req.params.id), req.body, req.user.id)
+      : await lifecycle.deactivate(Number(req.params.id), req.body, req.user.id, req.app.get('io'));
+    return res.json({ success: true, data });
+  } catch (error) { return res.status(error.status || 500).json({ success: false, message: error.message, data: error.data }); }
 });
 
 // PUT /api/employees/:id/profile

@@ -1,8 +1,10 @@
+import '../../hrms_admin/features/employees/employee_exit_dialog.dart';
+import '../../hrms_admin/features/employees/employee_archive_page.dart';
 // name=admin_panel_screen.dart
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
 
 import '../../layouts/admin_layout.dart';
@@ -1105,7 +1107,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     });
 
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/employees'));
+      final response = await http.get(Uri.parse('$_baseUrl/employees?includeInactive=true'));
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         setState(() {
@@ -1257,7 +1259,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   Future<String?> _createEmployeeApi(Map<String, dynamic> data) async {
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/employees'),
+        Uri.parse('$_baseUrl/employees?includeInactive=true'),
         headers: const {'Content-Type': 'application/json'},
         body: jsonEncode(data),
       );
@@ -1299,40 +1301,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   }
 
   Future<void> _toggleStatus(int id, bool currentStatus) async {
-    try {
-      final response = await http.patch(
-        Uri.parse('$_baseUrl/employees/$id'),
-        headers: const {'Content-Type': 'application/json'},
-        body: jsonEncode({'isActive': !currentStatus}),
-      );
-      if (response.statusCode == 200) {
-        _fetchEmployees();
-        _showSnack(
-          currentStatus
-              ? 'User deactivated successfully'
-              : 'User activated successfully',
-          success: true,
-        );
-      } else {
-        _showSnack('Failed to update status');
-      }
-    } catch (_) {
-      _showSnack('Cannot connect to server');
-    }
-  }
-
-  Future<void> _deleteEmployee(int id) async {
-    try {
-      final response = await http.delete(Uri.parse('$_baseUrl/employees/$id'));
-      if (response.statusCode == 200) {
-        _fetchEmployees();
-        _showSnack('Employee deleted', success: true);
-      } else {
-        _showSnack('Failed to delete employee');
-      }
-    } catch (_) {
-      _showSnack('Cannot connect to server');
-    }
+    final employee = employeeUsers.where((e) => '${e['id']}' == '$id').firstOrNull;
+    final changed = await showEmployeeExitDialog(context, id,
+      inactive: !currentStatus, name: employee?['full_name']?.toString() ?? 'employee');
+    if (changed && mounted) await _fetchEmployees();
   }
 
   Future<bool?> _showConfirmDialog({
@@ -2465,25 +2437,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         ),
         const SizedBox(width: 8),
         IconButton(
-          tooltip: 'Delete Employee',
-          onPressed: id == 0
-              ? null
-              : () async {
-                  final confirm = await _showConfirmDialog(
-                    title: 'Delete Employee',
-                    message: 'Remove ${item['full_name']} from the platform?',
-                    confirmText: 'Delete',
-                  );
-                  if (confirm == true) {
-                    _deleteEmployee(id);
-                  }
-                },
+          tooltip: 'Employee history and settlement',
+          onPressed: id == 0 ? null : () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => EmployeeArchivePage(employeeId: id, name: '${item['full_name']}'))),
           style: IconButton.styleFrom(
             backgroundColor: const Color(0xFFFFEEEE),
             foregroundColor: const Color(0xFFDC2626),
             minimumSize: Size(mobile ? 44 : 38, mobile ? 44 : 38),
           ),
-          icon: const Icon(Icons.delete_outline_rounded, size: 18),
+          icon: const Icon(Icons.history, size: 18),
         ),
       ],
     );

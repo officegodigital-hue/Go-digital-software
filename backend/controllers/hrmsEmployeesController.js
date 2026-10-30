@@ -100,7 +100,7 @@ async function list(req, res) {
     const status = String(req.query.status || '').trim();
     const workMode = String(req.query.workMode || req.query.work_mode || '').trim();
     const page = Math.max(1, Number(req.query.page || 1));
-    const limit = Math.min(50, Math.max(1, Number(req.query.limit || 6)));
+    const limit = Math.min(1000, Math.max(1, Number(req.query.limit || 6)));
     const where = [];
     const params = [];
 
@@ -218,8 +218,10 @@ async function update(req, res) {
     const startDay = salaryType === 'flexible' && body.salaryStartDay ? Math.max(1, Math.min(28, Number(body.salaryStartDay))) : null;
     const endDay = salaryType === 'flexible' && body.salaryEndDay ? Math.max(1, Math.min(28, Number(body.salaryEndDay))) : null;
 
+    const [[existing]] = await db.query('SELECT employment_status FROM hrms_employee_profiles WHERE id=?', [id]);
+    if (existing && existing.employment_status !== status && (status === 'Inactive' || existing.employment_status === 'Inactive')) return fail(res, 409, 'Use the employee exit or reactivation action to change employment status');
     const [result] = await db.query(
-      'UPDATE hrms_employee_profiles SET employee_code = ?, full_name = ?, email = ?, department = ?, work_mode = ?, employment_status = ?, monthly_salary = ?, salary_type = ?, salary_cycle_start_day = ?, salary_cycle_end_day = ? WHERE id = ?',
+      'UPDATE hrms_employee_profiles SET employee_code = ?, full_name = ?, email = ?, department = ?, work_mode = ?, employment_status = IF(employment_status = \'Inactive\', \'Inactive\', ?), monthly_salary = ?, salary_type = ?, salary_cycle_start_day = ?, salary_cycle_end_day = ? WHERE id = ?',
       [code, name, email, department, workMode, status, salary, salaryType, startDay, endDay, id]
     );
     if (!result.affectedRows) return fail(res, 404, 'Employee not found');
@@ -239,68 +241,24 @@ async function updateStatus(req, res) {
     if (['Active', 'On Leave', 'Inactive'].indexOf(status) === -1) {
       return fail(res, 400, 'status must be Active, On Leave, or Inactive');
     }
-    const [result] = await db.query('UPDATE hrms_employee_profiles SET employment_status = ? WHERE id = ?', [status, id]);
-    if (!result.affectedRows) return fail(res, 404, 'Employee not found');
+    const [[profile]] = await db.query('SELECT employee_user_id FROM hrms_employee_profiles WHERE id=?', [id]);
+    if (!profile?.employee_user_id) return fail(res, 400, 'A linked employee account is required');
+    const lifecycle = require('../lib/employeeLifecycle');
+    if (status === 'Inactive') await lifecycle.deactivate(profile.employee_user_id, req.body, req.user.id, req.app.get('io'));
+    else {
+      const [[user]] = await db.query('SELECT is_active FROM employee_users WHERE id=?', [profile.employee_user_id]);
+      if (!Number(user?.is_active)) await lifecycle.reactivate(profile.employee_user_id, req.body, req.user.id);
+      await db.query('UPDATE hrms_employee_profiles SET employment_status=? WHERE id=?', [status, id]);
+    }
     const [rows] = await db.query('SELECT * FROM hrms_employee_profiles WHERE id = ?', [id]);
     return ok(res, toUi(rows[0]), 'Status updated');
   } catch (error) {
-    return fail(res, 500, error.message);
+    return fail(res, error.status || 500, error.message);
   }
 }
 
 async function remove(req, res) {
-  let connection;
-  try {
-    const id = Number(req.params.id);
-    if (!Number.isInteger(id) || id <= 0) return fail(res, 400, 'A valid employee is required');
-
-    connection = await db.getConnection();
-    await connection.beginTransaction();
-    const [profiles] = await connection.query(
-      'SELECT id, employee_user_id FROM hrms_employee_profiles WHERE id = ? LIMIT 1',
-      [id]
-    );
-    if (!profiles.length) {
-      await connection.rollback();
-      return fail(res, 404, 'Employee not found');
-    }
-
-    // An administrator must not be able to remove the profile used by their
-    // current authenticated session.
-    if (Number(profiles[0].employee_user_id) === Number(req.user && req.user.id)) {
-      await connection.rollback();
-      return fail(res, 400, 'You cannot delete your own employee profile');
-    }
-
-    const employeeUserId = profiles[0].employee_user_id;
-    await connection.query(
-      'DELETE FROM hrms_employee_compensation WHERE profile_id = ?',
-      [id]
-    ).catch((error) => {
-      if (error.code !== 'ER_NO_SUCH_TABLE') throw error;
-    });
-    const [result] = await connection.query(
-      'DELETE FROM hrms_employee_profiles WHERE id = ?',
-      [id]
-    );
-    if (!result.affectedRows) {
-      await connection.rollback();
-      return fail(res, 404, 'Employee not found');
-    }
-    if (employeeUserId !== null && employeeUserId !== undefined) {
-      await connection.query('DELETE FROM employee_users WHERE id = ?', [employeeUserId]);
-    }
-    await connection.commit();
-    return ok(res, { id: id }, 'Employee permanently deleted');
-  } catch (error) {
-    if (connection) await connection.rollback();
-    if (error.code === 'ER_ROW_IS_REFERENCED_2') {
-      return fail(res, 409, 'This employee has linked records and cannot be permanently deleted');
-    }
-    return fail(res, 500, error.message);
-  } finally {
-    if (connection) connection.release();
-  }
+  return fail(res, 409, 'Employee records are retained. Use Deactivate and provide the last working date.');
 }
 
 async function exportCsv(req, res) {

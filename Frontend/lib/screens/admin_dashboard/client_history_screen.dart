@@ -1,7 +1,7 @@
 // name=client_history_screen.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../layouts/admin_layout.dart';
 import 'client_details_screen.dart';

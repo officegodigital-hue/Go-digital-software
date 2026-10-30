@@ -3,6 +3,8 @@ const router  = express.Router();
 const db      = require('../config/db');
 
 async function createNotification({ senderName, recipientName, message }) {
+  const [[recipient]] = await db.query('SELECT is_active FROM employee_users WHERE LOWER(TRIM(full_name))=LOWER(TRIM(?)) LIMIT 1', [recipientName]);
+  if (recipient && !Number(recipient.is_active)) return;
   await db.query(
     `INSERT INTO notifications (sender_name, recipient_name, message) VALUES (?, ?, ?)`,
     [senderName, recipientName, message]

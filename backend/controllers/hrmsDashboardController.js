@@ -213,6 +213,8 @@ async function monthView(req, res) {
       return fail(res, 400, 'year and month (1-12) are required');
     }
 
+    await require('../lib/employeeLifecycle').ensureLifecycle();
+    const [employmentPeriods] = await db.query('SELECT * FROM employee_employment_periods');
     const payrollRules = await payrollPolicy();
     const weeklyOff = new Set(payrollRules.weeklyOffDays);
     const totalDays = daysInMonth(year, month);
@@ -226,7 +228,7 @@ async function monthView(req, res) {
     // hide a valid employee account from the attendance dashboard.
     const [profiles] = await db.query(`
       SELECT
-        profile.id,
+        profile.id, employee.is_active, profile.employment_status,
         employee.id AS employee_user_id,
         employee.full_name,
         COALESCE(NULLIF(profile.department, ''), employee.role, 'Not Set') AS department,
@@ -235,7 +237,7 @@ async function monthView(req, res) {
       LEFT JOIN hrms_employee_profiles AS profile
         ON profile.employee_user_id = employee.id
       WHERE employee.user_type = 'employee'
-        AND employee.is_active = 1
+        AND (employee.is_active = 1 OR EXISTS (SELECT 1 FROM employee_employment_periods p WHERE p.employee_user_id=employee.id AND p.started_on<='${end}' AND p.ended_on>='${start}'))
       ORDER BY employee.full_name ASC
     `);
 
@@ -315,6 +317,8 @@ async function monthView(req, res) {
 
       for (let day = 1; day <= totalDays; day += 1) {
         const date = ymd(year, month, day);
+        const employed = require('../lib/employmentDates').employedOn(employmentPeriods.filter(p => Number(p.employee_user_id) === Number(profile.employee_user_id)), date);
+        if (!employed) { days.push(''); continue; }
         const weekday = utcWeekday(year, month, day);
         const calendarOverride = overridesByEmployee.get(Number(profile.employee_user_id))?.get(date);
         const isWeeklyOff = calendarOverride
@@ -386,7 +390,8 @@ async function monthView(req, res) {
       return {
         id: profile.id,
         employeeUserId: profile.employee_user_id,
-        name: profile.full_name,
+        name: profile.full_name + (Number(profile.is_active) ? '' : ' (Inactive)'),
+        employmentStatus: Number(profile.is_active) ? 'Active' : 'Inactive',
         designation: profile.department,
         department: profile.department,
         days: days,

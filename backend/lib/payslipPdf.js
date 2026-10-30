@@ -47,7 +47,7 @@ async function buildPayslipPdf(row) {
   const xs = [left,left+180,left+270,left+450,left+511];
   ['Earnings','Amt. (INR)','Deductions','Amt. (INR)'].forEach((v,i)=>text(v,xs[i]+7,y-17,8.5,bold,navy));
   const earnings = [
-    ['Basic Salary', money(row.monthly_salary), 'Leave Deduction', money(row.deductions)],
+    ['Earned Salary', money(Number(row.net_pay) + Number(row.deductions)), 'Leave Deduction', money(row.deductions)],
     ['Daily Salary', money(row.daily_rate), 'LOP Days', String(row.lop_days || 0)],
     ['House Rent Allowance', money(0), 'PF Employee Contribution', money(0)],
     ['Other Allowance', money(0), 'ESIC Employee Contribution', money(0)],
@@ -61,7 +61,7 @@ async function buildPayslipPdf(row) {
     rule(left,y-26,left+width,y-26); y -= 26;
   }
   page.drawRectangle({x:left,y:y-30,width,height:30,color:pale});
-  text('Total Earnings (A)',left+7,y-19,9,bold); text(money(row.monthly_salary),xs[1]+7,y-19,9,bold);
+  text('Total Earnings (A)',left+7,y-19,9,bold); text(money(Number(row.net_pay) + Number(row.deductions)),xs[1]+7,y-19,9,bold);
   text('Total Deductions (B)',xs[2]+7,y-19,9,bold); text(money(row.deductions),xs[3]+7,y-19,9,bold);
   y -= 30;
   for (const x of xs) rule(x,y+212,x,y,0.8);

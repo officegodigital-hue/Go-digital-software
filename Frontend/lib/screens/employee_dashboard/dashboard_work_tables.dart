@@ -1,3 +1,5 @@
+import 'package:godigital_portal/services/socket_auth.dart';
+import 'package:godigital_portal/services/auth_storage.dart';
 // lib/screens/employee_dashboard/dashboard_work_tables.dart
 //
 // Dashboard work tables (left / right):
@@ -14,7 +16,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../services/api_config.dart';
@@ -89,7 +91,7 @@ class _DashboardWorkTablesState extends State<DashboardWorkTables> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder().setAuthFn(authenticateSocket).setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
     )..connect();
     void refresh(dynamic _) {
       _debounce?.cancel();

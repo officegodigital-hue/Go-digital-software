@@ -1,4 +1,4 @@
-﻿import 'dart:typed_data';
+import 'dart:typed_data';
 
 Future<bool> downloadFileBytesPlatform(
   Uint8List bytes,

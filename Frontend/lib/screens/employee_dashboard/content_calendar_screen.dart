@@ -1,11 +1,13 @@
-﻿// lib/screens/employee_dashboard/content_calendar_screen.dart
+import 'package:godigital_portal/services/socket_auth.dart';
+import 'package:godigital_portal/services/auth_storage.dart';
+// lib/screens/employee_dashboard/content_calendar_screen.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 import '../../services/api_config.dart';
@@ -248,7 +250,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   void _initSocket() {
     _socket = IO.io(
       ApiConfig.socketUrl,
-      IO.OptionBuilder()
+      IO.OptionBuilder().setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()

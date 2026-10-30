@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'godigital_app_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/api_config.dart';

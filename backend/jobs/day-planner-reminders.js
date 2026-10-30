@@ -12,8 +12,8 @@ module.exports = function (db) {
       // All Active Employees
       const [employees] = await db.query(`
         SELECT full_name
-        FROM employees
-        WHERE status='Active'
+        FROM employee_users
+        WHERE is_active=1 AND user_type='employee'
       `);
 
       for (const emp of employees) {

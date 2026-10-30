@@ -1,4 +1,4 @@
-﻿/// Employee nav items per HRMS_PROJECT_BLUEPRINT.md, Section 1 (Approved
+/// Employee nav items per HRMS_PROJECT_BLUEPRINT.md, Section 1 (Approved
 /// Employee pages), using the top-nav pattern (Section 3, revised
 /// 2026-08-28 — no left sidebar on desktop/tablet).
 enum EmployeeNavItem {

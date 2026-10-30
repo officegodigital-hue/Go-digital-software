@@ -190,7 +190,7 @@ router.get('/users', requireAdmin, async (_req, res, next) => {
              COALESCE(a.is_active, 1) AS is_active
       FROM employee_users e
       LEFT JOIN client_repository_access a ON a.employee_id = e.id
-      ORDER BY e.full_name`);
+      WHERE e.is_active=1 ORDER BY e.full_name`);
     res.json({ success: true, data: rows });
   } catch (error) { next(error); }
 });

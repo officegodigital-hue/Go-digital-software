@@ -273,6 +273,8 @@ async function getProfile(req, res) {
     let workingDays = 0, presentCount = 0, lateCount = 0, absentCount = 0, leaveCount = 0, lopDays = 0;
     const cutoff = periodEnd < today ? periodEnd : today;
 
+    await require('../lib/employeeLifecycle').ensureLifecycle();
+    const [employmentPeriods] = await db.query('SELECT * FROM employee_employment_periods WHERE employee_user_id=?', [employeeUserId]);
     const dailyAttendance = [];
     for (let day = 1; day <= daysInMonth(year, month); day++) {
       const date = ymd(year, month, day);
@@ -291,10 +293,11 @@ async function getProfile(req, res) {
       const totalOverdueMin = brks.reduce((s, b) => s + Number(b.overdue_minutes || 0), 0);
       const allowed = firstBreak ? Number(firstBreak.allowed_minutes || 60) : 60;
 
-      let status = 'weekly_off';
+      const employed = require('../lib/employmentDates').employedOn(employmentPeriods, date);
+      let status = employed ? 'weekly_off' : 'outside_employment';
       let isLop = false;
 
-      if (!isWeeklyOff && date <= cutoff) {
+      if (employed && !isWeeklyOff && date <= cutoff) {
         workingDays += 1;
         const attStatus = record && record.attendance_status ? String(record.attendance_status).toLowerCase().trim() : '';
 
@@ -333,6 +336,7 @@ async function getProfile(req, res) {
       const wm = workedMinutes(record);
       dailyAttendance.push({
         date,
+        outsideEmployment: !employed, exceptionRequiresReview: !employed && !!record,
         weekday: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][weekday],
         isWeeklyOff,
         checkIn: record ? formatTime(record.check_in_at) : null,

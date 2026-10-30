@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 
 import 'api_config.dart';
 import 'auth_storage.dart';
@@ -54,11 +54,12 @@ class HrmsPayrollApi {
   static Future<Map<String, dynamic>> generate({
     required int year,
     required int month,
+    int? employeeId,
   }) async {
     final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/generate'),
       headers: await _headers(),
-      body: jsonEncode({'year': year, 'month': month}),
+      body: jsonEncode({'year': year, 'month': month, if (employeeId != null) 'employeeId': employeeId}),
     );
     return _decode(response);
   }
@@ -73,11 +74,11 @@ class HrmsPayrollApi {
     return _decode(response);
   }
 
-  static Future<Map<String, dynamic>> markPaid(int id) async {
+  static Future<Map<String, dynamic>> markPaid(int id, {bool reviewedSettlement = false}) async {
     final response = await http.patch(
       Uri.parse('${ApiConfig.baseUrl}/hrms/payroll/$id'),
       headers: await _headers(),
-      body: jsonEncode({'status': 'paid'}),
+      body: jsonEncode({'status': 'paid', 'reviewedSettlement': reviewedSettlement}),
     );
     return _decode(response);
   }

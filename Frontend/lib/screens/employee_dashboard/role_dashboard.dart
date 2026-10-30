@@ -1,3 +1,5 @@
+import 'package:godigital_portal/services/socket_auth.dart';
+import 'package:godigital_portal/services/auth_storage.dart';
 // lib/screens/employee_dashboard/role_dashboard.dart
 //
 // One dashboard layout for every employee role (Designer, Video Editor /
@@ -11,7 +13,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
@@ -89,7 +91,7 @@ class _RoleDashboardState extends State<RoleDashboard> {
     _fetchLiveWorkingTime();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder().setAuthFn(authenticateSocket).setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
     )..connect();
     _socket!
       ..on('task_updated', (_) {

@@ -83,10 +83,13 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    await require('../lib/employeeLifecycle').ensureLifecycle();
+    const [[session]] = await db.query('SELECT COALESCE(MAX(id),0) AS version FROM employee_exits WHERE employee_user_id=?', [user.id]);
     // 🟢 1. Generate JWT token first
     const token = jwt.sign(
       {
         id: user.id,
+        sessionVersion: Number(session.version),
         fullName: user.full_name,
         email: user.email,
         role: user.role,
@@ -212,6 +215,7 @@ router.post('/refresh', authenticateToken, (req, res) => {
   const newToken = jwt.sign(
     {
       id: req.user.id,
+      sessionVersion: req.user.sessionVersion || 0,
       email: req.user.email,
       role: req.user.role,
       userType: req.user.userType,
@@ -258,6 +262,9 @@ function authenticateToken(req, res, next) {
       if (!account || !Number(account.is_active)) {
         return res.status(401).json({ success: false, message: 'Employee account is unavailable. Please sign in again.' });
       }
+      await require('../lib/employeeLifecycle').ensureLifecycle();
+      const [[session]] = await db.query('SELECT COALESCE(MAX(id),0) AS version FROM employee_exits WHERE employee_user_id=?', [user.id]);
+      if (Number(user.sessionVersion || 0) !== Number(session.version)) return res.status(401).json({success:false,message:'Your employment session has ended. Please sign in again.'});
       req.user = { ...user, id: account.id, fullName: account.full_name, staffId: account.staff_id,
         email: account.email, role: account.role, userType: account.user_type };
       next();

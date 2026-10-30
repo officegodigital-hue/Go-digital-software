@@ -216,6 +216,18 @@ const io = new Server(server, {
   }
 });
 
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    const user = require('jsonwebtoken').verify(token, require('./routes/auth').JWT_SECRET);
+    const [[account]] = await db.query('SELECT id,is_active FROM employee_users WHERE id=?', [user.id]);
+    if (!account || !Number(account.is_active)) return next(new Error('Employee account is inactive'));
+    const [[session]] = await db.query('SELECT COALESCE(MAX(id),0) AS version FROM employee_exits WHERE employee_user_id=?', [account.id]);
+    if (Number(user.sessionVersion || 0) !== Number(session.version)) return next(new Error('Please sign in again'));
+    socket.data.employeeId = account.id;
+    next();
+  } catch (_) { next(new Error('Sign in to connect')); }
+});
 app.set('io', io);
 push.attachIo(io); // chat + group socket messages also go to phones as push
 
@@ -263,6 +275,12 @@ app.get('/api/config/maps.js', (req, res) => {
 });
 
 // â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+app.use('/api', (req, res, next) => {
+  if (req.method === 'OPTIONS' || req.path === '/auth/login') return next();
+  return require('./routes/auth').authenticateToken(req, res, next);
+});
+app.use('/api', require('./lib/employeeEligibility').liveWriteGuard);
+app.use('/api/employees', require('./routes/employeeLifecycle'));
 app.use('/api/employees', employeeRoutes);
 app.use('/api/timings', timingRoutes);
 app.use('/api/clients', clientRoutes);
@@ -362,6 +380,7 @@ server.listen(PORT, async () => {
     await attendancePolicy.getTimeSettings(db);
     console.log('Attendance time settings are ready');
     await ensureHrmsEmployeeTables(db);
+    await require('./lib/employeeLifecycle').ensureLifecycle();
     console.log('HRMS employee profiles are ready');
     const [currentYear, currentMonth] = attendancePolicy.todayIstDate().split('-').map(Number);
     const payrollRun = await generatePayrollRun(currentYear, currentMonth, attendancePolicy.todayIstDate());

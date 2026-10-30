@@ -51,11 +51,13 @@ async function ensureAuditTable() {
 }
 
 async function runAutoAbsence(targetDate = previousDate(policy.todayIstDate())) {
+  await require('../lib/employeeLifecycle').ensureLifecycle();
   await ensureAuditTable();
   const [employees] = await db.query(
     `SELECT u.id, COALESCE(NULLIF(p.department, ''), u.role, '') AS department FROM employee_users u
       LEFT JOIN hrms_employee_profiles p ON p.employee_user_id=u.id
-      WHERE u.user_type = 'employee' AND u.is_active = 1`
+      WHERE u.user_type = 'employee' AND u.is_active = 1
+      AND EXISTS (SELECT 1 FROM employee_employment_periods e WHERE e.employee_user_id=u.id AND e.started_on<=? AND (e.ended_on IS NULL OR e.ended_on>=?))`, [targetDate,targetDate]
   );
   if (!employees.length) return { date: targetDate, created: 0 };
   const workingEmployees = [];

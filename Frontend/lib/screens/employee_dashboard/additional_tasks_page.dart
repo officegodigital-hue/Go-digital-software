@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:godigital_portal/web_stub.dart' if (dart.library.html) 'dart:html' as html;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/core/constants/app_colors.dart';
 import 'package:godigital_portal/core/constants/employee_role.dart';

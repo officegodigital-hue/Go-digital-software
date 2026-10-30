@@ -38,6 +38,15 @@ async function listActiveStaff(db) {
   return rows;
 }
 
+async function listHistoricalStaff(db, start, end) {
+  await require('./employeeLifecycle').ensureLifecycle();
+  const [rows] = await db.query('SELECT ' + staffSelect('s') + ' FROM ' + staffFrom() + ` s WHERE
+    EXISTS (SELECT 1 FROM employee_employment_periods p WHERE p.employee_user_id=s.id AND p.started_on<=? AND (p.ended_on IS NULL OR p.ended_on>=?))
+    OR EXISTS (SELECT 1 FROM attendance_records a WHERE a.employee_id=s.id AND a.attendance_date BETWEEN ? AND ?)
+    ORDER BY s.` + quote(STAFF.name), [end,start,start,end]);
+  return rows;
+}
+
 async function findStaffById(db, id) {
   const [rows] = await db.query(
     'SELECT ' + staffSelect('s') + ' FROM ' + staffFrom() + ' s WHERE s.' + quote(STAFF.id) + ' = ? LIMIT 1',
@@ -53,5 +62,6 @@ module.exports = {
   staffSelect: staffSelect,
   activeCondition: activeCondition,
   listActiveStaff: listActiveStaff,
+  listHistoricalStaff,
   findStaffById: findStaffById
 };
