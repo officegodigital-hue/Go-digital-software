@@ -12,6 +12,7 @@ import '../../core/constants/employee_role.dart';
 import 'package:godigital_portal/core/theme/premium_theme.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import '../../services/socket_auth.dart';
 import 'content_calendar_screen.dart';
 import 'workspace_my_tasks_section.dart';
 import 'workspace_task_review_section.dart';
@@ -573,6 +574,7 @@ class _CountedTabBarState extends State<_CountedTabBar> {
       ApiConfig.socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          .setAuthFn(authenticateSocket)
           .enableForceNew()
           .disableAutoConnect()
           .build(),
@@ -1123,6 +1125,7 @@ class _ClientLiveTrackingSectionState
       ApiConfig.socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          .setAuthFn(authenticateSocket)
           .enableForceNew()
           .disableAutoConnect()
           .build(),
@@ -1657,6 +1660,7 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
       ApiConfig.socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          .setAuthFn(authenticateSocket)
           .enableForceNew()
           .disableAutoConnect()
           .build(),
@@ -2287,6 +2291,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
       ApiConfig.socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          .setAuthFn(authenticateSocket)
           .enableForceNew()
           .disableAutoConnect()
           .build(),

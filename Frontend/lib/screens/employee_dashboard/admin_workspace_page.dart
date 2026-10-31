@@ -164,6 +164,7 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
       ApiConfig.socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          .setAuthFn(authenticateSocket)
           .enableForceNew()
           .disableAutoConnect()
           .build(),
@@ -1033,6 +1034,7 @@ class _AdminClientViewState extends State<_AdminClientView> {
       ApiConfig.socketUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          .setAuthFn(authenticateSocket)
           .enableForceNew()
           .disableAutoConnect()
           .build(),
