@@ -670,7 +670,7 @@ class _DefaultWeeklyOff extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(20, 14, 18, 14),
+    padding: const EdgeInsets.fromLTRB(16, 12, 14, 12),
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: HrmsColors.line),
@@ -1132,7 +1132,7 @@ class _ScopedOverridesPanel extends StatelessWidget {
       }
     }
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: HrmsColors.line),
@@ -1395,7 +1395,7 @@ class _EditDatePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: HrmsColors.line),

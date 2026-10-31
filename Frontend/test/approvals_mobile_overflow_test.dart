@@ -10,7 +10,7 @@ import 'package:godigital_portal/services/auth_service.dart';
 
 void main() {
   for (final size in [(430.0, 1.0), (500.0, 1.3)]) {
-    testWidgets('Approvals keeps dimensions and positions at ${size.$1}/${size.$2}', (tester) async {
+    testWidgets('Compact approvals cards keep controls aligned at ${size.$1}/${size.$2}', (tester) async {
       SharedPreferences.setMockInitialValues({});
       tester.view.physicalSize = Size(size.$1, 900);
       tester.view.devicePixelRatio = 1;
@@ -28,10 +28,10 @@ void main() {
           ),
         ));
         await tester.pumpAndSettle();
-        final cards = find.byWidgetPredicate((w) => w is Container && w.constraints?.maxHeight == 80);
+        final cards = find.byWidgetPredicate((w) => w is Container && w.constraints?.maxHeight == 72);
         expect(cards, findsNWidgets(3));
         for (final element in cards.evaluate()) {
-          expect(tester.getSize(find.byWidget(element.widget)).height, 80);
+          expect(tester.getSize(find.byWidget(element.widget)).height, 72);
         }
         final buttons = find.byWidgetPredicate((w) => w.runtimeType.toString() == '_MainTabBtn');
         final first = tester.getRect(buttons.at(0));

@@ -1,3 +1,4 @@
+import 'package:godigital_portal/services/waiting_alert_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/gestures.dart';
@@ -86,6 +87,9 @@ class MyApp extends StatelessWidget {
           textTheme: GoogleFonts.interTextTheme(
             assets_theme.AppTheme.lightTheme.textTheme,
           ),
+        ),
+        builder: (context, child) => WaitingAlertHost(
+          navigatorKey: appNavigatorKey, child: child ?? const SizedBox(),
         ),
         initialRoute: '/',
         onGenerateRoute: (settings) {

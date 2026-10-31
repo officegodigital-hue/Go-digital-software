@@ -4,53 +4,68 @@ async function ensureHrmsTrackingTables(db) {
       id TINYINT PRIMARY KEY,
       office_name VARCHAR(120) NOT NULL,
       office_address VARCHAR(500) NOT NULL,
-      office_latitude DECIMAL(10,7) NOT NULL,
-      office_longitude DECIMAL(10,7) NOT NULL,
-      office_radius_meters INT NOT NULL DEFAULT 100,
-      outside_radius_grace_minutes INT NOT NULL DEFAULT 2,
-      field_ping_interval_minutes INT NOT NULL DEFAULT 15,
-      field_waiting_minutes INT NOT NULL DEFAULT 60,
-      stationary_radius_meters INT NOT NULL DEFAULT 50,
+      office_latitude DECIMAL(10,7) NULL DEFAULT NULL,
+      office_longitude DECIMAL(10,7) NULL DEFAULT NULL,
+      office_radius_meters INT NULL DEFAULT NULL,
+      outside_radius_grace_minutes INT NULL DEFAULT NULL,
+      field_ping_interval_minutes INT NULL DEFAULT NULL,
+      field_waiting_minutes INT NULL DEFAULT NULL,
+      stationary_radius_meters INT NULL DEFAULT NULL,
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
 
-  await db.query(`
-    INSERT IGNORE INTO hrms_tracking_settings (
-      id, office_name, office_address, office_latitude, office_longitude,
-      office_radius_meters, outside_radius_grace_minutes, field_ping_interval_minutes,
-      field_waiting_minutes, stationary_radius_meters
-    ) VALUES (1, 'Main Office', 'Configure this address in Admin > Tracking',
-      12.8542438, 80.0699862, 100, 2, 15, 60, 50)
-  `);
-
   const [settingsColumns] = await db.query(
-    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+    `SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'hrms_tracking_settings'`
   );
   const hasCol = (name) => settingsColumns.some((c) => c.COLUMN_NAME === name);
   if (!hasCol('outside_radius_grace_minutes')) {
-    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN outside_radius_grace_minutes INT NOT NULL DEFAULT 2');
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN outside_radius_grace_minutes INT NULL DEFAULT NULL');
   }
   if (!hasCol('office_outside_radius_grace_minutes')) {
-    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN office_outside_radius_grace_minutes INT NOT NULL DEFAULT 5');
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN office_outside_radius_grace_minutes INT NULL DEFAULT NULL');
   }
   if (!hasCol('home_outside_radius_grace_minutes')) {
-    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_outside_radius_grace_minutes INT NOT NULL DEFAULT 5');
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_outside_radius_grace_minutes INT NULL DEFAULT NULL');
   }
   if (!hasCol('office_no_gps_timeout_minutes')) {
-    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN office_no_gps_timeout_minutes INT NOT NULL DEFAULT 30');
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN office_no_gps_timeout_minutes INT NULL DEFAULT NULL');
   }
   if (!hasCol('home_no_gps_timeout_minutes')) {
-    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_no_gps_timeout_minutes INT NOT NULL DEFAULT 30');
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_no_gps_timeout_minutes INT NULL DEFAULT NULL');
   }
   if (!hasCol('home_radius_meters')) {
-    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_radius_meters INT NOT NULL DEFAULT 200');
+    await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_radius_meters INT NULL DEFAULT NULL');
   }
   if (!hasCol('home_tracking_enabled')) {
     await db.query('ALTER TABLE hrms_tracking_settings ADD COLUMN home_tracking_enabled TINYINT NOT NULL DEFAULT 1');
   }
+
+  // Drop old policy defaults without modifying any saved admin values.
+  const policyColumns = ['office_radius_meters', 'outside_radius_grace_minutes',
+    'field_ping_interval_minutes', 'field_waiting_minutes', 'stationary_radius_meters',
+    'office_outside_radius_grace_minutes', 'home_outside_radius_grace_minutes',
+    'office_no_gps_timeout_minutes', 'home_no_gps_timeout_minutes', 'home_radius_meters'];
+  for (const name of policyColumns) {
+    const column = settingsColumns.find(item => item.COLUMN_NAME === name);
+    if (column && (column.IS_NULLABLE !== 'YES' || (column.COLUMN_DEFAULT != null && String(column.COLUMN_DEFAULT).toUpperCase() !== 'NULL'))) {
+      await db.query(`ALTER TABLE hrms_tracking_settings MODIFY COLUMN ${name} INT NULL DEFAULT NULL`);
+    }
+  }
+
+  for (const name of ['office_latitude', 'office_longitude']) {
+    const column = settingsColumns.find(item => item.COLUMN_NAME === name);
+    if (column && column.IS_NULLABLE !== 'YES') {
+      await db.query(`ALTER TABLE hrms_tracking_settings MODIFY COLUMN ${name} DECIMAL(10,7) NULL DEFAULT NULL`);
+    }
+  }
+
+  await db.query(`
+    INSERT IGNORE INTO hrms_tracking_settings (id, office_name, office_address)
+    VALUES (1, 'Main Office', 'Configure this address in Admin > Tracking')
+  `);
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS hrms_employee_location_status (

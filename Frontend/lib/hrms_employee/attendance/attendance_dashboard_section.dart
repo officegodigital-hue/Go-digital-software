@@ -784,7 +784,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           builder: (context, constraints) => constraints.maxWidth < 520
               ? Column(children: [workday, const SizedBox(height: 14), month])
               : SizedBox(
-                  height: 364,
+                  height: 352,
                   child: Row(
                     children: [
                       Expanded(child: workday),

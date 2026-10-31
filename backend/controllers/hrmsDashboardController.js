@@ -404,13 +404,17 @@ async function monthView(req, res) {
         approvedLeave: payroll ? Number(payroll.leaveDays || 0) : approvedLeave,
         salary: payroll ? payroll.salary : formatSalary(profile.monthly_salary),
         daysPaid: String(lopDays),
+        deductedDays: lopDays,
         afterLeaves: payroll ? payroll.deductionsLabel : (salaryNumber ? formatSalary(deduction) : '–'),
         // The attendance grid is a live, month-to-date view.  Match the
         // Payroll and Employee Salary screens by showing salary earned through
         // the current date, not the projected month-end net pay.
         updatedSalary: payroll ? payroll.earnedToDateLabel : (salaryNumber ? formatSalary(afterLeaves) : '–'),
+        creditedDays: payroll
+          ? (String(payroll.status).toLowerCase() === 'paid' ? payroll.paidDays : payroll.paidDaysToDate) ?? null
+          : paidDays,
         workingDays: payroll ? Number(payroll.workingDays || 0) : workingDays,
-        dailySalary: payroll ? Number(payroll.dailyRate || 0) : 0,
+        dailySalary: payroll ? Number(payroll.dailyRate || 0) : dailyRate,
         paidDays: paidDays,
         paidLeaveDays: payroll ? Number(payroll.paidLeaveDays || 0) : 0,
         lopLeaveDays: payroll ? Number(payroll.lopLeaveDays || 0) : 0,

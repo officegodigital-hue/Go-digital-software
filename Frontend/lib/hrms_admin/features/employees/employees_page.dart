@@ -1,5 +1,8 @@
+import 'employee_records_panel.dart';
+import 'employee_records_widgets.dart';
 import 'employee_exit_dialog.dart';
 import 'employee_archive_page.dart';
+import 'employee_profile_page.dart';
 import 'leave_policy_dialog.dart';
 import 'dart:async';
 
@@ -36,6 +39,7 @@ class EmployeesPage extends StatefulWidget {
 
 class _EmployeesPageState extends State<EmployeesPage> {
   final searchController = TextEditingController();
+  int recordTab = 0;
   String query = '';
   String department = 'All Departments';
   String status = 'All Status';
@@ -175,53 +179,79 @@ class _EmployeesPageState extends State<EmployeesPage> {
                           children: [
                             // Employees are added in the Task Manager Admin Panel
                             // (Employee Management) — not here.
-                            _PageHeader(onExport: _exportEmployees),
-                            const SizedBox(height: 18),
-                            _EmployeeKpis(
-                              mobile: mobile,
-                              total: kpiTotal,
-                              active: kpiActive,
-                              onLeave: kpiOnLeave,
-                              inactive: kpiInactive,
-                            ),
-                            const SizedBox(height: 18),
-                            _Filters(
-                              searchController: searchController,
-                              department: department,
-                              departmentOptions: departmentOptions,
-                              status: status,
-                              workMode: workMode,
-                              onSearch: _onSearchChanged,
-                              onDepartment: (value) {
-                                department = value!;
-                                _resetPageAndLoad();
-                              },
-                              onStatus: (value) {
-                                status = value!;
-                                _resetPageAndLoad();
-                              },
-                              onMode: (value) {
-                                workMode = value!;
-                                _resetPageAndLoad();
-                              },
-                              onReset: _resetFilters,
-                            ),
-                            const SizedBox(height: 14),
-                            if (loading)
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 12),
-                                child: LinearProgressIndicator(minHeight: 2),
+                            _PageHeader(
+                              onExport: _exportEmployees,
+                              tabs: RecordTabs(
+                                labels: const ['Employees', 'Inactive Records'],
+                                selected: recordTab,
+                                onSelect: (value) => setState(() => recordTab = value),
                               ),
-                            _EmployeeTable(
-                              employees: employees,
-                              total: filteredTotal,
-                              mobile: mobile,
-                              onView: _showEmployeeDetails,
-                              onEdit: (employee) =>
-                                  _showEmployeeForm(employee: employee),
-                              onToggle: _toggleEmployee,
-                              onDelete: _confirmDelete,
                             ),
+                            const SizedBox(height: 20),
+                            if (recordTab == 1)
+                              EmployeeRecordsPanel(
+                                onOpenRecord: (id, name) async {
+                                  await Navigator.push(
+                                    context,
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => EmployeeProfilePage(
+                                        profileId: 0,
+                                        employeeUserId: id,
+                                        initialName: name,
+                                        sourceLabel: 'Inactive Records',
+                                      ),
+                                    ),
+                                  );
+                                  if (mounted) await _loadEmployees();
+                                },
+                              )
+                            else ...[
+                              _EmployeeKpis(
+                                mobile: mobile,
+                                total: kpiTotal,
+                                active: kpiActive,
+                                onLeave: kpiOnLeave,
+                                inactive: kpiInactive,
+                              ),
+                              const SizedBox(height: 18),
+                              _Filters(
+                                searchController: searchController,
+                                department: department,
+                                departmentOptions: departmentOptions,
+                                status: status,
+                                workMode: workMode,
+                                onSearch: _onSearchChanged,
+                                onDepartment: (value) {
+                                  department = value!;
+                                  _resetPageAndLoad();
+                                },
+                                onStatus: (value) {
+                                  status = value!;
+                                  _resetPageAndLoad();
+                                },
+                                onMode: (value) {
+                                  workMode = value!;
+                                  _resetPageAndLoad();
+                                },
+                                onReset: _resetFilters,
+                              ),
+                              const SizedBox(height: 14),
+                              if (loading)
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 12),
+                                  child: LinearProgressIndicator(minHeight: 2),
+                                ),
+                              _EmployeeTable(
+                                employees: employees,
+                                total: filteredTotal,
+                                mobile: mobile,
+                                onView: _showEmployeeDetails,
+                                onEdit: (employee) =>
+                                    _showEmployeeForm(employee: employee),
+                                onToggle: _toggleEmployee,
+                                onDelete: _confirmDelete,
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -792,7 +822,18 @@ class _EmployeesPageState extends State<EmployeesPage> {
   }
 
   Future<void> _showEmployeeDetails(_Employee employee) async {
-    await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => EmployeeArchivePage(employeeId: employee.employeeUserId, name: employee.name)));
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => EmployeeProfilePage(
+          profileId: 0,
+          employeeUserId: employee.employeeUserId,
+          initialName: employee.name,
+          sourceLabel: 'Employees',
+        ),
+      ),
+    );
+    if (mounted) await _loadEmployees();
   }
 
   Future<void> _toggleEmployee(_Employee employee) async {
@@ -808,38 +849,13 @@ class _EmployeesPageState extends State<EmployeesPage> {
 }
 
 class _PageHeader extends StatelessWidget {
-  const _PageHeader({required this.onExport});
+  const _PageHeader({required this.onExport, required this.tabs});
 
   final VoidCallback onExport;
+  final Widget tabs;
 
   static const _btnShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.all(Radius.circular(9)),
-  );
-
-  // No "Add Employee" here: add once in Admin Panel → Employee Management;
-  // the employee appears in Attendance automatically.
-  Widget _addEmployeeBtn() => Tooltip(
-    message: 'Add employees in Admin Panel → Employee Management.\n'
-        'Work location, salary and cycle are in its "Attendance Details" section.',
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF5FF),
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: const Color(0xFFBFD3FF)),
-      ),
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.info_outline_rounded, size: 18, color: HrmsColors.blue),
-          SizedBox(width: 8),
-          Text(
-            'Add employees in Admin Panel',
-            style: TextStyle(color: HrmsColors.blue, fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
-    ),
   );
 
   Widget _exportBtn() => OutlinedButton.icon(
@@ -856,31 +872,21 @@ class _PageHeader extends StatelessWidget {
   );
 
   @override
-  Widget build(BuildContext context) => AdminPageHeader(
-    title: 'Employee Management',
-    breadcrumb: 'Employees',
-    trailing: LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth < 480) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _addEmployeeBtn(),
-              const SizedBox(height: 8),
-              _exportBtn(),
-            ],
-          );
-        }
-        return Row(
-          mainAxisSize: MainAxisSize.min,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => AdminPageHeader(
+      title: 'Employee Management',
+      breadcrumb: 'Employees',
+      trailing: SizedBox(
+        width: constraints.maxWidth < 520 ? constraints.maxWidth : 520,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            _addEmployeeBtn(),
+            Flexible(child: tabs),
             const SizedBox(width: 12),
             _exportBtn(),
           ],
-        );
-      },
+        ),
+      ),
     ),
   );
 }
@@ -973,8 +979,8 @@ class _EmployeeKpi extends StatelessWidget {
     if (MediaQuery.sizeOf(context).width < 600) {
       final mobileLabel = label == 'Total Employees' ? 'Employees' : label;
       return Container(
-        height: 80,
-        padding: const EdgeInsets.all(10),
+        height: 72,
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border.all(color: color.withValues(alpha: .25)),
@@ -1014,12 +1020,12 @@ class _EmployeeKpi extends StatelessWidget {
       builder: (_, constraints) {
         final compact = constraints.maxWidth < 220;
         return Container(
-          height: 116,
+          height: 104,
           padding: EdgeInsets.fromLTRB(
-            compact ? 12 : 16,
-            14,
-            compact ? 12 : 16,
-            9,
+            compact ? 10 : 12,
+            12,
+            compact ? 10 : 12,
+            8,
           ),
           decoration: BoxDecoration(
             color: Colors.white,
@@ -1125,7 +1131,10 @@ class _Filters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 600 ? 0 : 20),
+    width: double.infinity,
+    padding: MediaQuery.sizeOf(context).width < 600
+        ? EdgeInsets.zero
+        : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     decoration: BoxDecoration(
       color: MediaQuery.sizeOf(context).width < 600
           ? Colors.transparent
@@ -1143,30 +1152,37 @@ class _Filters extends StatelessWidget {
     ),
     child: LayoutBuilder(
       builder: (_, constraints) {
-        final narrow = constraints.maxWidth < 850;
+        final mobile = MediaQuery.sizeOf(context).width < 600;
+        final compact = !mobile;
+        final narrow = constraints.maxWidth < 1000;
         final search = TextField(
+          textAlignVertical: compact ? TextAlignVertical.center : null,
           controller: searchController,
           onChanged: onSearch,
           decoration: _inputDecoration(
             'Search by name, employee ID or email',
             Icons.search_rounded,
+            compact: compact,
           ),
         );
         final departmentField = _FilterDropdown(
           label: 'Department',
           value: department,
+          compact: compact,
           values: ['All Departments', ...departmentOptions],
           onChanged: onDepartment,
         );
         final statusField = _FilterDropdown(
           label: 'Status',
           value: status,
+          compact: compact,
           values: const ['All Status', 'Active', 'On Leave', 'Inactive'],
           onChanged: onStatus,
         );
         final modeField = _FilterDropdown(
           label: 'Work Mode',
           value: workMode,
+          compact: compact,
           values: const ['All Work Modes', 'Office', 'Home', 'Hybrid'],
           onChanged: onMode,
         );
@@ -1175,7 +1191,9 @@ class _Filters extends StatelessWidget {
           child: OutlinedButton(
             onPressed: onReset,
             style: OutlinedButton.styleFrom(
-              minimumSize: const Size(56, 56),
+              minimumSize: const Size(48, 48),
+              fixedSize: const Size(48, 48),
+              padding: EdgeInsets.zero,
               side: const BorderSide(color: Color(0xFFA8C0F8)),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(9),
@@ -1187,7 +1205,6 @@ class _Filters extends StatelessWidget {
             ),
           ),
         );
-        final mobile = MediaQuery.sizeOf(context).width < 600;
         if (mobile) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1254,18 +1271,19 @@ class _Filters extends StatelessWidget {
             ],
           );
         }
-        final fields = [
-          SizedBox(width: 430, child: search),
-          departmentField,
-          statusField,
-          modeField,
-          reset,
-        ];
-        return Wrap(
-          spacing: 26,
-          runSpacing: 16,
-          crossAxisAlignment: WrapCrossAlignment.end,
-          children: fields,
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(flex: 3, child: search),
+            const SizedBox(width: 12),
+            Expanded(flex: 2, child: departmentField),
+            const SizedBox(width: 12),
+            Expanded(flex: 2, child: statusField),
+            const SizedBox(width: 12),
+            Expanded(flex: 2, child: modeField),
+            const SizedBox(width: 12),
+            reset,
+          ],
         );
       },
     ),
@@ -1279,7 +1297,7 @@ class _Filters extends StatelessWidget {
       builder: (sheetContext) => SafeArea(
         top: false,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
@@ -1376,13 +1394,14 @@ class _MobileFilterChip extends StatelessWidget {
   );
 }
 
-InputDecoration _inputDecoration(String hint, IconData icon) => InputDecoration(
+InputDecoration _inputDecoration(String hint, IconData icon, {bool compact = false}) => InputDecoration(
+  constraints: compact ? const BoxConstraints.tightFor(height: 48) : null,
   hintText: hint,
   hintStyle: const TextStyle(color: Color(0xFF50649E), fontSize: 14),
   prefixIcon: Icon(icon, color: HrmsColors.navy),
   filled: true,
   fillColor: Colors.white,
-  contentPadding: const EdgeInsets.symmetric(vertical: 18),
+  contentPadding: EdgeInsets.symmetric(vertical: compact ? 0 : 18),
   enabledBorder: OutlineInputBorder(
     borderRadius: BorderRadius.circular(8),
     borderSide: const BorderSide(color: HrmsColors.line),
@@ -1399,8 +1418,10 @@ class _FilterDropdown extends StatelessWidget {
     required this.value,
     required this.values,
     required this.onChanged,
+    this.compact = false,
   });
   final String label, value;
+  final bool compact;
   final List<String> values;
   final ValueChanged<String?> onChanged;
 
@@ -1411,7 +1432,7 @@ class _FilterDropdown extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 5, bottom: 6),
+          padding: EdgeInsets.only(left: 5, bottom: compact ? 4 : 6),
           child: Text(
             label,
             style: const TextStyle(color: HrmsColors.navy, fontSize: 13),
@@ -1421,15 +1442,15 @@ class _FilterDropdown extends StatelessWidget {
           initialValue: value,
           isExpanded: true,
           onChanged: onChanged,
-          decoration: _inputDecoration('', Icons.filter_alt_outlined).copyWith(
+          decoration: _inputDecoration('', Icons.filter_alt_outlined, compact: compact).copyWith(
             prefixIcon: null,
-            contentPadding: const EdgeInsets.symmetric(
+            contentPadding: EdgeInsets.symmetric(
               horizontal: 15,
-              vertical: 17,
+              vertical: compact ? 0 : 17,
             ),
           ),
           items: values
-              .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+              .map((item) => DropdownMenuItem(value: item, child: Text(item, maxLines: 1, overflow: TextOverflow.ellipsis)))
               .toList(),
         ),
       ],

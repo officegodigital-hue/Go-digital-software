@@ -392,7 +392,7 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
     return Container(
       key: ValueKey(r['id']),
       margin: EdgeInsets.only(bottom: mobile ? 12 : 0),
-      padding: EdgeInsets.all(mobile ? 14 : 0),
+      padding: EdgeInsets.all(mobile ? 12 : 0),
       decoration: BoxDecoration(
         color: shown(r) ? Colors.white : const Color(0xFFF8FAFE),
         border: Border.all(color: line),
@@ -731,7 +731,7 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
                           child: Column(
                             children: [
                               Container(
-                                padding: const EdgeInsets.all(16),
+                                padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFEAF2FF),
                                   borderRadius: BorderRadius.circular(10),
@@ -764,7 +764,7 @@ class _LeavePolicyDialogState extends State<LeavePolicyDialog> {
                               if (!mobile)
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
+                                    vertical: 12,
                                   ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF3F6FD),

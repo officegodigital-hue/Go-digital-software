@@ -265,7 +265,7 @@ class _ManageTimeDialogState extends State<ManageTimeDialog> {
                     const SizedBox(height: 22),
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: _softBlue,
                         borderRadius: BorderRadius.circular(12),

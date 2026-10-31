@@ -387,8 +387,8 @@ class _ApprovalKpi extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 600;
     if (compact) {
       return Container(
-        height: 80,
-        padding: const EdgeInsets.all(10),
+        height: 72,
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
@@ -406,8 +406,8 @@ class _ApprovalKpi extends StatelessWidget {
       );
     }
     return Container(
-        height: 116,
-        padding: const EdgeInsets.fromLTRB(18, 15, 18, 9),
+        height: 104,
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border.all(color: const Color(0xFFE5E8EF)),
@@ -511,7 +511,7 @@ class _RequestsPanel extends StatelessWidget {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Container(
         padding: EdgeInsets.fromLTRB(
-          mobile ? 0 : 28, mobile ? 0 : 20, mobile ? 0 : 28, mobile ? 0 : 18,
+          mobile ? 0 : 22, mobile ? 0 : 16, mobile ? 0 : 22, mobile ? 0 : 14,
         ),
         decoration: BoxDecoration(
           color: mobile ? Colors.transparent : Colors.white,
@@ -597,7 +597,7 @@ class _MobileApprovalList extends StatelessWidget {
           .map(
             (e) => Container(
               margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                   color: Colors.white,
                   border: Border.all(color: const Color(0xFFE5EAF3)),
@@ -910,7 +910,7 @@ class _ApprovalFilters extends StatelessWidget {
 
   void _showMobileFilters(BuildContext context) {
     showModalBottomSheet<void>(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (sheetContext) => SafeArea(top: false, child: Container(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
       decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0xFFD8E1F0), borderRadius: BorderRadius.circular(4)))),
@@ -1544,7 +1544,7 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
     if (widget.loading) return const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()));
     final filtered = _filtered;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFFE4E7EE)), borderRadius: BorderRadius.circular(14),
         boxShadow: const [BoxShadow(color: Color(0x0A071A72), blurRadius: 16, offset: Offset(0, 6))]),
       child: Column(
@@ -1573,7 +1573,7 @@ class _CorrectionRequestsPanelState extends State<_CorrectionRequestsPanel> {
           final initials = name.trim().isEmpty ? '?' : name.trim().substring(0, 1).toUpperCase();
           return Container(
             margin: const EdgeInsets.only(bottom: 12),
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               border: Border.all(color: const Color(0xFFE5EAF3)),
               borderRadius: BorderRadius.circular(12),

@@ -409,7 +409,7 @@ class _ExtraHoursSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
     child: Row(
       children: [
         Container(
@@ -537,7 +537,7 @@ class _MobileExtraHours extends StatelessWidget {
       ),
       const SizedBox(height: 20),
       EmployeeCard(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(14),
         child: Column(
           children: [
             Row(

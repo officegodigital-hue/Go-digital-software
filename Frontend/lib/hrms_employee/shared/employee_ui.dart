@@ -980,7 +980,7 @@ class EmployeeCard extends StatelessWidget {
   const EmployeeCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(22),
+    this.padding = const EdgeInsets.all(16),
     this.color = Colors.white,
     this.borderColor = employeeLine,
   });
@@ -1111,7 +1111,7 @@ class MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.all(20),
+    padding: const EdgeInsets.all(16),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

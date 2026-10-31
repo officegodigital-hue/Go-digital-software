@@ -368,7 +368,7 @@ class _CalendarCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: EdgeInsets.all(mobile ? 14 : 22),
+        padding: EdgeInsets.all(mobile ? 12 : 18),
         child: Column(children: [
           Row(children: [
             _CalendarArrow(
@@ -635,7 +635,7 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('${monthLabel.split(' ').first} Summary',
               style: const TextStyle(
@@ -701,7 +701,7 @@ class _RecentAttendanceCard extends StatelessWidget {
       ..sort((a, b) => b.key.compareTo(a.key));
 
     return EmployeeCard(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('Recent Attendance',
             style: TextStyle(

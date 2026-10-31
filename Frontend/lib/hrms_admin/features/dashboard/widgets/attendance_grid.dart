@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 const _gridLine = Color(0xFFE2E8F2);
 const _todayBg = Color(0xFFEEF4FF);
@@ -48,8 +49,11 @@ class AttendanceRowData {
   final num earnedLeave;
   final num approvedLeave;
   final String salaryPerMonth;
+  final String salaryPerDay;
   final String totalSalaryAfterLeaves;
+  final num? deductedDays;
   final String updatedSalary;
+  final num? creditedDays;
 
   const AttendanceRowData({
     this.employeeId = '',
@@ -64,8 +68,11 @@ class AttendanceRowData {
     required this.earnedLeave,
     required this.approvedLeave,
     required this.salaryPerMonth,
+    this.salaryPerDay = '–',
     required this.totalSalaryAfterLeaves,
+    this.deductedDays,
     required this.updatedSalary,
+    this.creditedDays,
   });
 }
 
@@ -76,6 +83,7 @@ class AttendanceGrid extends StatelessWidget {
   final bool showSummary;
   final bool showHeader;
   final int? todayIndex;
+  final ScrollController? horizontalController;
   final void Function(AttendanceRowData row, int dayIndex)? onCellTap;
 
   const AttendanceGrid({
@@ -86,6 +94,7 @@ class AttendanceGrid extends StatelessWidget {
     this.showSummary = true,
     this.showHeader = true,
     this.todayIndex,
+    this.horizontalController,
     this.onCellTap,
   });
 
@@ -97,91 +106,156 @@ class AttendanceGrid extends StatelessWidget {
   static const double _maxDayW = 80;
 
   // Summary columns
-  static const List<double> _sW = [80, 82, 64, 64, 96, 110, 120, 130, 120];
+  static const List<double> _sW = [80, 82, 64, 64, 96, 110, 120, 120, 130, 120];
   static const List<String> _sLabel = [
     'Present', 'Absent', 'Late', 'Leave', 'Half Leave',
-    'Earned Leave', 'Salary / Month', 'Deduction', 'Updated Salary',
+    'Earned Leave', 'Salary / Month', 'Per Day Salary', 'Deduction', 'Updated Salary',
   ];
   static const List<Color> _sColor = [
     Color(0xFF078C42), Color(0xFFD62545), Color(0xFFE8770C),
     Color(0xFF7C3CF2), Color(0xFF7C3CF2),
     _chipBlue,
-    Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F),
+    Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F), Color(0xFF07186F),
   ];
-
-  double get _sumW => showSummary ? _sW.fold(0.0, (a, b) => a + b) : 0.0;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (ctx, box) {
-      final calW = (box.maxWidth - _frozenW - _sumW).clamp(0.0, double.infinity);
-      final dayW = days.isEmpty
-          ? _minDayW
-          : (calW / days.length).clamp(_minDayW, _maxDayW);
+    return LayoutBuilder(
+      builder: (ctx, box) {
+        final layout = _AttendanceColumnLayout(
+          box.maxWidth,
+          days.length,
+          showSummary,
+        );
+        final dayW = layout.dayWidth;
+        final summaryWidths = layout.summaryWidths;
 
-      final bodyRows = [
-        for (final row in rows)
-          SizedBox(
-            height: _rowH,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _empCell(row, _frozenW),
-                for (var i = 0; i < row.days.length; i++)
-                  _dayCell(dayW, row.days[i],
+        final bodyRows = [
+          for (final row in rows)
+            SizedBox(
+              height: _rowH,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _empCell(row, layout.employeeWidth),
+                  for (var i = 0; i < row.days.length; i++)
+                    _dayCell(
+                      dayW,
+                      row.days[i],
                       today: todayIndex == i,
                       onTap: onCellTap != null
                           ? () => onCellTap!(row, i)
-                          : null),
-                if (showSummary) ...[
-                  _bCell(_sW[0], _stat('${row.present}',        _sColor[0])),
-                  _bCell(_sW[1], _stat('${row.unexcused}',      _sColor[1])),
-                  _bCell(_sW[2], _stat('${row.late}',           _sColor[2])),
-                  _bCell(_sW[3], _stat('${row.approvedLeave}',  _sColor[3])),
-                  _bCell(_sW[4], _stat('${row.halfLeave}',      _sColor[4])),
-                  _bCell(_sW[5], _stat('${row.earnedLeave}',    _sColor[5])),
-                  _bCell(_sW[6], _money(row.salaryPerMonth)),
-                  _bCell(_sW[7], _money(row.totalSalaryAfterLeaves)),
-                  _bCell(_sW[8], _money(row.updatedSalary)),
+                          : null,
+                    ),
+                  if (showSummary) ...[
+                    _bCell(
+                      summaryWidths[0],
+                      _stat('${row.present}', _sColor[0]),
+                    ),
+                    _bCell(
+                      summaryWidths[1],
+                      _stat('${row.unexcused}', _sColor[1]),
+                    ),
+                    _bCell(summaryWidths[2], _stat('${row.late}', _sColor[2])),
+                    _bCell(
+                      summaryWidths[3],
+                      _stat('${row.approvedLeave}', _sColor[3]),
+                    ),
+                    _bCell(
+                      summaryWidths[4],
+                      _stat('${row.halfLeave}', _sColor[4]),
+                    ),
+                    _bCell(
+                      summaryWidths[5],
+                      _stat('${row.earnedLeave}', _sColor[5]),
+                    ),
+                    _bCell(summaryWidths[6], _money(row.salaryPerMonth)),
+                    _bCell(summaryWidths[7], _money(row.salaryPerDay)),
+                    _bCell(
+                      summaryWidths[8],
+                      AttendanceDeductionValue(
+                        amount: row.totalSalaryAfterLeaves,
+                        days: row.deductedDays,
+                      ),
+                    ),
+                    _bCell(
+                      summaryWidths[9],
+                      AttendanceDeductionValue(
+                        amount: row.updatedSalary,
+                        days: row.creditedDays,
+                        daysSuffix: 'credited',
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-      ];
+        ];
 
-      // When showHeader=false the grid is hosted inside a SliverToBoxAdapter —
-      // render rows in a plain Column (no Expanded / internal scroll needed).
-      if (!showHeader) return Column(children: bodyRows);
-
-      return Column(
-        children: [
-          // ── FROZEN HEADER (never scrolls) ───────────────────────────────
-          SizedBox(
-            height: _headH,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _hCell('Employee / Designation', '', _frozenW,
-                    align: Alignment.centerLeft, hpad: 14),
-                for (var i = 0; i < days.length; i++)
-                  _hCell('${days[i]}', dayLabels[i], dayW,
-                      today: todayIndex == i),
-                if (showSummary)
-                  for (var i = 0; i < _sLabel.length; i++)
-                    _hCell(_sLabel[i], 'Monthly', _sW[i], color: _sColor[i]),
-              ],
-            ),
-          ),
-          // ── SCROLLABLE BODY ─────────────────────────────────────────────
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.vertical,
+        // When showHeader=false the grid is hosted inside a SliverToBoxAdapter —
+        // render rows in a plain Column (no Expanded / internal scroll needed).
+        if (!showHeader) {
+          return SingleChildScrollView(
+            controller: horizontalController,
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: layout.width,
               child: Column(children: bodyRows),
             ),
+          );
+        }
+
+        return SingleChildScrollView(
+          controller: horizontalController,
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: layout.width,
+            child: Column(
+              children: [
+                // ── FROZEN HEADER (never scrolls) ───────────────────────────────
+                SizedBox(
+                  height: _headH,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _hCell(
+                        'Employee / Designation',
+                        '',
+                        layout.employeeWidth,
+                        align: Alignment.centerLeft,
+                        hpad: 14,
+                      ),
+                      for (var i = 0; i < days.length; i++)
+                        _hCell(
+                          '${days[i]}',
+                          dayLabels[i],
+                          dayW,
+                          today: todayIndex == i,
+                        ),
+                      if (showSummary)
+                        for (var i = 0; i < _sLabel.length; i++)
+                          _hCell(
+                            _sLabel[i],
+                            i == 7 ? 'Daily' : 'Monthly',
+                            summaryWidths[i],
+                            color: _sColor[i],
+                          ),
+                    ],
+                  ),
+                ),
+                // ── SCROLLABLE BODY ─────────────────────────────────────────────
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.vertical,
+                    child: Column(children: bodyRows),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
-      );
-    });
+        );
+      },
+    );
   }
 
   // ── Cell builders ─────────────────────────────────────────────────────────
@@ -204,11 +278,13 @@ class AttendanceGrid extends StatelessWidget {
       ),
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Text(label,
+            maxLines: 2, overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11, color: fg)),
         if (sub.isNotEmpty) ...[
           const SizedBox(height: 3),
           Text(sub,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 9, color: Color(0xFF8599C4))),
         ],
@@ -291,6 +367,119 @@ class AttendanceGrid extends StatelessWidget {
           color: Color(0xFF07186F), fontSize: 11, fontWeight: FontWeight.w600));
 }
 
+class AttendanceDeductionValue extends StatelessWidget {
+  const AttendanceDeductionValue({
+    super.key,
+    required this.amount,
+    this.days,
+    this.compact = false,
+    this.daysSuffix = '',
+  });
+
+  final String amount;
+  final num? days;
+  final bool compact;
+  final String daysSuffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = days;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          amount,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: const Color(0xFF07186F),
+            fontSize: compact ? 10 : 11,
+            fontWeight: compact ? FontWeight.w700 : FontWeight.w600,
+          ),
+        ),
+        if (count != null && count.isFinite && count >= 0) ...[
+          const SizedBox(height: 3),
+          Text(
+            '${NumberFormat('#,##0.##', 'en_IN').format(count)} ${count == 1 ? 'day' : 'days'}${daysSuffix.isEmpty ? '' : ' $daysSuffix'}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF53688F), fontSize: 9),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+// Header and employee rows share the same widths at every window size.
+class _AttendanceColumnLayout {
+  _AttendanceColumnLayout(
+    double availableWidth,
+    int dayCount,
+    bool showSummary,
+  ) {
+    final minimumDayWidth = showSummary ? 56.0 : AttendanceGrid._minDayW;
+    if (!showSummary) {
+      width = availableWidth;
+      employeeWidth = AttendanceGrid._frozenW;
+      summaryWidths = const [];
+    } else {
+      const minimumEmployeeWidth = 190.0;
+      const minimumSummaryWidths = [
+        50.0,
+        50.0,
+        40.0,
+        44.0,
+        60.0,
+        70.0,
+        94.0,
+        94.0,
+        94.0,
+        94.0,
+      ];
+      final daySpace = dayCount * minimumDayWidth;
+      final preferredWidth =
+          AttendanceGrid._frozenW +
+          AttendanceGrid._sW.fold(0.0, (a, b) => a + b) +
+          daySpace;
+      final minimumWidth =
+          minimumEmployeeWidth +
+          minimumSummaryWidths.fold(0.0, (a, b) => a + b) +
+          daySpace;
+      width = availableWidth < minimumWidth ? minimumWidth : availableWidth;
+      final compression =
+          ((preferredWidth - width) / (preferredWidth - minimumWidth)).clamp(
+            0.0,
+            1.0,
+          );
+      employeeWidth =
+          AttendanceGrid._frozenW -
+          (AttendanceGrid._frozenW - minimumEmployeeWidth) * compression;
+      summaryWidths = List.generate(
+        AttendanceGrid._sW.length,
+        (i) =>
+            AttendanceGrid._sW[i] -
+            (AttendanceGrid._sW[i] - minimumSummaryWidths[i]) * compression,
+      );
+    }
+    final calendarWidth =
+        (width - employeeWidth - summaryWidths.fold(0.0, (a, b) => a + b))
+            .clamp(0.0, double.infinity);
+    dayWidth = dayCount == 0
+        ? minimumDayWidth
+        : (calendarWidth / dayCount).clamp(
+            minimumDayWidth,
+            AttendanceGrid._maxDayW,
+          );
+  }
+
+  late final double width;
+  late final double employeeWidth;
+  late final double dayWidth;
+  late final List<double> summaryWidths;
+}
+
 // ── Avatar ────────────────────────────────────────────────────────────────────
 
 class _Avatar extends StatelessWidget {
@@ -358,6 +547,7 @@ class AttendanceHeaderDelegate extends SliverPersistentHeaderDelegate {
     required this.showSummary,
     this.todayIndex,
     this.horizontalPadding = 0,
+    this.horizontalController,
   });
 
   final List<int> days;
@@ -365,6 +555,7 @@ class AttendanceHeaderDelegate extends SliverPersistentHeaderDelegate {
   final bool showSummary;
   final int? todayIndex;
   final double horizontalPadding;
+  final ScrollController? horizontalController;
 
   static const double height = AttendanceGrid._headH;
 
@@ -372,37 +563,60 @@ class AttendanceHeaderDelegate extends SliverPersistentHeaderDelegate {
   @override double get maxExtent => height;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-      child: LayoutBuilder(builder: (ctx, box) {
-        const frozenW = AttendanceGrid._frozenW;
-        final sumW = showSummary
-            ? AttendanceGrid._sW.fold(0.0, (a, b) => a + b)
-            : 0.0;
-        final calW = (box.maxWidth - frozenW - sumW).clamp(0.0, double.infinity);
-        final dayW = days.isEmpty
-            ? AttendanceGrid._minDayW
-            : (calW / days.length)
-                .clamp(AttendanceGrid._minDayW, AttendanceGrid._maxDayW);
+      child: LayoutBuilder(
+        builder: (ctx, box) {
+          final layout = _AttendanceColumnLayout(
+            box.maxWidth,
+            days.length,
+            showSummary,
+          );
+          final dayW = layout.dayWidth;
 
-        return SizedBox(
-          height: height,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _hCell('Employee / Designation', '', frozenW,
-                  align: Alignment.centerLeft, hpad: 14),
-              for (var i = 0; i < days.length; i++)
-                _hCell('${days[i]}', dayLabels[i], dayW, today: todayIndex == i),
-              if (showSummary)
-                for (var i = 0; i < AttendanceGrid._sLabel.length; i++)
-                  _hCell(AttendanceGrid._sLabel[i], 'Monthly',
-                      AttendanceGrid._sW[i], color: AttendanceGrid._sColor[i]),
-            ],
-          ),
-        );
-      }),
+          return SingleChildScrollView(
+            controller: horizontalController,
+            scrollDirection: Axis.horizontal,
+            physics: const NeverScrollableScrollPhysics(),
+            child: SizedBox(
+              width: layout.width,
+              height: height,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _hCell(
+                    'Employee / Designation',
+                    '',
+                    layout.employeeWidth,
+                    align: Alignment.centerLeft,
+                    hpad: 14,
+                  ),
+                  for (var i = 0; i < days.length; i++)
+                    _hCell(
+                      '${days[i]}',
+                      dayLabels[i],
+                      dayW,
+                      today: todayIndex == i,
+                    ),
+                  if (showSummary)
+                    for (var i = 0; i < AttendanceGrid._sLabel.length; i++)
+                      _hCell(
+                        AttendanceGrid._sLabel[i],
+                        i == 7 ? 'Daily' : 'Monthly',
+                        layout.summaryWidths[i],
+                        color: AttendanceGrid._sColor[i],
+                      ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -424,11 +638,13 @@ class AttendanceHeaderDelegate extends SliverPersistentHeaderDelegate {
       ),
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Text(label,
+            maxLines: 2, overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11, color: fg)),
         if (sub.isNotEmpty) ...[
           const SizedBox(height: 3),
           Text(sub,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 9, color: Color(0xFF8599C4))),
         ],

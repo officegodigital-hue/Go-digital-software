@@ -157,7 +157,7 @@ class _NetPayBannerState extends State<_NetPayBanner> {
     final paid = payroll['status'] == 'paid';
     return Container(
         constraints: BoxConstraints(minHeight: widget.mobile ? 190 : 285),
-        padding: EdgeInsets.all(widget.mobile ? 22 : 34),
+        padding: EdgeInsets.all(widget.mobile ? 18 : 28),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
@@ -302,7 +302,7 @@ class _SalaryOverviewCardState extends State<_SalaryOverviewCard> {
   Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(future: _data, builder: (context, snapshot) {
     final payroll = _currentPayroll(snapshot.data);
     return SizedBox(width: double.infinity, child: EmployeeCard(
-        padding: EdgeInsets.all(16),
+        padding: EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const _SalaryHeading('Salary Overview'), const SizedBox(height: 10),
           if (payroll.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(snapshot.data?['reviewRequired'] == true ? 'Admin needs to correct an existing payroll record before salary payment details can be shown.' : 'Payroll has not been generated for this employee.', style: const TextStyle(color: employeeMuted))) else ...[
@@ -346,7 +346,7 @@ class _SalaryBreakdownCardState extends State<_SalaryBreakdownCard> {
     final compensation = _dataMap(snapshot.data?['compensation']);
     final payroll = _currentPayroll(snapshot.data);
     return SizedBox(width: double.infinity, child: EmployeeCard(
-        padding: EdgeInsets.all(16),
+        padding: EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const _SalaryHeading('Salary Breakdown'), const SizedBox(height: 10),
           if (compensation.isEmpty) const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('Salary not configured. Contact Admin to set your compensation.', style: TextStyle(color: employeeMuted)))
@@ -395,7 +395,7 @@ class _RecentPayslipsCardState extends State<_RecentPayslipsCard> {
   Widget build(BuildContext context) => FutureBuilder<List<Map<String, dynamic>>>(
     future: _items,
     builder: (context, snapshot) => SizedBox(width: double.infinity, child: EmployeeCard(
-        padding: EdgeInsets.all(16),
+        padding: EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _SalaryHeading('Recent Payslips'),
           SizedBox(height: 10),

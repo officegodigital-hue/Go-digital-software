@@ -7,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:godigital_portal/hrms_admin/features/dashboard/dashboard_page.dart';
 
 void main() {
-  testWidgets('Dashboard counters fit the reported constraints without resizing cards', (tester) async {
+  testWidgets('Dashboard counters fit the reported constraints at the compact card size', (tester) async {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = const Size(500, 900);
     tester.view.devicePixelRatio = 1;
@@ -22,7 +22,7 @@ void main() {
       final cards = metrics.evaluate().map((element) => element.widget).toList();
       expect(tester.takeException(), isNull);
 
-      // Isolate the existing cards at the exact reported inner size: 45.2 x 58.
+      // Keep the narrower card width and check the compact height at larger text scales.
       // Other dashboard controls are deliberately outside this regression test.
       tester.view.physicalSize = const Size(400, 900);
       for (final scale in [1.2, 1.3, 1.5, 2.0]) {
@@ -43,7 +43,7 @@ void main() {
         ));
         await tester.pumpAndSettle();
         for (var i = 0; i < 5; i++) {
-          expect(tester.getSize(metrics.at(i)).height, 80);
+          expect(tester.getSize(metrics.at(i)).height, 72);
           expect(tester.getSize(metrics.at(i)).width, closeTo(67.2, .01));
         }
         expect(tester.takeException(), isNull, reason: 'text scale $scale');

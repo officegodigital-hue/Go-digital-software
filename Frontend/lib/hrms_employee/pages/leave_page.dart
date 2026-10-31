@@ -559,7 +559,7 @@ class _BalanceBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(18),
+    padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
       color: color.withValues(alpha: 0.07),
       border: Border.all(color: color.withValues(alpha: 0.22)),

@@ -11,7 +11,7 @@ class HrmsCard extends StatelessWidget {
   const HrmsCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(20),
+    this.padding = const EdgeInsets.all(16),
   });
 
   @override

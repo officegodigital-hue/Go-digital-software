@@ -224,7 +224,7 @@ class _PermissionContentState extends State<_PermissionContent> {
       const SizedBox(height: 12),
       const Text('Permission', style: TextStyle(color: employeeNavy, fontSize: 36, fontWeight: FontWeight.w800)),
       const SizedBox(height: 32),
-      Container(width: double.infinity, padding: const EdgeInsets.all(24), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF6B27EC), Color(0xFF0875EF)], begin: Alignment.topLeft, end: Alignment.bottomRight), borderRadius: BorderRadius.circular(24)), child: Row(children: [
+      Container(width: double.infinity, padding: const EdgeInsets.all(20), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF6B27EC), Color(0xFF0875EF)], begin: Alignment.topLeft, end: Alignment.bottomRight), borderRadius: BorderRadius.circular(24)), child: Row(children: [
         Container(width: 72, height: 72, decoration: BoxDecoration(color: const Color(0x26FFFFFF), border: Border.all(color: const Color(0x55FFFFFF)), borderRadius: BorderRadius.circular(20)), child: const Icon(Icons.verified_user_outlined, color: Colors.white, size: 42)),
         const SizedBox(width: 18),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -497,7 +497,7 @@ class _PermissionContentState extends State<_PermissionContent> {
                 children: [
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
                         colors: [Color(0xFF6637E8), Color(0xFF3558D8)],

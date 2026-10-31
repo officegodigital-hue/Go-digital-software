@@ -78,3 +78,38 @@ test('other automatic checkout paths still use their actual event time', async (
     '2026-10-26 23:59:00'
   );
 });
+
+test('automatic checkout uses changed admin grace and GPS timeout instead of old defaults', async () => {
+  const writes = [];
+  const settings = { office_outside_radius_grace_minutes: 9, home_outside_radius_grace_minutes: 11,
+    office_no_gps_timeout_minutes: 13, home_no_gps_timeout_minutes: 17 };
+  const query = async (sql, params) => {
+    if (sql.includes('FROM attendance_records')) return [[{ id: 12, employee_id: 7, work_mode: 'Office', check_in_at: '2026-10-26 09:00:00' }]];
+    if (sql.includes('FROM hrms_tracking_settings')) return [[settings]];
+    if (sql.includes('SELECT left_at')) return [[{ left_at: '2026-10-26 23:51:00' }]];
+    if (sql.includes('SELECT recorded_at')) return [[{ recorded_at: '2026-10-26 23:50:00' }]];
+    if (sql.includes('FROM attendance_breaks')) return [[]];
+    if (sql.includes('SUM(duration_minutes)')) return [[{ total: 0 }]];
+    writes.push({ sql, params });
+    return [{ affectedRows: 1 }];
+  };
+  const job = loadJob(query);
+  assert.equal((await job.runAutoCheckout()).checked, 0);
+  settings.office_outside_radius_grace_minutes = 7;
+  assert.equal((await job.runAutoCheckout()).checked, 1);
+  assert.ok(writes.some(w => w.sql.includes('UPDATE attendance_records')));
+  writes.length = 0;
+  settings.office_outside_radius_grace_minutes = 100;
+  settings.office_no_gps_timeout_minutes = 8;
+  assert.equal((await job.runAutoCheckout()).checked, 1);
+  assert.ok(writes.some(w => w.sql.includes('INSERT INTO hrms_attendance_checkout_audit') && w.params[2] === 'no_gps_auto_checkout'));
+});
+
+test('missing checkout configuration never silently uses five or thirty minutes', async () => {
+  const query = async sql => {
+    if (sql.includes('FROM attendance_records')) return [[{ id: 12, employee_id: 7, work_mode: 'Office' }]];
+    if (sql.includes('FROM hrms_tracking_settings')) return [[{ office_outside_radius_grace_minutes: null }]];
+    assert.fail('Unconfigured policy must not reach checkout writes');
+  };
+  await assert.rejects(loadJob(query).runAutoCheckout(), /Admin must configure/);
+});

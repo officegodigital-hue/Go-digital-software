@@ -1,4 +1,5 @@
 'use strict';
+const { configuredNumber } = require('./configuredSetting');
 
 class LocationPolicyError extends Error {
   constructor(status, message) {
@@ -68,7 +69,7 @@ async function profileFor(db, employeeId, lock = false) {
   return profile;
 }
 
-async function settingsFor(db, lock = false) {
+async function settingsFor(db, lock = false, mode = null) {
   const [rows] = await db.query(
     `SELECT office_latitude, office_longitude, office_radius_meters, outside_radius_grace_minutes,
             office_outside_radius_grace_minutes, home_outside_radius_grace_minutes,
@@ -78,29 +79,30 @@ async function settingsFor(db, lock = false) {
   if (rows.length !== 1) {
     throw new LocationPolicyError(503, 'Office and Home location settings are unavailable. Contact admin.');
   }
-  const radiusMeters = number(rows[0].office_radius_meters);
-  if (!Number.isSafeInteger(radiusMeters) || radiusMeters < 1) {
-    throw new LocationPolicyError(503, 'Admin must configure a valid Office/Home radius.');
-  }
-  const sharedGrace = number(rows[0].outside_radius_grace_minutes);
-  const officeGrace = number(rows[0].office_outside_radius_grace_minutes);
-  const homeGrace = number(rows[0].home_outside_radius_grace_minutes);
-  const officeNoGps = number(rows[0].office_no_gps_timeout_minutes);
-  const homeNoGps = number(rows[0].home_no_gps_timeout_minutes);
-  const homeRadius = number(rows[0].home_radius_meters);
+  const officeRequired = mode !== 'Home';
+  const homeRequired = mode !== 'Office';
+  const read = (value, label, required) => required ? configuredNumber(value, label) : (number(value) > 0 ? number(value) : null);
+  const radiusMeters = read(rows[0].office_radius_meters, 'Office radius', officeRequired);
+  const sharedGrace = rows[0].outside_radius_grace_minutes;
+  const officeGrace = rows[0].office_outside_radius_grace_minutes;
+  const homeGrace = rows[0].home_outside_radius_grace_minutes;
+  const officeNoGps = rows[0].office_no_gps_timeout_minutes;
+  const homeNoGps = rows[0].home_no_gps_timeout_minutes;
+  const homeRadius = rows[0].home_radius_meters;
   return {
     ...rows[0],
     radiusMeters,
+    officeRadiusMeters: radiusMeters,
     // shared legacy field (kept for backward compat)
-    outsideRadiusGraceMinutes: Number.isFinite(sharedGrace) && sharedGrace > 0 ? Number(sharedGrace) : 2,
-    // per-mode grace (falls back to shared value if not set)
-    officeOutsideRadiusGraceMinutes: Number.isFinite(officeGrace) && officeGrace > 0 ? Number(officeGrace) : 5,
-    homeOutsideRadiusGraceMinutes: Number.isFinite(homeGrace) && homeGrace > 0 ? Number(homeGrace) : 5,
+    outsideRadiusGraceMinutes: sharedGrace == null ? null : configuredNumber(sharedGrace, 'legacy checkout grace'),
+    // Per-mode values must be explicitly configured by admin.
+    officeOutsideRadiusGraceMinutes: read(officeGrace, 'Office checkout grace', officeRequired),
+    homeOutsideRadiusGraceMinutes: read(homeGrace, 'Home checkout grace', homeRequired),
     // no-gps timeout
-    officeNoGpsTimeoutMinutes: Number.isFinite(officeNoGps) && officeNoGps > 0 ? Number(officeNoGps) : 30,
-    homeNoGpsTimeoutMinutes: Number.isFinite(homeNoGps) && homeNoGps > 0 ? Number(homeNoGps) : 30,
+    officeNoGpsTimeoutMinutes: read(officeNoGps, 'Office no-GPS timeout', officeRequired),
+    homeNoGpsTimeoutMinutes: read(homeNoGps, 'Home no-GPS timeout', homeRequired),
     // home-specific
-    homeRadiusMeters: Number.isFinite(homeRadius) && homeRadius > 0 ? Number(homeRadius) : 200,
+    homeRadiusMeters: read(homeRadius, 'Home radius', homeRequired),
     homeTrackingEnabled: rows[0].home_tracking_enabled !== 0,
   };
 }
@@ -125,7 +127,7 @@ async function getCheckInPolicy(db, employeeId, lock = false) {
       canClockIn: true,
     };
   }
-  const settings = await settingsFor(db, lock);
+  const settings = await settingsFor(db, lock, workMode);
   let center;
   if (workMode === 'Office') {
     try {

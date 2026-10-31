@@ -239,8 +239,8 @@ class _MobileMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Expanded(
     child: Container(
-      height: 78,
-      padding: const EdgeInsets.all(10),
+      height: 70,
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: color.withValues(alpha: .22)),
@@ -353,7 +353,7 @@ class _MobileLogCard extends StatelessWidget {
         '${breakMinutes ~/ 60}h ${(breakMinutes % 60).toString().padLeft(2, '0')}m';
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: _line),
@@ -658,7 +658,7 @@ class _MobileEmployeeHistoryCard extends StatelessWidget {
       );
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: _line),
@@ -987,7 +987,9 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
   final _tableHeaderScrollCtrl = ScrollController();
   final _tableBodyScrollCtrl = ScrollController();
   DateTime _date = DateTime.now();
-  bool _monthly = true;
+  // Open Clock Logs on today's attendance by default. Users can still select
+  // Month from the existing period control when they need historical totals.
+  bool _monthly = false;
   int? _employeeId;
   List<Map<String, dynamic>> _employees = const [];
   List<Map<String, dynamic>> _logs = const [];
@@ -1644,8 +1646,8 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
     Color color, [
     Color background = const Color(0xFFEAF1FF),
   ]) => Container(
-    height: 116,
-    padding: const EdgeInsets.fromLTRB(16, 14, 16, 9),
+    height: 104,
+    padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: color.withValues(alpha: 0.28)),
@@ -1908,7 +1910,7 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
         ),
         child: Container(
           constraints: const BoxConstraints(minHeight: 64),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
             color: const Color(0xFFF8FBFF),
             border: Border.all(color: const Color(0xFFD9E5F6)),

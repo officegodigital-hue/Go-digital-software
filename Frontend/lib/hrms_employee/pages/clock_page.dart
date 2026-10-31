@@ -456,7 +456,7 @@ class _ClockViewState extends State<_ClockView> with WidgetsBindingObserver {
         ],
         const SizedBox(height: 12),
         EmployeeCard(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -632,7 +632,7 @@ class _RecentClockRecords extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.fromLTRB(22, 18, 22, 12),
+    padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

@@ -652,7 +652,7 @@ class _TrackingErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 20),
+    padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 16),
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: const Color(0xFFE3E7EF)),
@@ -1045,7 +1045,7 @@ class _MobileLiveLocationCard extends StatefulWidget {
 class _MobileLiveLocationCardState extends State<_MobileLiveLocationCard> {
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
+    padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: const Color(0xFFE3E7EF)),
@@ -1144,7 +1144,7 @@ class _MobileEmployeesCardState extends State<_MobileEmployeesCard> {
     final inactiveCount = modeEmployees.length - activeCount;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 16, 14, 12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: const Color(0xFFE3E7EF)),
@@ -2199,7 +2199,7 @@ class _EmptyTrackedState extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.symmetric(vertical: 40),
+    padding: const EdgeInsets.symmetric(vertical: 32),
     decoration: BoxDecoration(
       border: Border.all(color: const Color(0xFFE2E6ED)),
       borderRadius: BorderRadius.circular(10),
@@ -2909,7 +2909,7 @@ class _AdminRoutePanelState extends State<_AdminRoutePanel> {
     };
     final isMobileWidth = MediaQuery.sizeOf(context).width < 600;
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: const Color(0xFFE3E7EF)),
@@ -3308,8 +3308,8 @@ class _EmployeeActivityDialogState extends State<_EmployeeActivityDialog> {
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 13,
+                  horizontal: 14,
+                  vertical: 10,
                 ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF0F3FA),
@@ -4113,10 +4113,10 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
 
   Widget _footer(bool isMobile) => Container(
     padding: EdgeInsets.fromLTRB(
-      isMobile ? 14 : 20,
-      10,
-      isMobile ? 14 : 20,
-      isMobile ? 14 : 14,
+      isMobile ? 12 : 16,
+      8,
+      isMobile ? 12 : 16,
+      isMobile ? 12 : 12,
     ),
     decoration: const BoxDecoration(
       border: Border(top: BorderSide(color: _line)),
@@ -4164,7 +4164,7 @@ class _OfficeLocationDialogState extends State<_OfficeLocationDialog> {
   );
 
   Widget _header() => Container(
-    padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+    padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
     decoration: const BoxDecoration(
       border: Border(bottom: BorderSide(color: _line)),
       color: Colors.white,
@@ -4404,7 +4404,7 @@ class _FieldWaitingSettingsDialogState
   // ── widgets ───────────────────────────────────────────────────────────────
 
   Widget _header() => Container(
-    padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+    padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
     decoration: const BoxDecoration(
       color: Colors.white,
       border: Border(bottom: BorderSide(color: _line)),
@@ -4589,7 +4589,7 @@ class _FieldWaitingSettingsDialogState
     builder: (context, constraints) {
       final compact = constraints.maxWidth < 400;
       return Container(
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
         decoration: const BoxDecoration(
           color: Colors.white,
           border: Border(top: BorderSide(color: _line)),

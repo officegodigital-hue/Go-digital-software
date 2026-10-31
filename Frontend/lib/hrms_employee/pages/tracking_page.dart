@@ -1,7 +1,8 @@
+import 'dart:typed_data';
 import 'dart:async';
 import 'dart:ui' as ui;
-import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
+import '../../services/waiting_alert_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -135,9 +136,7 @@ class _TrackingViewState extends State<_TrackingView> {
   bool _isHybridEmployee = false;
   bool _clockInPromptShown = false;
   Timer? _locationTimer;
-  Timer? _waitingAlertTimer;
   Timer? _radiusHeartbeatTimer;
-  StreamSubscription<Position>? _androidBackgroundLocationSubscription;
   Position? _lastPosition;
   Map<String, dynamic>? _homeLocation;
   Map<String, dynamic>? _officeSettings;
@@ -169,25 +168,17 @@ class _TrackingViewState extends State<_TrackingView> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadHybridSession();
-      _checkWaitingAlert();
       _loadHomeLocation();
       _loadOfficeSettings();
       _loadRoute();
       _loadRouteMarkerIcons();
     });
-
-    _waitingAlertTimer = Timer.periodic(
-      const Duration(minutes: 1),
-      (_) => _checkWaitingAlert(),
-    );
   }
 
   @override
   void dispose() {
     _locationTimer?.cancel();
-    _waitingAlertTimer?.cancel();
     _radiusHeartbeatTimer?.cancel();
-    _androidBackgroundLocationSubscription?.cancel();
     super.dispose();
   }
 
@@ -406,10 +397,11 @@ class _TrackingViewState extends State<_TrackingView> {
 
       if (active) {
         _startLocationTimer();
-        await _sendLocationPing(showMessage: false);
         if (widget.clockInAfterTracking && !_clockInPromptShown && mounted) {
           _clockInPromptShown = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) => _showClockInPrompt());
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _showClockInPrompt(),
+          );
         }
       }
     } catch (_) {
@@ -424,14 +416,11 @@ class _TrackingViewState extends State<_TrackingView> {
       '${_officeSettings?['field_ping_interval_minutes']}',
     );
     if (minutes == null || minutes < 1) return;
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      _startAndroidBackgroundTracking(minutes);
-      return;
-    }
-    _locationTimer = Timer.periodic(Duration(minutes: minutes.clamp(1, 120)), (
+    context.read<WaitingAlertService?>()?.refresh();
+    _locationTimer = Timer.periodic(Duration(minutes: minutes), (
       _,
     ) {
-      _sendLocationPing(showMessage: false);
+      _loadRoute(silent: true);
     });
   }
 
@@ -495,49 +484,6 @@ class _TrackingViewState extends State<_TrackingView> {
     }
   }
 
-  Future<void> _startAndroidBackgroundTracking(int intervalMinutes) async {
-    await _androidBackgroundLocationSubscription?.cancel();
-    if (!trackingActive ||
-        kIsWeb ||
-        defaultTargetPlatform != TargetPlatform.android) {
-      return;
-    }
-    var permission = await Geolocator.checkPermission();
-    if (permission != LocationPermission.always) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission != LocationPermission.always) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Choose “Allow all the time” in Android location permission to keep Hybrid tracking active in the background.',
-            ),
-          ),
-        );
-      }
-      return;
-    }
-    const notification = ForegroundNotificationConfig(
-      notificationTitle: 'Go Digital HRMS tracking is active',
-      notificationText: 'Your Hybrid work location is being updated.',
-      enableWakeLock: true,
-      setOngoing: true,
-    );
-    final settings = AndroidSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 0,
-      intervalDuration: Duration(minutes: intervalMinutes),
-      foregroundNotificationConfig: notification,
-    );
-    _androidBackgroundLocationSubscription =
-        Geolocator.getPositionStream(locationSettings: settings).listen((
-          position,
-        ) {
-          _sendPositionPing(position, showMessage: false).catchError((_) {});
-        });
-  }
-
   Future<void> toggleTracking() async {
     try {
       // Clock In is the first step of Hybrid work. Check it before requesting
@@ -592,8 +538,7 @@ class _TrackingViewState extends State<_TrackingView> {
         );
 
         _locationTimer?.cancel();
-        await _androidBackgroundLocationSubscription?.cancel();
-        _androidBackgroundLocationSubscription = null;
+        context.read<WaitingAlertService?>()?.refresh();
 
         if (!mounted) return;
 
@@ -624,11 +569,9 @@ class _TrackingViewState extends State<_TrackingView> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -654,10 +597,9 @@ class _TrackingViewState extends State<_TrackingView> {
       ),
     );
     if (goToClockIn == true && mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/employee/dashboard',
-        (route) => false,
-      );
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil('/employee/dashboard', (route) => false);
     }
   }
 
@@ -833,11 +775,17 @@ class _TrackingViewState extends State<_TrackingView> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: employeeBlue,
                 side: const BorderSide(color: employeeBlue),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -940,104 +888,6 @@ class _TrackingViewState extends State<_TrackingView> {
           ],
         ),
       ],
-    );
-  }
-
-  Future<void> _checkWaitingAlert() async {
-    if (_homeDialogOpen) return;
-    try {
-      final alert = await HrmsTrackingApi.waitingAlert();
-
-      debugPrint('Waiting alert response: $alert');
-
-      if (!mounted || _homeDialogOpen || alert == null) return;
-
-      final reasonId = int.tryParse('${alert['id']}');
-
-      if (reasonId == null) {
-        debugPrint('Waiting alert has no valid ID');
-        return;
-      }
-
-      await _showWaitingReasonDialog(
-        reasonId: reasonId,
-        waitingMinutes: alert['waiting_minutes'] ?? 0,
-      );
-    } catch (error) {
-      debugPrint('Waiting alert check failed: $error');
-    }
-  }
-
-  Future<void> _showWaitingReasonDialog({
-    required int reasonId,
-    required dynamic waitingMinutes,
-  }) async {
-    final controller = TextEditingController();
-    // Play alert sound to get the hybrid employee's attention
-    try {
-      final player = AudioPlayer();
-      await player.play(AssetSource('sounds/notification.mp3'));
-    } catch (_) {}
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Hybrid waiting reason'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'You have been at this location for $waitingMinutes minutes. '
-                'Please enter the reason for waiting.',
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: controller,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Reason for waiting',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () async {
-                final reason = controller.text.trim();
-
-                if (reason.isEmpty) return;
-
-                try {
-                  await HrmsTrackingApi.submitWaitingReason(
-                    reasonId: reasonId,
-                    reason: reason,
-                  );
-
-                  if (mounted) {
-                    Navigator.of(context, rootNavigator: true).pop();
-                  }
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Waiting reason submitted')),
-                    );
-                  }
-                } catch (error) {
-                  debugPrint('Waiting reason submit failed: $error');
-                  if (mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text(error.toString())));
-                  }
-                }
-              },
-              child: const Text('Submit'),
-            ),
-          ],
-        );
-      },
     );
   }
 }
@@ -1169,7 +1019,7 @@ class _RouteHistoryViewState extends State<_RouteHistoryView> {
           Text(_error!, style: const TextStyle(color: Colors.red))
         else if (raw.isEmpty)
           const EmployeeCard(
-            padding: EdgeInsets.all(20),
+            padding: EdgeInsets.all(16),
             child: Text('No GPS route was recorded for the selected date'),
           )
         else ...[
@@ -1232,7 +1082,7 @@ class _RouteHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.all(18),
+    padding: const EdgeInsets.all(14),
     child: Row(
       children: [
         Container(
@@ -1399,7 +1249,7 @@ class _CurrentStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.all(18),
+    padding: const EdgeInsets.all(14),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1760,7 +1610,7 @@ class _ActivityTimeline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-    padding: const EdgeInsets.all(18),
+    padding: const EdgeInsets.all(14),
     child: Column(
       children: activities.asMap().entries.map((entry) {
         final idx = entry.key;

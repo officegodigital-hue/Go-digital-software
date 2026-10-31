@@ -16,7 +16,7 @@ test('MySQL exit transaction preserves records, recalculates salary, leaves task
     pool=mysql.createPool({...settings,database:name,connectionLimit:5});
     const definitions=[
       `CREATE TABLE employee_users(id INT PRIMARY KEY,full_name VARCHAR(255),role VARCHAR(100),is_active TINYINT,created_at DATETIME) ENGINE=InnoDB`,
-      `CREATE TABLE hrms_employee_profiles(id INT PRIMARY KEY,employee_user_id INT,full_name VARCHAR(255),employee_code VARCHAR(30),department VARCHAR(100),employment_status VARCHAR(30),monthly_salary DECIMAL(12,2),salary_type VARCHAR(30),salary_cycle_start_day INT,salary_cycle_end_day INT,created_at DATETIME) ENGINE=InnoDB`,
+      `CREATE TABLE hrms_employee_profiles(id INT PRIMARY KEY,employee_user_id INT,full_name VARCHAR(255),employee_code VARCHAR(30),department VARCHAR(100),work_mode VARCHAR(30) DEFAULT 'Office',employment_status VARCHAR(30),monthly_salary DECIMAL(12,2),salary_type VARCHAR(30),salary_cycle_start_day INT,salary_cycle_end_day INT,created_at DATETIME) ENGINE=InnoDB`,
       `CREATE TABLE hrms_payroll_items(id INT AUTO_INCREMENT PRIMARY KEY,profile_id INT,employee_user_id INT,pay_year INT,pay_month INT,monthly_salary DECIMAL(12,2),working_days INT,daily_rate DECIMAL(12,2),paid_days DECIMAL(8,2),lop_days DECIMAL(8,2),deductions DECIMAL(12,2),net_pay DECIMAL(12,2),status VARCHAR(30),period_start DATE,period_end DATE,paid_at DATETIME,UNIQUE KEY profile_month(profile_id,pay_year,pay_month)) ENGINE=InnoDB`,
       `CREATE TABLE attendance_records(id INT AUTO_INCREMENT PRIMARY KEY,employee_id INT,attendance_date DATE,check_in_at DATETIME,check_out_at DATETIME,attendance_status VARCHAR(30),admin_status_override VARCHAR(30),is_late TINYINT) ENGINE=InnoDB`,
       `CREATE TABLE employee_leaves(id INT PRIMARY KEY,employee_id INT,from_date DATE,to_date DATE,duration_type VARCHAR(30),leave_type_id INT,status VARCHAR(30)) ENGINE=InnoDB`,
@@ -28,7 +28,7 @@ test('MySQL exit transaction preserves records, recalculates salary, leaves task
     ];
     for(const sql of definitions) await pool.query(sql);
     await pool.query("INSERT INTO employee_users VALUES (7,'Former Employee','Designer',1,'2020-01-01'),(8,'Replacement','Designer',1,'2020-01-01')");
-    await pool.query("INSERT INTO hrms_employee_profiles VALUES (1,7,'Former Employee','E7','Design','Active',27000,'standard',NULL,NULL,'2020-01-01')");
+    await pool.query("INSERT INTO hrms_employee_profiles (id,employee_user_id,full_name,employee_code,department,employment_status,monthly_salary,salary_type,salary_cycle_start_day,salary_cycle_end_day,created_at) VALUES (1,7,'Former Employee','E7','Design','Active',27000,'standard',NULL,NULL,'2020-01-01')");
     await pool.query("INSERT INTO task_assignments VALUES (10,'Former Employee','Client','2020-01-15')");
     await pool.query("INSERT INTO task_list(id,task_assignment_id,employee_id,employee_name,client_name,deliverables,submission_date,no_of_rows) VALUES (11,10,7,'Former Employee','Client','Design','2020-01-15',2)");
     await pool.query("INSERT INTO time_tracking_task_items(id,task_list_id,s_no,status,duration_secs) VALUES (12,11,1,'COMPLETED',600),(13,11,2,'IDLE',0)");
@@ -50,6 +50,10 @@ test('MySQL exit transaction preserves records, recalculates salary, leaves task
     const exit=await lifecycle.deactivate(7,{lastWorkingDate:'2020-01-15',reason:'Left the office'},1);
     const [[user]]=await pool.query('SELECT is_active FROM employee_users WHERE id=7');
     assert.equal(user.is_active,0);
+    const records = require('./employeeRecords');
+    const inactiveRecord=(await records.listEmployeeRecords(pool)).find(r=>r.employeeUserId===7);
+    assert.equal(inactiveRecord.isActive,false);
+    assert.equal(inactiveRecord.lastWorkingDate,'2020-01-15');
     const [[paid]]=await pool.query('SELECT net_pay FROM hrms_payroll_items');
     assert.equal(Number(paid.net_pay),13000);
     const [[list]]=await pool.query('SELECT * FROM task_list WHERE id=11');
@@ -62,6 +66,10 @@ test('MySQL exit transaction preserves records, recalculates salary, leaves task
     policy.todayIstDate=()=> '2020-01-25';
     const rehire=await lifecycle.reactivate(7,{},1);
     assert.equal(rehire.startDate,'2020-01-25');
+    const rejoinedRecord=(await records.listEmployeeRecords(pool)).find(r=>r.employeeUserId===7);
+    assert.equal(rejoinedRecord.isActive,true);
+    assert.equal(rejoinedRecord.lastWorkingDate,'2020-01-15');
+    assert.equal(rejoinedRecord.latestJoiningDate,'2020-01-25');
     const [items]=await payroll.computeRows(2020,1,'2020-01-31');
     assert.equal(items.eligibleWorkingDays,19);
     policy.todayIstDate=()=> '2020-01-21';

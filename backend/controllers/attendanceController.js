@@ -1296,7 +1296,7 @@ async function heartbeat(req, res) {
         radiusState = 'hybrid_tracking_active';
       }
       if ((mode === 'Office' || mode === 'Home' || mode === 'Hybrid') && !activeHybrid) {
-        const rules = mode === 'Hybrid' ? await locationPolicy.settingsFor(db) : await locationPolicy.getCheckInPolicy(db, employeeId);
+        const rules = mode === 'Hybrid' ? await locationPolicy.settingsFor(db, false, 'Office') : await locationPolicy.getCheckInPolicy(db, employeeId);
         const center = mode === 'Hybrid' ? locationPolicy.coordinates(rules.office_latitude, rules.office_longitude) : rules.center;
         const radius = Number(mode === 'Hybrid'
           ? rules.officeRadiusMeters
@@ -1309,7 +1309,7 @@ async function heartbeat(req, res) {
           const now = policy.nowIstDateTime();
           await db.query(`INSERT INTO hrms_attendance_radius_departures (attendance_id,employee_id,location_type,left_at,last_seen_at,latitude,longitude,distance_meters) VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE left_at=IF(status='cancelled',VALUES(left_at),left_at),last_seen_at=VALUES(last_seen_at),latitude=VALUES(latitude),longitude=VALUES(longitude),distance_meters=VALUES(distance_meters),status=IF(status='cancelled','pending',status)`, [record.id, employeeId, mode, now, now, latitude, longitude, distance]);
           const [[departure]] = await db.query('SELECT left_at FROM hrms_attendance_radius_departures WHERE attendance_id=? AND status=?', [record.id, 'pending']);
-          const trackingSettings = await locationPolicy.settingsFor(db);
+          const trackingSettings = await locationPolicy.settingsFor(db, false, mode === 'Home' ? 'Home' : 'Office');
           const grace = mode === 'Home'
             ? trackingSettings.homeOutsideRadiusGraceMinutes
             : trackingSettings.officeOutsideRadiusGraceMinutes;

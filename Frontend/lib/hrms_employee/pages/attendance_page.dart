@@ -503,7 +503,7 @@ class _CalendarCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: EdgeInsets.all(mobile ? 14 : 22),
+        padding: EdgeInsets.all(mobile ? 12 : 18),
         child: Column(children: [
           Row(children: [
             _CalendarArrow(
@@ -790,7 +790,7 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => EmployeeCard(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('${monthLabel.split(' ').first} Summary',
               style: const TextStyle(
@@ -856,7 +856,7 @@ class _RecentAttendanceCard extends StatelessWidget {
       ..sort((a, b) => b.key.compareTo(a.key));
 
     return EmployeeCard(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('Recent Attendance',
             style: TextStyle(
@@ -1312,7 +1312,7 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
                       if (singleBreak != null) ...[
                         // Total break time
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           margin: const EdgeInsets.only(bottom: 8),
                           decoration: BoxDecoration(
                             color: const Color(0xFFFFF0E0),

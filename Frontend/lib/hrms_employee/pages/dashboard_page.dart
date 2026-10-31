@@ -13,8 +13,6 @@ import '../../services/auth_service.dart';
 import '../../services/auth_storage.dart';
 import '../../services/hrms_payslip_api.dart';
 import '../../services/calendar_notifications_api.dart';
-import '../../services/waiting_alert_service.dart';
-import '../../main.dart' show appNavigatorKey;
 
 class EmployeeDashboardPage extends StatefulWidget {
   const EmployeeDashboardPage({super.key});
@@ -24,21 +22,6 @@ class EmployeeDashboardPage extends StatefulWidget {
 
 class _EmployeeDashboardPageState extends State<EmployeeDashboardPage> {
   bool menuOpen = false;
-  late final WaitingAlertService _waitingAlertService;
-
-  @override
-  void initState() {
-    super.initState();
-    _waitingAlertService = WaitingAlertService(navigatorKey: appNavigatorKey);
-    _waitingAlertService.start();
-  }
-
-  @override
-  void dispose() {
-    _waitingAlertService.stop();
-    super.dispose();
-  }
-
   static const routes = <String>{
     '/employee/dashboard',
     '/employee/attendance',
@@ -518,7 +501,7 @@ class _Actions extends StatelessWidget {
       children: [
         Container(
           height: 52,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
             color: color,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
@@ -576,7 +559,7 @@ class _ActionTile extends StatelessWidget {
           ),
     borderRadius: BorderRadius.circular(10),
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 15),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       decoration: BoxDecoration(
         border: Border.all(color: employeeLine),
         borderRadius: BorderRadius.circular(10),

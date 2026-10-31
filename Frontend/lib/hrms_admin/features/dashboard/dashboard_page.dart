@@ -49,6 +49,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   final ScrollController _tableScrollController = ScrollController();
+  final ScrollController _tableHeaderScrollController = ScrollController();
   bool _monthly = true;
   bool _showSummary = true;
   late String _month;
@@ -86,6 +87,12 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
+    _tableScrollController.addListener(() {
+      if (_tableHeaderScrollController.hasClients &&
+          (_tableHeaderScrollController.offset - _tableScrollController.offset).abs() > 0.5) {
+        _tableHeaderScrollController.jumpTo(_tableScrollController.offset);
+      }
+    });
     final today = DateTime.now();
     _year = today.year;
     _month = _monthCodes[today.month - 1];
@@ -285,8 +292,11 @@ class _DashboardPageState extends State<DashboardPage> {
           <th>Paid Leave</th>
           <th>Unpaid LOP Leave</th>
           <th>Salary Per Month</th>
+          <th>Per Day Salary</th>
           <th>Deduction</th>
+          <th>Deducted Days</th>
           <th>Updated Salary</th>
+          <th>Credited Days</th>
         </tr>
     ''');
 
@@ -310,8 +320,11 @@ class _DashboardPageState extends State<DashboardPage> {
           <td>${employee.paidLeaveDays}</td>
           <td>${employee.lopLeaveDays}</td>
           <td>${employee.salary}</td>
+          <td>${employee.dailySalary}</td>
           <td>${employee.afterLeaves}</td>
+          <td>${employee.deductedDays ?? '–'}</td>
           <td>${employee.updatedSalary}</td>
+          <td>${employee.creditedDays ?? '–'}</td>
         </tr>
       ''');
     }
@@ -365,6 +378,7 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void dispose() {
     _tableScrollController.dispose();
+    _tableHeaderScrollController.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -453,7 +467,7 @@ class _DashboardPageState extends State<DashboardPage> {
           _pageHeading(),
           const SizedBox(height: 10),
           SizedBox(
-            height: 90,
+            height: 80,
             child: _KpiRow(
               monthly: _monthly,
               total: _kpiTotal,
@@ -503,7 +517,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 _pageHeading(),
                 const SizedBox(height: 10),
                 SizedBox(
-                  height: 90,
+                  height: 80,
                   child: _KpiRow(
                     monthly: _monthly,
                     total: _kpiTotal,
@@ -553,6 +567,7 @@ class _DashboardPageState extends State<DashboardPage> {
         SliverPersistentHeader(
           pinned: true,
           delegate: AttendanceHeaderDelegate(
+            horizontalController: _tableHeaderScrollController,
             days: _weekDays,
             dayLabels: dayLabels,
             showSummary: true,
@@ -1369,6 +1384,7 @@ class _AttendanceTable extends StatelessWidget {
       return const Center(child: Text('No employees to show.'));
     }
     return AttendanceGrid(
+      horizontalController: showSummary ? horizontalController : null,
       showSummary: showSummary,
       showHeader: showHeader,
       days: weekDays,
@@ -1415,8 +1431,11 @@ class _AttendanceTable extends StatelessWidget {
             earnedLeave: employee.earnedLeave,
             approvedLeave: employee.approvedLeave,
             salaryPerMonth: employee.salary,
+            salaryPerDay: employee.dailySalary,
             totalSalaryAfterLeaves: employee.afterLeaves,
+            deductedDays: employee.deductedDays,
             updatedSalary: employee.updatedSalary,
+            creditedDays: employee.creditedDays,
           ),
       ],
     );
@@ -1486,11 +1505,13 @@ class _EmployeeAttendance {
     required this.excused,
     required this.unexcused,
     required this.salary,
-    required this.daysPaid,
+    required this.dailySalary,
+    required this.deductedDays,
     required this.paidLeaveDays,
     required this.lopLeaveDays,
     required this.afterLeaves,
     required this.updatedSalary,
+    required this.creditedDays,
     required this.days,
   });
 
@@ -1506,16 +1527,24 @@ class _EmployeeAttendance {
   final num excused;
   final num unexcused;
   final String salary;
-  final String daysPaid;
+  final String dailySalary;
+  final num? deductedDays;
   final num paidLeaveDays;
   final num lopLeaveDays;
   final String afterLeaves;
   final String updatedSalary;
+  final num? creditedDays;
   final List<String> days;
 
   factory _EmployeeAttendance.fromApi(Map<String, dynamic> json) {
     num asNum(dynamic value) =>
         value is num ? value : num.tryParse('$value') ?? 0;
+    final dailyRate = num.tryParse('${json['dailySalary']}');
+    final creditedDays = num.tryParse('${json['creditedDays']}');
+    // Older dashboard responses called total LOP days "daysPaid".
+    final deductedDays = num.tryParse(
+      '${json['deductedDays'] ?? json['lopDays'] ?? json['daysPaid']}',
+    );
     return _EmployeeAttendance(
       employeeId: (json['employeeId'] ?? json['id'] ?? '').toString(),
       name: (json['name'] ?? '').toString(),
@@ -1529,11 +1558,19 @@ class _EmployeeAttendance {
       excused: asNum(json['excused']),
       unexcused: asNum(json['unexcused']),
       salary: (json['salary'] ?? 'Not Set').toString(),
-      daysPaid: (json['daysPaid'] ?? '0').toString(),
+      dailySalary: dailyRate != null && dailyRate.isFinite
+          ? '₹${NumberFormat('#,##,##0.##', 'en_IN').format(dailyRate)}'
+          : '–',
+      deductedDays: deductedDays != null && deductedDays.isFinite && deductedDays >= 0
+          ? deductedDays
+          : null,
       paidLeaveDays: asNum(json['paidLeaveDays']),
       lopLeaveDays: asNum(json['lopLeaveDays']),
       afterLeaves: (json['afterLeaves'] ?? '–').toString(),
       updatedSalary: (json['updatedSalary'] ?? 'Not Set').toString(),
+      creditedDays: creditedDays != null && creditedDays.isFinite && creditedDays >= 0
+          ? creditedDays
+          : null,
       days: (json['days'] as List? ?? [])
           .map((item) => item.toString())
           .toList(),
@@ -1841,8 +1878,8 @@ class _MobileDashboardMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Expanded(
     child: Container(
-      height: 80,
-      padding: const EdgeInsets.all(10),
+      height: 72,
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: color.withValues(alpha: .25)),
@@ -2316,6 +2353,7 @@ class _MobileCalendarScroll extends StatelessWidget {
       82.0,
       82.0,
       82.0,
+      82.0,
     ];
     const summaryLabels = [
       'Present',
@@ -2325,6 +2363,7 @@ class _MobileCalendarScroll extends StatelessWidget {
       'Half\nLeave',
       'Earned\nLeave',
       'Salary\nper month',
+      'Per day\nsalary',
       'Deduction',
       'Updated\nsalary',
     ];
@@ -2452,14 +2491,30 @@ class _MobileCalendarScroll extends StatelessWidget {
                                 summaryWidths[6],
                               ),
                               _summaryCell(
-                                employee.afterLeaves,
+                                employee.dailySalary,
                                 _navy,
                                 summaryWidths[7],
                               ),
-                              _summaryCell(
-                                employee.updatedSalary,
-                                _navy,
-                                summaryWidths[8],
+                              SizedBox(
+                                width: summaryWidths[8],
+                                child: Center(
+                                  child: AttendanceDeductionValue(
+                                    amount: employee.afterLeaves,
+                                    days: employee.deductedDays,
+                                    compact: true,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: summaryWidths[9],
+                                child: Center(
+                                  child: AttendanceDeductionValue(
+                                    amount: employee.updatedSalary,
+                                    days: employee.creditedDays,
+                                    compact: true,
+                                    daysSuffix: 'credited',
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -2796,7 +2851,7 @@ class _KpiCard extends StatelessWidget {
       final compact = constraints.maxWidth < 245;
       final iconSize = compact ? 44.0 : 54.0;
       return Container(
-        padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 18),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 14),
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border.all(color: color.withValues(alpha: .27)),

@@ -323,7 +323,7 @@ class _PayrollHeader extends StatelessWidget {
                       strokeWidth: 2, color: Colors.white),
                 )
               : const Icon(Icons.playlist_add_check_rounded),
-          label: Text(generating ? 'Generating…' : 'Generate month-end draft'),
+          label: Text(generating ? 'Generating…' : (mobile ? 'Generate draft' : 'Generate month-end draft')),
           style: FilledButton.styleFrom(
             backgroundColor: _PayrollColors.blue,
             padding: EdgeInsets.symmetric(
@@ -397,8 +397,8 @@ class _PayrollKpi extends StatelessWidget {
     final compact = MediaQuery.sizeOf(context).width < 600;
     if (compact) {
       return Container(
-        height: 80,
-        padding: const EdgeInsets.all(10),
+        height: 72,
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(color: Colors.white, border: Border.all(color: color.withValues(alpha: .25)), borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Color(0xFF50649E), fontSize: 11)),
@@ -416,8 +416,8 @@ class _PayrollKpi extends StatelessWidget {
       );
     }
     return Container(
-        height: 116,
-        padding: const EdgeInsets.fromLTRB(18, 15, 18, 9),
+        height: 104,
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border.all(color: const Color(0xFFE5E8EF)),
@@ -515,10 +515,10 @@ class _PayrollPanel extends StatelessWidget {
     final mobile = MediaQuery.sizeOf(context).width < 600;
     return Container(
         padding: EdgeInsets.fromLTRB(
-          MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
-          20,
-          MediaQuery.sizeOf(context).width < 600 ? 14 : 28,
-          18,
+          MediaQuery.sizeOf(context).width < 600 ? 12 : 22,
+          16,
+          MediaQuery.sizeOf(context).width < 600 ? 12 : 22,
+          14,
         ),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -680,7 +680,7 @@ class _PayrollFilters extends StatelessWidget {
   }
 
   void _showMobileFilters(BuildContext context, String monthValue) {
-    showModalBottomSheet<void>(context: context, backgroundColor: Colors.transparent, builder: (sheetContext) => SafeArea(top: false, child: Container(padding: const EdgeInsets.fromLTRB(20, 18, 20, 24), decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(22))), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    showModalBottomSheet<void>(context: context, backgroundColor: Colors.transparent, builder: (sheetContext) => SafeArea(top: false, child: Container(padding: const EdgeInsets.fromLTRB(16, 14, 16, 20), decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(22))), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const Text('Filter payroll', style: TextStyle(color: _PayrollColors.navy, fontSize: 18, fontWeight: FontWeight.w700)), const SizedBox(height: 16),
       DropdownButtonFormField<String>(initialValue: monthValue, onChanged: onMonthChanged, decoration: _fieldDecoration().copyWith(labelText: 'Month'), items: months.map((item) => DropdownMenuItem(value: item.key, child: Text(item.label))).toList()), const SizedBox(height: 12),
       DropdownButtonFormField<String>(initialValue: employee, onChanged: onEmployeeChanged, decoration: _fieldDecoration().copyWith(labelText: 'Employee'), items: employees.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList()), const SizedBox(height: 12),
@@ -739,7 +739,7 @@ class _MobilePayrollList extends StatelessWidget {
           .map(
             (e) => Container(
               margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                   color: Colors.white,
                   border: Border.all(color: const Color(0xFFE5EAF3)),

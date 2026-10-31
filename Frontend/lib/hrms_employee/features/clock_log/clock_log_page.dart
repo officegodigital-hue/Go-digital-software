@@ -303,7 +303,7 @@ class _ClockViewState extends State<_ClockView> {
         if (_loading) const LinearProgressIndicator(),
         const SizedBox(height: 12),
         EmployeeCard(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(18),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

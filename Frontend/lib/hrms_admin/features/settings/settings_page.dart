@@ -206,7 +206,7 @@ class _DesktopSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 18, 22, 10),
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
             child: Text(
               label.toUpperCase(),
               style: const TextStyle(
@@ -225,7 +225,7 @@ class _DesktopSection extends StatelessWidget {
             ])),
           if (gridItems != null)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               child: _GridTiles(items: gridItems!),
             ),
         ],
@@ -272,7 +272,7 @@ class _GridCard extends StatelessWidget {
     onTap: tile.onTap,
     borderRadius: BorderRadius.circular(10),
     child: Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         border: Border.all(color: const Color(0xFFECEFF5)),
         borderRadius: BorderRadius.circular(10),
@@ -327,7 +327,7 @@ class _DesktopTile extends StatelessWidget {
     onTap: onTap,
     borderRadius: BorderRadius.circular(14),
     child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
       child: Row(children: [
         Container(
           width: 42,
@@ -488,7 +488,7 @@ class _MobileSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
           child: Text(label.toUpperCase(),
               style: const TextStyle(
                   fontSize: 10,
@@ -526,7 +526,7 @@ class _MobileTile extends StatelessWidget {
     onTap: onTap,
     borderRadius: BorderRadius.circular(12),
     child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(children: [
         Container(
           width: 34,

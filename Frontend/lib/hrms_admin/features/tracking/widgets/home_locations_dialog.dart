@@ -198,7 +198,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
   // ── widgets ───────────────────────────────────────────────────────────────
 
   Widget _header() => Container(
-    padding: const EdgeInsets.fromLTRB(16, 14, 10, 14),
+    padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
     decoration: const BoxDecoration(
       color: Colors.white,
       border: Border(bottom: BorderSide(color: _line)),
@@ -401,7 +401,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
 
   Widget _emptyState() => Container(
     width: double.infinity,
-    padding: const EdgeInsets.symmetric(vertical: 36),
+    padding: const EdgeInsets.symmetric(vertical: 28),
     decoration: BoxDecoration(
       color: const Color(0xFFF0F5FF),
       borderRadius: BorderRadius.circular(14),
@@ -560,7 +560,7 @@ class _HomeLocationsDialogState extends State<HomeLocationsDialog> {
   );
 
   Widget _footer() => Container(
-    padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
     decoration: const BoxDecoration(
       color: Colors.white,
       border: Border(top: BorderSide(color: _line)),

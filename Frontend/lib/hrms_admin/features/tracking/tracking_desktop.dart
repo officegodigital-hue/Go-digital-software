@@ -228,8 +228,8 @@ class _DesktopKpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 124,
-    padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+    height: 108,
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: _desktopBorder),
@@ -1395,7 +1395,7 @@ class _HybridActivityTimeline extends StatelessWidget {
       border: Border.all(color: _desktopBorder),
       borderRadius: BorderRadius.circular(10),
     ),
-    padding: const EdgeInsets.fromLTRB(14, 14, 10, 8),
+    padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

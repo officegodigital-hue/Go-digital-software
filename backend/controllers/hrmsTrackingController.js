@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const { configuredNumber } = require('../lib/configuredSetting');
+const nullableNumber = value => value == null || String(value).trim() === '' ? null : Number(value);
 const policy = require('../lib/attendancePolicy');
 const locationPolicy = require('../lib/attendanceLocationPolicy');
 
@@ -423,11 +425,12 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
 
   if (!settingsRows.length) return;
 
-  const waitingMinutes = Number(settingsRows[0].field_waiting_minutes || 60);
-
-  const stationaryRadius = Number(
-    settingsRows[0].stationary_radius_meters || 50
-  );
+  const waitingMinutes = Number(settingsRows[0].field_waiting_minutes);
+  const stationaryRadius = Number(settingsRows[0].stationary_radius_meters);
+  if (!Number.isFinite(waitingMinutes) || waitingMinutes < 1 ||
+      !Number.isFinite(stationaryRadius) || stationaryRadius < 1) {
+    throw new Error('Admin must configure valid Hybrid waiting time and stationary radius');
+  }
 
   const [existingAlerts] = await db.query(
     `SELECT id
@@ -478,7 +481,7 @@ async function detectFieldWaitingTime(employeeUserId, latitude, longitude) {
   if (elapsedMinutes < waitingMinutes) return;
 
 const eventKey =
-  '${session.id}:${new Date(firstStillPing.recorded_at).toISOString()}';
+  `${session.id}:${new Date(firstStillPing.recorded_at).toISOString()}`;
 
 await db.query(
   `INSERT IGNORE INTO hrms_field_waiting_reasons (
@@ -529,7 +532,7 @@ async function ping(req, res) {
 
     if (workMode === 'Office' || workMode === 'Home') {
       const rules = await locationPolicy.getCheckInPolicy(db, employeeUserId, false);
-      const settings = await locationPolicy.settingsFor(db, false);
+      const settings = await locationPolicy.settingsFor(db, false, workMode);
       const distance = locationPolicy.distanceMeters(rules.center, { latitude, longitude });
       const [breakRows] = await db.query(
         `SELECT b.id, TIMESTAMPDIFF(MINUTE, b.started_at, CURRENT_TIMESTAMP) AS break_minutes
@@ -541,7 +544,13 @@ async function ping(req, res) {
          ORDER BY b.id DESC LIMIT 1`,
         [employeeUserId, policy.todayIstDate()]
       );
-      const breakProtected = breakRows.length && Number(breakRows[0].break_minutes) < 70;
+      let breakProtected = false;
+      if (breakRows.length) {
+        const [[breakSettings]] = await db.query('SELECT break_minutes, break_grace_minutes FROM hrms_attendance_time_settings WHERE id=1');
+        const allowed = configuredNumber(breakSettings?.break_minutes, 'break time', true);
+        const grace = configuredNumber(breakSettings?.break_grace_minutes, 'break grace', true);
+        breakProtected = Number(breakRows[0].break_minutes) < allowed + grace;
+      }
 
       if (breakProtected) {
         await db.query(
@@ -549,7 +558,7 @@ async function ping(req, res) {
            WHERE employee_id = ? AND attendance_date = ? AND check_out_at IS NULL`,
           [employeeUserId, policy.todayIstDate()]
         );
-      } else if (distance > Number(settings.radiusMeters)) {
+      } else if (distance > Number(workMode === 'Home' ? settings.homeRadiusMeters : settings.radiusMeters)) {
         const [activeAttendance] = await db.query(
           `SELECT id, check_in_at, outside_radius_since FROM attendance_records
            WHERE employee_id = ? AND attendance_date = ?
@@ -571,7 +580,7 @@ async function ping(req, res) {
               `SELECT id FROM attendance_records
                WHERE id = ? AND check_out_at IS NULL
                  AND outside_radius_since <= (CURRENT_TIMESTAMP - INTERVAL ? MINUTE)`,
-              [attendance.id, settings.outsideRadiusGraceMinutes]
+              [attendance.id, workMode === 'Home' ? settings.homeOutsideRadiusGraceMinutes : settings.officeOutsideRadiusGraceMinutes]
             );
 
             if (expired.length) {
@@ -604,7 +613,7 @@ async function ping(req, res) {
       }
     }
 
-    detectFieldWaitingTime(employeeUserId, latitude, longitude).catch(
+    await detectFieldWaitingTime(employeeUserId, latitude, longitude).catch(
       function (error) {
         console.error('Field waiting-time detection failed', error.message);
       }
@@ -810,39 +819,36 @@ async function updateTrackingSettings(req, res) {
         String(req.body.officeAddress ?? current.office_address).trim();
 
     const officeLatitude =
-        Number(req.body.officeLatitude ?? current.office_latitude);
+        nullableNumber(req.body.officeLatitude ?? current.office_latitude);
 
     const officeLongitude =
-        Number(req.body.officeLongitude ?? current.office_longitude);
+        nullableNumber(req.body.officeLongitude ?? current.office_longitude);
 
     const officeRadiusMeters =
         Number(req.body.officeRadiusMeters ?? current.office_radius_meters);
 
     const fieldPingIntervalMinutes =
-        Number(req.body.fieldPingIntervalMinutes ??
-            current.field_ping_interval_minutes);
+        nullableNumber(req.body.fieldPingIntervalMinutes ?? current.field_ping_interval_minutes);
 
     const fieldWaitingMinutes =
-        Number(req.body.fieldWaitingMinutes ??
-            current.field_waiting_minutes);
+        nullableNumber(req.body.fieldWaitingMinutes ?? current.field_waiting_minutes);
 
     const stationaryRadiusMeters =
-        Number(req.body.stationaryRadiusMeters ??
-            current.stationary_radius_meters);
+        nullableNumber(req.body.stationaryRadiusMeters ?? current.stationary_radius_meters);
 
     if (
       !officeName ||
       !officeAddress ||
+      officeLatitude == null ||
+      officeLongitude == null ||
       !Number.isFinite(officeLatitude) ||
       !Number.isFinite(officeLongitude) ||
       officeLatitude < -90 ||
       officeLatitude > 90 ||
       officeLongitude < -180 ||
       officeLongitude > 180 ||
-      officeRadiusMeters < 1 ||
-      fieldPingIntervalMinutes < 1 ||
-      fieldWaitingMinutes < 1 ||
-      stationaryRadiusMeters < 1
+      !Number.isSafeInteger(officeRadiusMeters) || officeRadiusMeters < 1 ||
+      [fieldPingIntervalMinutes, fieldWaitingMinutes, stationaryRadiusMeters].some(value => value != null && (!Number.isSafeInteger(value) || value < 1))
     ) {
       return fail(res, 400, 'Invalid tracking settings');
     }
@@ -917,8 +923,8 @@ async function submitHomeLocation(req, res) {
     connection = await db.getConnection();
     await connection.beginTransaction();
     await locationPolicy.profileFor(connection, employeeUserId, true);
-    const settings = await locationPolicy.settingsFor(connection, true);
-    const fix = locationPolicy.validateFix(body, settings.radiusMeters);
+    const settings = await locationPolicy.settingsFor(connection, true, 'Home');
+    const fix = locationPolicy.validateFix(body, settings.homeRadiusMeters);
 
     await connection.query(
       `INSERT INTO hrms_employee_home_locations
@@ -1457,15 +1463,15 @@ async function updateHomeSettings(req, res) {
     const current = rows[0];
 
     const homeRadiusMeters = req.body.homeRadiusMeters != null
-      ? Number(req.body.homeRadiusMeters) : Number(current.home_radius_meters || 200);
+      ? Number(req.body.homeRadiusMeters) : Number(current.home_radius_meters);
     const homeOutsideRadiusGraceMinutes = req.body.homeOutsideRadiusGraceMinutes != null
-      ? Number(req.body.homeOutsideRadiusGraceMinutes) : Number(current.home_outside_radius_grace_minutes || 5);
+      ? Number(req.body.homeOutsideRadiusGraceMinutes) : Number(current.home_outside_radius_grace_minutes);
     const homeNoGpsTimeoutMinutes = req.body.homeNoGpsTimeoutMinutes != null
-      ? Number(req.body.homeNoGpsTimeoutMinutes) : Number(current.home_no_gps_timeout_minutes || 30);
+      ? Number(req.body.homeNoGpsTimeoutMinutes) : Number(current.home_no_gps_timeout_minutes);
     const homeTrackingEnabled = req.body.homeTrackingEnabled != null
       ? (req.body.homeTrackingEnabled ? 1 : 0) : Number(current.home_tracking_enabled !== 0 ? 1 : 0);
 
-    if (homeRadiusMeters < 1 || homeOutsideRadiusGraceMinutes < 1 || homeNoGpsTimeoutMinutes < 1) {
+    if (![homeRadiusMeters, homeOutsideRadiusGraceMinutes, homeNoGpsTimeoutMinutes].every(value => Number.isSafeInteger(value) && value > 0)) {
       return fail(res, 400, 'Invalid home settings');
     }
 
@@ -1497,12 +1503,11 @@ async function updateHybridSettings(req, res) {
     const stationaryRadiusMeters = Number(req.body.stationaryRadiusMeters ?? current.stationary_radius_meters);
     const fieldPingIntervalMinutes = Number(req.body.fieldPingIntervalMinutes ?? current.field_ping_interval_minutes);
     const officeOutsideRadiusGraceMinutes = req.body.officeOutsideRadiusGraceMinutes != null
-      ? Number(req.body.officeOutsideRadiusGraceMinutes) : Number(current.office_outside_radius_grace_minutes || 5);
+      ? Number(req.body.officeOutsideRadiusGraceMinutes) : Number(current.office_outside_radius_grace_minutes);
     const officeNoGpsTimeoutMinutes = req.body.officeNoGpsTimeoutMinutes != null
-      ? Number(req.body.officeNoGpsTimeoutMinutes) : Number(current.office_no_gps_timeout_minutes || 30);
+      ? Number(req.body.officeNoGpsTimeoutMinutes) : Number(current.office_no_gps_timeout_minutes);
 
-    if (fieldWaitingMinutes < 1 || stationaryRadiusMeters < 1 || fieldPingIntervalMinutes < 1 ||
-        officeOutsideRadiusGraceMinutes < 1 || officeNoGpsTimeoutMinutes < 1) {
+    if (![fieldWaitingMinutes, stationaryRadiusMeters, fieldPingIntervalMinutes, officeOutsideRadiusGraceMinutes, officeNoGpsTimeoutMinutes].every(value => Number.isSafeInteger(value) && value > 0)) {
       return fail(res, 400, 'Invalid hybrid settings');
     }
 
@@ -1527,6 +1532,7 @@ async function updateHybridSettings(req, res) {
 }
 
 module.exports = {
+  detectFieldWaitingTime,
   requireAdmin,
   list,
   setStatus,

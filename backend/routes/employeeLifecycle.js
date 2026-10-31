@@ -9,6 +9,7 @@ const handle = fn => [authenticateToken, requireAdmin, async (req, res) => {
   try { await lifecycle.ensureLifecycle(); res.json({ success: true, data: await fn(req) }); }
   catch (error) { res.status(error.status || 500).json({ success: false, message: error.message, data: error.data }); }
 }];
+router.get('/records', handle(async () => ({ items: await require('../lib/employeeRecords').listEmployeeRecords(db) })));
 router.post('/:id/exit-preview', handle(req => lifecycle.preview(Number(req.params.id), req.body)));
 router.post('/:id/exit', handle(req => lifecycle.deactivate(Number(req.params.id), req.body, req.user.id, req.app.get('io'))));
 router.post('/:id/reactivate', handle(req => lifecycle.reactivate(Number(req.params.id), req.body, req.user.id)));
@@ -32,15 +33,16 @@ router.post('/:id/exit-exceptions', handle(async req => {
 router.get('/:id/lifecycle', handle(async req => {
   const id = Number(req.params.id);
   const user = await lifecycle.account(db, id);
-  const [exits] = await db.query('SELECT * FROM employee_exits WHERE employee_user_id=? ORDER BY id DESC', [id]);
+  const [exits] = await db.query('SELECT e.*, actor.full_name AS changed_by_name FROM employee_exits e LEFT JOIN employee_users actor ON actor.id=e.created_by WHERE e.employee_user_id=? ORDER BY e.id DESC', [id]);
+  const [[profile]] = await db.query('SELECT employee_code,department,work_mode FROM hrms_employee_profiles WHERE employee_user_id=? LIMIT 1', [id]);
   const [periods] = await db.query('SELECT * FROM employee_employment_periods WHERE employee_user_id=? ORDER BY started_on', [id]);
-  const [audit] = await db.query('SELECT * FROM employee_lifecycle_audit WHERE employee_user_id=? ORDER BY id DESC', [id]);
+  const [audit] = await db.query('SELECT a.*, actor.full_name AS admin_name FROM employee_lifecycle_audit a LEFT JOIN employee_users actor ON actor.id=a.created_by WHERE a.employee_user_id=? ORDER BY a.id DESC', [id]);
   const [adjustments] = await db.query('SELECT * FROM employee_salary_adjustments WHERE employee_user_id=? ORDER BY id DESC', [id]);
   const [payroll] = await db.query('SELECT * FROM hrms_payroll_items WHERE employee_user_id=? ORDER BY pay_year DESC,pay_month DESC', [id]);
   const sources = await lifecycle.sourceRows(db, user);
   const finalSalary=[];
   for(const exit of exits) for(const salary of await lifecycle.salaryPreview(id,require('../lib/employmentDates').dateKey(exit.last_working_date))) finalSalary.push({...salary,exitId:exit.id});
-  return { employee: lifecycle.serializeRecord(user), exits:exits.map(lifecycle.serializeRecord), periods:periods.map(lifecycle.serializeRecord),
+  return { employee: lifecycle.serializeRecord(user), profile: profile || {}, exits:exits.map(lifecycle.serializeRecord), periods:periods.map(lifecycle.serializeRecord),
     audit:audit.map(lifecycle.serializeRecord),
     payroll:payroll.map(lifecycle.serializeRecord), adjustments:adjustments.map(lifecycle.serializeRecord), finalSalary,
     exitDateRequired: !Number(user.is_active) && !exits.length,

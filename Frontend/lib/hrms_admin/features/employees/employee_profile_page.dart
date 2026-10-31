@@ -45,11 +45,13 @@ class EmployeeProfilePage extends StatefulWidget {
     required this.profileId,
     this.initialName,
     this.employeeUserId,
+    this.sourceLabel = 'Clock logs',
   });
 
   final int profileId;
   final String? initialName;
   final int? employeeUserId;
+  final String sourceLabel;
 
   @override
   State<EmployeeProfilePage> createState() => _State();
@@ -181,6 +183,7 @@ class _State extends State<EmployeeProfilePage>
       children: [
         _TopBar(
           emp: emp,
+          sourceLabel: widget.sourceLabel,
           summary: summary,
           year: _year,
           month: _month,
@@ -282,6 +285,7 @@ class _State extends State<EmployeeProfilePage>
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.emp,
+    required this.sourceLabel,
     required this.summary,
     required this.year,
     required this.month,
@@ -290,6 +294,7 @@ class _TopBar extends StatelessWidget {
     required this.onNext,
   });
   final Map<String, dynamic> emp;
+  final String sourceLabel;
   final Map<String, dynamic> summary;
   final int year, month;
   final VoidCallback onBack, onPrev, onNext;
@@ -351,9 +356,9 @@ class _TopBar extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              const Text(
-                'Clock logs',
-                style: TextStyle(
+              Text(
+                sourceLabel,
+                style: const TextStyle(
                   color: _navy,
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
@@ -451,7 +456,7 @@ class _TopBar extends StatelessWidget {
               const SizedBox(width: 8),
               Container(
                 height: 44,
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   border: Border.all(color: _border, width: 1.5),
@@ -526,8 +531,8 @@ class _TopBar extends StatelessWidget {
   );
 
   Widget _workingSummary(dynamic workingDays, dynamic paidDays) => Container(
-    height: 118,
-    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+    height: 104,
+    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
     decoration: BoxDecoration(
       gradient: const LinearGradient(
         colors: [Color(0xFF1264F5), Color(0xFF0755DB)],
@@ -597,8 +602,8 @@ class _TopBar extends StatelessWidget {
     required dynamic lop,
     required dynamic permission,
   }) => Container(
-    height: 118,
-    padding: const EdgeInsets.all(18),
+    height: 104,
+    padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
       color: Colors.white,
       border: Border.all(color: _border),
@@ -676,8 +681,8 @@ class _TopBar extends StatelessWidget {
     final status = summary['payrollStatus']?.toString() ?? 'draft';
     final salary = summary['netPayLabel']?.toString() ?? '–';
     return Container(
-      height: 118,
-      padding: const EdgeInsets.all(18),
+      height: 104,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: _border),
@@ -691,6 +696,8 @@ class _TopBar extends StatelessWidget {
               Expanded(
                 child: Text(
                   'Payroll · ${_months[month - 1]} $year',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: _navy,
                     fontSize: 15,
@@ -1061,7 +1068,7 @@ class _DayCardState extends State<_DayCard> {
           if (_expanded)
             Container(
               margin: const EdgeInsets.fromLTRB(44, 0, 12, 10),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FBFF),
                 border: Border.all(color: const Color(0xFFDDE8F8)),
@@ -1567,7 +1574,7 @@ class _PayrollTabState extends State<_PayrollTab> {
         clipBehavior: Clip.antiAlias,
         child: LayoutBuilder(builder: (context, c) {
           final compact = c.maxWidth < 820;
-          final monthTile = Container(width: compact ? double.infinity : 100, height: compact ? 76 : 104, padding: const EdgeInsets.all(10), decoration: const BoxDecoration(color: _blueLt, border: Border(left: BorderSide(color: _blue, width: 4))), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Text(monthLabel.length >= 3 ? monthLabel.substring(0, 3).toUpperCase() : monthLabel.toUpperCase(), style: const TextStyle(color: _blue, fontSize: 12, fontWeight: FontWeight.w700)), Text(year, style: const TextStyle(color: _navy, fontSize: 19, fontWeight: FontWeight.w800)), const SizedBox(height: 4), const Icon(Icons.calendar_month_outlined, color: _blue, size: 18)]));
+          final monthTile = Container(width: compact ? double.infinity : 100, height: compact ? 76 : 104, padding: const EdgeInsets.all(10), decoration: const BoxDecoration(color: _blueLt, border: Border(left: BorderSide(color: _blue, width: 4))), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Text(monthLabel.length >= 3 ? monthLabel.substring(0, 3).toUpperCase() : monthLabel.toUpperCase(), style: const TextStyle(color: _blue, fontSize: 12, fontWeight: FontWeight.w700)), Text(year, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: _navy, fontSize: 19, fontWeight: FontWeight.w800)), const SizedBox(height: 4), const Icon(Icons.calendar_month_outlined, color: _blue, size: 18)]));
           final displayMonth = monthLabel.contains(year) ? monthLabel : '$monthLabel $year';
           final overview = Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [Wrap(spacing: 10, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [Text(displayMonth, style: const TextStyle(color: _navy, fontSize: 17, fontWeight: FontWeight.w700)), _PayStatus(status: h['status'] as String? ?? 'draft')]), const SizedBox(height: 8), Row(children: [const Icon(Icons.calendar_today_outlined, color: _muted, size: 16), const SizedBox(width: 6), Expanded(child: Text('Period  $period', style: const TextStyle(fontSize: 13, color: _muted)))])]);
           final metrics = Row(children: [Expanded(child: _PayrollMetric(icon: Icons.business_center_outlined, label: 'Working', value: '${h['workingDays'] ?? 0}')), Expanded(child: _PayrollMetric(icon: Icons.calendar_today_outlined, label: 'Paid days', value: '${h['paidDays'] ?? 0}')), Expanded(child: _PayrollMetric(icon: Icons.description_outlined, label: 'LOP', value: '$lop', valueColor: lop > 0 ? _red : _navy))]);

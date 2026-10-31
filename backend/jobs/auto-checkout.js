@@ -1,6 +1,7 @@
 'use strict';
 
 const db = require('../config/db');
+const { configuredNumber } = require('../lib/configuredSetting');
 const attendancePolicy = require('../lib/attendancePolicy');
 
 // Format a MySQL Date/string as "YYYY-MM-DD HH:MM:SS" (local time, matching DB storage)
@@ -51,18 +52,13 @@ async function runAutoCheckout() {
   const [[settings]] = await db.query('SELECT * FROM hrms_tracking_settings WHERE id = 1');
   if (!settings) return { checked, today };
 
-  const officeGrace = Number(settings.office_outside_radius_grace_minutes) || 5;
-  const homeGrace = Number(settings.home_outside_radius_grace_minutes) || 5;
-  const officeNoGps = Number(settings.office_no_gps_timeout_minutes) || 30;
-  const homeNoGps = Number(settings.home_no_gps_timeout_minutes) || 30;
-
   for (const session of openSessions) {
     const mode = session.work_mode; // 'Office', 'Home', 'Hybrid'
     // Hybrid employees use field tracking – server handles them differently; skip here
     if (!['Office', 'Home'].includes(mode)) continue;
 
-    const grace = mode === 'Home' ? homeGrace : officeGrace;
-    const noGpsMins = mode === 'Home' ? homeNoGps : officeNoGps;
+    const grace = configuredNumber(mode === 'Home' ? settings.home_outside_radius_grace_minutes : settings.office_outside_radius_grace_minutes, mode + ' checkout grace');
+    const noGpsMins = configuredNumber(mode === 'Home' ? settings.home_no_gps_timeout_minutes : settings.office_no_gps_timeout_minutes, mode + ' no-GPS timeout');
 
     // ── Rule 1: out of radius + grace expired ─────────────────────────────────
     const [[departure]] = await db.query(

@@ -13,11 +13,11 @@ import 'package:godigital_portal/services/auth_service.dart';
 
 void main() {
   for (final page in [
-    (const clock.ClockLogsPage(), '_MobileMetric', 78.0, true),
-    (const employees.EmployeesPage(), '_EmployeeKpi', 80.0, false),
-    (const payroll.PayrollPage(), '_PayrollKpi', 80.0, false),
+    (const clock.ClockLogsPage(), '_MobileMetric', 70.0, true),
+    (const employees.EmployeesPage(), '_EmployeeKpi', 72.0, false),
+    (const payroll.PayrollPage(), '_PayrollKpi', 72.0, false),
   ]) {
-    testWidgets('${page.$2} preserves card size without overflowing', (tester) async {
+    testWidgets('${page.$2} compact card stays readable without overflowing', (tester) async {
       SharedPreferences.setMockInitialValues({});
       tester.view.physicalSize = const Size(500, 900);
       tester.view.devicePixelRatio = 1;
