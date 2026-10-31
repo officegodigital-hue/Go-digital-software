@@ -1,3 +1,4 @@
+// GODIGITAL_ADMIN_COMPLETE_V12
 // lib/screens/employee_dashboard/admin_workspace_page.dart
 //
 // Main admin → Employee Workspace.
@@ -56,15 +57,36 @@ class _AdminCard {
   final int late;
   const _AdminCard(this.client, this.late);
 
+  // CURRENT: unfinished submission due today or later this month.
+  // GODIGITAL_ADMIN_FINAL_V5
+  // CURRENT only for unfinished submissions due today or later this month.
+  // CURRENT only for unfinished work due today or later this month.
+  // GODIGITAL_ADMIN_DATE_STATUS_V9
+  // CURRENT remains until the submit date ends, even next month.
   bool get isCurrent {
-    final d = client.dueDate;
-    if (d == null) return false;
+    final date = client.dueDate;
+    if (date == null || client.isCompleted) return false;
+
     final now = DateTime.now();
-    return d.year == now.year && d.month == now.month;
+    final today = DateTime(now.year, now.month, now.day);
+    final due = DateTime(date.year, date.month, date.day);
+
+    return !due.isBefore(today);
   }
 
-  String? get ribbon =>
-      (late > 0 && !client.isCompleted) ? 'LATE' : client.ribbon;
+  // Deadline has passed and client work is incomplete.
+  bool get isPastSubmitDate {
+    final date = client.dueDate;
+    if (date == null || client.isCompleted) return false;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final due = DateTime(date.year, date.month, date.day);
+
+    return due.isBefore(today);
+  }
+
+  String? get ribbon => isPastSubmitDate ? 'LATE' : client.ribbon;
 }
 
 _WorkspaceClient _clientFromAdminCard(Map<String, dynamic> card) {
@@ -140,7 +162,7 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setAuthFn(authenticateSocket)
+      io.OptionBuilder()
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
@@ -260,7 +282,11 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _header(),
+                  if (!(MediaQuery.sizeOf(context).width < 600 &&
+                      _tab == 0 &&
+                      !_loading &&
+                      _error == null))
+                    _header(),
                   Expanded(
                     child: _loading
                         ? const Center(child: CircularProgressIndicator())
@@ -514,9 +540,22 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
           )) {
         return false;
       }
-      if (_month != null &&
-          (c.client.dueDate == null || _monthKey(c.client.dueDate!) != _month))
+      if (_month == '__last2__') {
+        final date = c.client.dueDate;
+        if (date == null) return false;
+
+        final now = DateTime.now();
+        final start = DateTime(now.year, now.month - 1, 1);
+        final end = DateTime(now.year, now.month + 1, 1);
+
+        if (date.isBefore(start) || !date.isBefore(end)) {
+          return false;
+        }
+      } else if (_month != null &&
+          (c.client.dueDate == null ||
+              _monthKey(c.client.dueDate!) != _month)) {
         return false;
+      }
       if (_ribbonFilter == 'ALL') return true;
       if (_ribbonFilter == 'CURRENT') return c.isCurrent;
       if (_ribbonFilter == 'PENDING') return c.ribbon == null;
@@ -599,104 +638,232 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     );
+
+    // GODIGITAL_ADMIN_FILTER_V3
+    Widget filterToolbar(bool mobile) {
+      const height = 44.0;
+
+      final statuses = ribbons.toList();
+
+      Widget search() => SizedBox(
+        height: height,
+        child: TextField(
+          style: const TextStyle(fontSize: 13),
+          decoration: deco(
+            'Search client / employee',
+            prefix: const Icon(Icons.search_rounded, size: 18),
+          ),
+          onChanged: (value) => setState(() => _search = value),
+        ),
+      );
+
+      Widget sort() => SizedBox(
+        height: height,
+        child: DropdownButtonFormField<String>(
+          key: const ValueKey('admin-sort-v3'),
+          initialValue: _sort,
+          isExpanded: true,
+          decoration: deco('Sort'),
+          items: const [
+            DropdownMenuItem(
+              value: 'current',
+              child: Text('Current & late', overflow: TextOverflow.ellipsis),
+            ),
+            DropdownMenuItem(
+              value: 'date_asc',
+              child: Text('Submit date up', overflow: TextOverflow.ellipsis),
+            ),
+            DropdownMenuItem(
+              value: 'date_desc',
+              child: Text('Submit date down', overflow: TextOverflow.ellipsis),
+            ),
+            DropdownMenuItem(
+              value: 'name_asc',
+              child: Text('Client A-Z', overflow: TextOverflow.ellipsis),
+            ),
+          ],
+          onChanged: (value) => setState(() => _sort = value ?? 'current'),
+        ),
+      );
+
+      Widget month() => SizedBox(
+        height: height,
+        child: DropdownButtonFormField<String?>(
+          key: ValueKey('admin-month-v3-${monthKeys.join("-")}'),
+          initialValue: (_month == '__last2__' || monthKeys.contains(_month))
+              ? _month
+              : null,
+          isExpanded: true,
+          decoration: deco('Month'),
+          items: [
+            // GODIGITAL_ADMIN_LAST2_V11
+            const DropdownMenuItem<String?>(
+              value: '__last2__',
+              child: Text('Last 2 months'),
+            ),
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('Last 3 months'),
+            ),
+            for (final k in monthKeys)
+              DropdownMenuItem<String?>(
+                value: k,
+                child: Text(
+                  '${months[int.parse(k.substring(5)) - 1]} ${k.substring(0, 4)}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+          onChanged: (value) => setState(() => _month = value),
+        ),
+      );
+
+      Widget status(String f) {
+        final selected = _ribbonFilter == f;
+        final label = switch (f) {
+          'ALL' => 'All',
+          'IN REVIEW' => 'Review',
+          _ => f[0] + f.substring(1).toLowerCase(),
+        };
+
+        return SizedBox(
+          height: height,
+          child: OutlinedButton(
+            onPressed: () => setState(() => _ribbonFilter = f),
+            style: OutlinedButton.styleFrom(
+              backgroundColor: selected
+                  ? const Color(0xFF2563EB)
+                  : Colors.white,
+              foregroundColor: selected ? Colors.white : _aInk,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              side: const BorderSide(color: _aLine),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: Text(
+              '$label ${countFor(f)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+        );
+      }
+
+      if (mobile) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Column(
+            children: [
+              search(),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: sort()),
+                  const SizedBox(width: 8),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final f in statuses) ...[
+                      status(f),
+                      const SizedBox(width: 8),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
+      // GODIGITAL_ADMIN_LIVE_TWO_ROWS_V8
+      // Match live Admin Workspace desktop filter arrangement.
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(flex: 3, child: search()),
+
+                Expanded(flex: 2, child: sort()),
+                const SizedBox(width: 10),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 44,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final f in statuses) ...[
+                      status(f),
+                      const SizedBox(width: 8),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // GODIGITAL_ADMIN_PINNED_V6
+    // Only mobile filters pin; all cards remain vertically scrollable.
+    if (MediaQuery.sizeOf(context).width < 600) {
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          slivers: [
+            SliverToBoxAdapter(child: _header()),
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _AdminPinnedFiltersV6(child: filterToolbar(true)),
+            ),
+            if (visible.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 60),
+                  child: Center(
+                    child: Text(
+                      'No client cards match these filters.',
+                      style: TextStyle(color: _aMuted),
+                    ),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.only(bottom: 24),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final card = visible[index];
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      child: SizedBox(height: 440, child: _adminCard(card)),
+                    );
+                  }, childCount: visible.length),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 240,
-                child: TextField(
-                  decoration: deco(
-                    'Search client / employee',
-                    prefix: const Icon(Icons.search_rounded, size: 18),
-                  ),
-                  onChanged: (v) => setState(() => _search = v),
-                ),
-              ),
-              SizedBox(
-                width: 200,
-                child: DropdownButtonFormField<String>(
-                  value: _sort,
-                  isExpanded: true,
-                  decoration: deco('Sort'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'current',
-                      child: Text('Current & late first'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'date_asc',
-                      child: Text('Submit date ↑'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'date_desc',
-                      child: Text('Submit date ↓'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'name_asc',
-                      child: Text('Client A → Z'),
-                    ),
-                  ],
-                  onChanged: (v) => setState(() => _sort = v ?? 'current'),
-                ),
-              ),
-              SizedBox(
-                width: 170,
-                child: DropdownButtonFormField<String?>(
-                  value: monthKeys.contains(_month) ? _month : null,
-                  isExpanded: true,
-                  decoration: deco('Month'),
-                  items: [
-                    const DropdownMenuItem<String?>(
-                      value: null,
-                      child: Text('Last 3 months'),
-                    ),
-                    for (final k in monthKeys)
-                      DropdownMenuItem<String?>(
-                        value: k,
-                        child: Text(
-                          '${months[int.parse(k.substring(5)) - 1]} ${k.substring(0, 4)}',
-                        ),
-                      ),
-                  ],
-                  onChanged: (v) => setState(() => _month = v),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final f in ribbons)
-                if (f == 'ALL' || countFor(f) > 0)
-                  ChoiceChip(
-                    avatar: f == 'ALL'
-                        ? null
-                        : CircleAvatar(
-                            radius: 5,
-                            backgroundColor: f == 'CURRENT'
-                                ? _aBlue
-                                : _ribbonColor(f),
-                          ),
-                    label: Text(
-                      '${f == 'ALL' ? 'All' : f[0] + f.substring(1).toLowerCase()} (${countFor(f)})',
-                    ),
-                    selected: _ribbonFilter == f,
-                    onSelected: (_) => setState(() => _ribbonFilter = f),
-                  ),
-            ],
-          ),
-        ),
+        filterToolbar(false),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _load,
@@ -780,7 +947,7 @@ class _AdminWorkspacePageState extends State<AdminWorkspacePage> {
                   Icons.circle,
                 ),
               if (running > 0) const SizedBox(width: 6),
-              if (card.late > 0)
+              if (card.late > 0 && !card.isCurrent)
                 tag(
                   '${card.late} late',
                   const Color(0xFFFEE2E2),
@@ -864,7 +1031,7 @@ class _AdminClientViewState extends State<_AdminClientView> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setAuthFn(authenticateSocket)
+      io.OptionBuilder()
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
@@ -1229,7 +1396,7 @@ class _AdminClientViewState extends State<_AdminClientView> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1408,7 +1575,7 @@ class _AdminClientViewState extends State<_AdminClientView> {
               child: Row(
                 children: [
                   const Icon(Icons.circle, size: 9, color: Color(0xFF16A34A)),
-                  const SizedBox(width: 8),
+
                   Expanded(
                     child: Text(
                       '${m['employee']} is working now on row ${workingNow.map((r) => r['display_no']).join(', ')}',
@@ -1627,7 +1794,7 @@ class _AdminClientViewState extends State<_AdminClientView> {
               ),
             ),
           ),
-          const SizedBox(width: 10),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2021,4 +2188,33 @@ class _PendingListState extends State<_PendingList> {
       ),
     ],
   );
+}
+
+// Mobile-only pinned Admin filter toolbar.
+class _AdminPinnedFiltersV6 extends SliverPersistentHeaderDelegate {
+  final Widget child;
+
+  _AdminPinnedFiltersV6({required this.child});
+
+  @override
+  double get minExtent => 176;
+
+  @override
+  double get maxExtent => 176;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Material(
+      color: const Color(0xFFF4F7FC),
+      elevation: overlapsContent ? 3 : 0,
+      child: SizedBox(width: double.infinity, height: 176, child: child),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _AdminPinnedFiltersV6 oldDelegate) => true;
 }

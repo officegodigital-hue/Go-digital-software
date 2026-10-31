@@ -1,10 +1,9 @@
-import 'package:godigital_portal/services/auth_storage.dart';
 // notification_page.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
-import 'package:godigital_portal/services/authenticated_http.dart' as http;
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
@@ -14,8 +13,6 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:audioplayers/audioplayers.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_config.dart';
-import '../../services/push_notification_service.dart';
-
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -27,7 +24,11 @@ class NotificationsScreen extends StatefulWidget {
 class DayPlanTableViewer extends StatefulWidget {
   final String employeeName;
   final String date;
-  const DayPlanTableViewer({super.key, required this.employeeName, required this.date});
+  const DayPlanTableViewer({
+    super.key,
+    required this.employeeName,
+    required this.date,
+  });
   @override
   State<DayPlanTableViewer> createState() => _DayPlanTableViewerState();
 }
@@ -53,13 +54,17 @@ class _DayPlanTableViewerState extends State<DayPlanTableViewer> {
 
   Future<void> _fetchDayPlan() async {
     try {
-      final url = Uri.parse('${ApiConfig.baseUrl}/day-planner/today/${Uri.encodeComponent(widget.employeeName)}?date=${widget.date}');
+      final url = Uri.parse(
+        '${ApiConfig.baseUrl}/day-planner/today/${Uri.encodeComponent(widget.employeeName)}?date=${widget.date}',
+      );
       final res = await http.get(url);
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
         debugPrint("DAY PLAN RESPONSE = ${res.body}");
         setState(() {
-          rows = List<Map<String, dynamic>>.from(decoded is List ? decoded : (decoded['data'] ?? []));
+          rows = List<Map<String, dynamic>>.from(
+            decoded is List ? decoded : (decoded['data'] ?? []),
+          );
           isLoading = false;
         });
       }
@@ -87,19 +92,36 @@ class _DayPlanTableViewerState extends State<DayPlanTableViewer> {
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(6)),
-      child: Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor)),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        status,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: textColor,
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF0052CC)));
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF0052CC)),
+      );
     }
 
     if (rows.isEmpty) {
-      return const Center(child: Text("No Day Plan Data Found", style: TextStyle(fontSize: 14, color: Color(0xFF64748B))));
+      return const Center(
+        child: Text(
+          "No Day Plan Data Found",
+          style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+        ),
+      );
     }
 
     return SizedBox(
@@ -133,23 +155,107 @@ class _DayPlanTableViewerState extends State<DayPlanTableViewer> {
                   columnSpacing: 25,
                   dividerThickness: 1,
                   border: TableBorder.all(color: const Color(0xFFE2E8F0)),
-                  headingRowColor: WidgetStateProperty.all(const Color(0xFF0052CC)),
+                  headingRowColor: WidgetStateProperty.all(
+                    const Color(0xFF0052CC),
+                  ),
                   columns: const [
-                    DataColumn(label: Text("CLIENT NAME", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("ADS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("LEADS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("REPORT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("DELIVERABLE 1", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("COMPLETE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("BALANCE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("TODAY PLAN", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("STATUS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text("REMARKS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                    DataColumn(
+                      label: Text(
+                        "CLIENT NAME",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "ADS",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "LEADS",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "REPORT",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "DELIVERABLE 1",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "COMPLETE",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "BALANCE",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "TODAY PLAN",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "STATUS",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    DataColumn(
+                      label: Text(
+                        "REMARKS",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ],
                   rows: List.generate(rows.length, (index) {
                     final r = rows[index];
                     return DataRow(
-                      color: WidgetStateProperty.all(index.isEven ? Colors.white : const Color(0xFFF8FAFC)),
+                      color: WidgetStateProperty.all(
+                        index.isEven ? Colors.white : const Color(0xFFF8FAFC),
+                      ),
                       cells: [
                         DataCell(
                           Container(
@@ -158,18 +264,49 @@ class _DayPlanTableViewerState extends State<DayPlanTableViewer> {
                             alignment: Alignment.centerLeft,
                             padding: const EdgeInsets.symmetric(horizontal: 12),
                             color: const Color(0xFF0052CC),
-                            child: Text(r["client"] ?? "-", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            child: Text(
+                              r["client"] ?? "-",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ),
-                        DataCell(SizedBox(width: 220, child: Text(r["ads"] ?? "-", softWrap: true))),
+                        DataCell(
+                          SizedBox(
+                            width: 220,
+                            child: Text(r["ads"] ?? "-", softWrap: true),
+                          ),
+                        ),
                         DataCell(Text(r["today_leads"] ?? "-")),
                         DataCell(Text(r["today_report"] ?? "-")),
-                        DataCell(SizedBox(width: 250, child: Text(r["deliverables_1"] ?? "-", softWrap: true))),
+                        DataCell(
+                          SizedBox(
+                            width: 250,
+                            child: Text(
+                              r["deliverables_1"] ?? "-",
+                              softWrap: true,
+                            ),
+                          ),
+                        ),
                         DataCell(Text(r["complete_deliverables_1"] ?? "-")),
                         DataCell(Text(r["balanced_deliverables_1"] ?? "-")),
-                        DataCell(SizedBox(width: 180, child: Text(r["today_plan"] ?? "-", softWrap: true))),
-                        DataCell(_buildStatusBadge((r["status"] ?? "-").toString())),
-                        DataCell(SizedBox(width: 200, child: Text(r["remarks"] ?? "-", softWrap: true))),
+                        DataCell(
+                          SizedBox(
+                            width: 180,
+                            child: Text(r["today_plan"] ?? "-", softWrap: true),
+                          ),
+                        ),
+                        DataCell(
+                          _buildStatusBadge((r["status"] ?? "-").toString()),
+                        ),
+                        DataCell(
+                          SizedBox(
+                            width: 200,
+                            child: Text(r["remarks"] ?? "-", softWrap: true),
+                          ),
+                        ),
                       ],
                     );
                   }),
@@ -188,17 +325,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   String? _loggedInEmployee;
   String _selectedChatTarget = '';
   bool _isGroupChat = false;
-  
+
   List<Map<String, dynamic>> notificationLogs = [];
   List<Map<String, dynamic>> activeEmployees = [];
   List<dynamic> chatGroups = [];
   List<dynamic> scheduledMeetings = [];
-  
+
   bool _loading = true;
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
-  int _whatsappNavIndex = 0; 
-  String _meetingFilter = 'All'; 
+  int _whatsappNavIndex = 0;
+  String _meetingFilter = 'All';
   bool _showEmojiPicker = false;
   Map<String, dynamic>? _replyingToMessage;
 
@@ -207,23 +344,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   List<String> pinnedChats = [];
   IO.Socket? _socket;
   final AudioPlayer _chatAudioPlayer = AudioPlayer();
+  bool _routeChatApplied = false;
+  String? _routeChatEmployee;
+  String? _routeChatDraft;
   bool _showMobileChatList = true;
   String? _selectedFileName;
-  int _unreadTotal = 0; 
+  int _unreadTotal = 0;
 
-  // Client groups (Employee Workspace team chats) + people's photos / colours.
-  bool _isClientGroup = false;
-  List<Map<String, dynamic>> clientGroups = [];
-  final Map<String, List<Map<String, dynamic>>> _clientChatLogs = {};
-  final Map<String, Map<String, dynamic>> _people = {};
-  final Map<String, ImageProvider> _photoCache = {};
-  Map<String, dynamic>? _myUser;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_routeChatApplied) return;
+    final args = ModalRoute.of(context)?.settings.arguments;
+    if (args is Map) {
+      _routeChatEmployee = '${args['taskChatEmployee'] ?? ''}'.trim();
+      _routeChatDraft = '${args['taskChatDraft'] ?? ''}'.trim();
+    }
+    _routeChatApplied = true;
+  }
 
   @override
   void initState() {
     super.initState();
-    // This page plays its own sound — no duplicate phone pop-up while open.
-    PushNotificationService.chatScreenOpen = true;
     _messageController.addListener(_onMessageChanged);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -232,22 +374,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       if (!mounted) return;
 
-      final user = authService.user;
       setState(() {
         _loggedInEmployee = loggedInName;
-        if (user != null) _myUser = Map<String, dynamic>.from(user);
       });
 
       await _fetchHubData();
-      _fetchPeople();
-      _fetchClientGroups();
       _connectSocket();
     });
   }
 
   @override
   void dispose() {
-    PushNotificationService.chatScreenOpen = false;
     _messageController.removeListener(_onMessageChanged);
     _messageController.dispose();
     _searchController.dispose();
@@ -267,7 +404,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     try {
       _socket = IO.io(_socketUrl, {
         'transports': ['websocket'],
-        'auth': {'token': AuthStorage.cachedToken},
         'autoConnect': false,
         'reconnection': true,
       });
@@ -284,10 +420,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       _socket!.on('receive_group_message', (payload) {
         _handleSocketMessage(payload);
-      });
-
-      _socket!.on('workspace_client_chat', (payload) {
-        _handleClientChatEvent(payload);
       });
 
       _socket!.on('messages_seen', (payload) {
@@ -337,18 +469,22 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final incoming = Map<String, dynamic>.from(payload);
     final sender = incoming['senderName']?.toString() ?? '';
     final recipient = incoming['recipientName']?.toString() ?? '';
-    final isGroup = incoming['isGroup'] == true ||
+    final isGroup =
+        incoming['isGroup'] == true ||
         incoming['isGroup'] == 1 ||
         incoming['isGroup']?.toString() == '1';
 
     final isForMe = isGroup
-        ? _isMyGroup(recipient)
+        ? _isGroupChat && recipient == _selectedChatTarget
         : (recipient == _loggedInEmployee || sender == _loggedInEmployee);
 
     if (!isForMe) return;
 
     final id = int.tryParse(incoming['id']?.toString() ?? '') ?? 0;
-    if (id != 0 && notificationLogs.any((m) => int.tryParse(m['id']?.toString() ?? '') == id)) {
+    if (id != 0 &&
+        notificationLogs.any(
+          (m) => int.tryParse(m['id']?.toString() ?? '') == id,
+        )) {
       return;
     }
 
@@ -379,9 +515,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   bool _isCurrentConversation(Map<String, dynamic> log) {
-    if (_selectedChatTarget.isEmpty || _isClientGroup) return false;
+    if (_selectedChatTarget.isEmpty) return false;
     if (_isGroupChat) {
-      return log['isGroup'] == true && log['recipientName'] == _selectedChatTarget;
+      return log['isGroup'] == true &&
+          log['recipientName'] == _selectedChatTarget;
     }
     return (log['senderName'] == _loggedInEmployee &&
             log['recipientName'] == _selectedChatTarget) ||
@@ -414,7 +551,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 '$sender\n$message',
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700, color: Colors.white),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
               ),
             ),
           ],
@@ -426,19 +566,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   void _onMessageChanged() {
     final text = _messageController.text;
     final selection = _messageController.selection;
-    
+
     if (_isGroupChat && selection.baseOffset > 0) {
       final currentSubstring = text.substring(0, selection.baseOffset);
       final lastAtIndex = currentSubstring.lastIndexOf('@');
-      
+
       if (lastAtIndex != -1) {
         final query = currentSubstring.substring(lastAtIndex + 1);
         if (!query.contains(' ')) {
           setState(() {
             _showMentionOverlay = true;
-            _filteredMentionEmployees = activeEmployees.where((e) => 
-              (e["full_name"] ?? "").toLowerCase().contains(query.toLowerCase())
-            ).toList();
+            _filteredMentionEmployees = activeEmployees
+                .where(
+                  (e) => (e["full_name"] ?? "").toLowerCase().contains(
+                    query.toLowerCase(),
+                  ),
+                )
+                .toList();
           });
           return;
         }
@@ -452,7 +596,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   bool _isSeenValue(dynamic value) {
-    return value == true || value == 1 || value?.toString().toLowerCase() == 'true' || value?.toString() == '1';
+    return value == true ||
+        value == 1 ||
+        value?.toString().toLowerCase() == 'true' ||
+        value?.toString() == '1';
   }
 
   int _calculateUnreadTotal() {
@@ -472,7 +619,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           if (groupName != recipient) return false;
           try {
             final members = List<String>.from(jsonDecode(g["members"] ?? '[]'));
-            return members.contains(_loggedInEmployee) || g["created_by"]?.toString() == _loggedInEmployee;
+            return members.contains(_loggedInEmployee) ||
+                g["created_by"]?.toString() == _loggedInEmployee;
           } catch (_) {
             return g["created_by"]?.toString() == _loggedInEmployee;
           }
@@ -480,7 +628,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
 
       return recipient == _loggedInEmployee;
-    }).length + _clientUnreadTotal;
+    }).length;
   }
 
   Future<void> _fetchHubData() async {
@@ -539,8 +687,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           } else {
             final sender = log["senderName"]?.toString();
             final recipient = log["recipientName"]?.toString();
-            if (sender == _loggedInEmployee && recipient != null) serverPins.add(recipient);
-            if (recipient == _loggedInEmployee && sender != null) serverPins.add(sender);
+            if (sender == _loggedInEmployee && recipient != null)
+              serverPins.add(recipient);
+            if (recipient == _loggedInEmployee && sender != null)
+              serverPins.add(sender);
           }
         }
       }
@@ -554,8 +704,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         pinnedChats = serverPins.toList();
         _unreadTotal = _calculateUnreadTotal();
 
+        final requested = _routeChatEmployee;
+        if (requested != null && requested.isNotEmpty) {
+          final matches = activeEmployees.where(
+            (e) =>
+                '${e['full_name'] ?? ''}'.trim().toLowerCase() ==
+                requested.toLowerCase(),
+          );
+          if (matches.isNotEmpty) {
+            _selectedChatTarget = '${matches.first['full_name']}'.trim();
+            _isGroupChat = false;
+            _whatsappNavIndex = 2;
+            _showMobileChatList = false;
+            if (_routeChatDraft != null && _routeChatDraft!.isNotEmpty) {
+              _messageController.text = _routeChatDraft!;
+            }
+            _routeChatEmployee = null;
+            _routeChatDraft = null;
+          }
+        }
         if (_selectedChatTarget.isEmpty && activeEmployees.isNotEmpty) {
-          _selectedChatTarget = activeEmployees.first["full_name"]?.toString() ?? '';
+          _selectedChatTarget =
+              activeEmployees.first["full_name"]?.toString() ?? '';
         }
         _loading = false;
       });
@@ -575,10 +745,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         final group = _isSeenValue(log["isGroup"]);
 
         if (!isGroup) {
-          if (!group && sender == targetName && recipient == _loggedInEmployee) {
+          if (!group &&
+              sender == targetName &&
+              recipient == _loggedInEmployee) {
             log["isSeen"] = true;
           }
-        } else if (group && recipient == targetName && sender != _loggedInEmployee) {
+        } else if (group &&
+            recipient == targetName &&
+            sender != _loggedInEmployee) {
           log["isSeen"] = true;
         }
       }
@@ -587,21 +761,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
     try {
       final response = await http.patch(
-        Uri.parse(isGroup ? '$_baseUrl/chat/mark-seen-group' : '$_baseUrl/chat/mark-seen'),
+        Uri.parse(
+          isGroup
+              ? '$_baseUrl/chat/mark-seen-group'
+              : '$_baseUrl/chat/mark-seen',
+        ),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(isGroup
-            ? {
-                'groupName': targetName,
-                'employeeName': _loggedInEmployee,
-              }
-            : {
-                'recipientName': _loggedInEmployee,
-                'senderName': targetName,
-              }),
+        body: jsonEncode(
+          isGroup
+              ? {'groupName': targetName, 'employeeName': _loggedInEmployee}
+              : {'recipientName': _loggedInEmployee, 'senderName': targetName},
+        ),
       );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw Exception('Mark seen failed: ${response.statusCode} ${response.body}');
+        throw Exception(
+          'Mark seen failed: ${response.statusCode} ${response.body}',
+        );
       }
 
       final body = jsonDecode(response.body);
@@ -653,7 +829,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw Exception('Pin request failed: ${response.statusCode} ${response.body}');
+        throw Exception(
+          'Pin request failed: ${response.statusCode} ${response.body}',
+        );
       }
 
       final body = jsonDecode(response.body);
@@ -694,7 +872,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         SnackBar(
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
           content: Text(next ? 'Could not pin chat.' : 'Could not unpin chat.'),
         ),
       );
@@ -716,25 +896,1130 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-void _openMeetingSchedulerDialog() {
-  final TextEditingController topicController = TextEditingController();
-  final TextEditingController linkController = TextEditingController();
+  void _openMeetingSchedulerDialog() {
+    final TextEditingController topicController = TextEditingController();
+    final TextEditingController linkController = TextEditingController();
 
-  DateTime selectedDate = DateTime.now();
-  TimeOfDay selectedTime = TimeOfDay.now();
+    DateTime selectedDate = DateTime.now();
+    TimeOfDay selectedTime = TimeOfDay.now();
 
-  Map<String, bool> selectedAttendees = {
-    for (var e in activeEmployees) e["full_name"].toString(): false,
-  };
+    Map<String, bool> selectedAttendees = {
+      for (var e in activeEmployees) e["full_name"].toString(): false,
+    };
 
-  Map<String, bool> selectedGroupsForMeeting = {
-    for (var g in chatGroups) g["group_name"].toString(): false,
-  };
+    Map<String, bool> selectedGroupsForMeeting = {
+      for (var g in chatGroups) g["group_name"].toString(): false,
+    };
 
-  showDialog(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (context, setDialogState) {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return Dialog(
+            backgroundColor: Colors.white,
+            elevation: 20,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // HEADER
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 18, 20),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0052CC),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .14),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: .18),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.video_call_rounded,
+                            color: Colors.white,
+                            size: 25,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Schedule Meeting",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                "Create and share a meeting with your team",
+                                style: TextStyle(
+                                  color: Color(0xFFDCE8FF),
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: "Close",
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                            size: 25,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // BODY
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Meeting Details",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          TextField(
+                            controller: topicController,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: "Meeting Topic / Agenda",
+                              hintText: "Enter meeting topic",
+                              prefixIcon: const Icon(
+                                Icons.title_rounded,
+                                color: Color(0xFF0052CC),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFF),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF0052CC),
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          TextField(
+                            controller: linkController,
+                            keyboardType: TextInputType.url,
+                            decoration: InputDecoration(
+                              labelText: "Meeting Link",
+                              hintText: "https://meet.google.com/...",
+                              prefixIcon: const Icon(
+                                Icons.link_rounded,
+                                color: Color(0xFF0052CC),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFF),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF0052CC),
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 18),
+
+                          const Text(
+                            "Date & Time",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _premiumPickerButton(
+                                  icon: Icons.calendar_today_rounded,
+                                  title: "Date",
+                                  value: DateFormat(
+                                    'dd MMM yyyy',
+                                  ).format(selectedDate),
+                                  onTap: () async {
+                                    final picked = await showDatePicker(
+                                      context: context,
+                                      initialDate: selectedDate,
+                                      firstDate: DateTime.now(),
+                                      lastDate: DateTime(2100),
+                                      builder: (context, child) {
+                                        return Theme(
+                                          data: Theme.of(context).copyWith(
+                                            colorScheme:
+                                                const ColorScheme.light(
+                                                  primary: Color(0xFF0052CC),
+                                                ),
+                                          ),
+                                          child: child!,
+                                        );
+                                      },
+                                    );
+
+                                    if (picked != null) {
+                                      setDialogState(() {
+                                        selectedDate = picked;
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _premiumPickerButton(
+                                  icon: Icons.access_time_rounded,
+                                  title: "Time",
+                                  value: selectedTime.format(context),
+                                  onTap: () async {
+                                    final picked = await showTimePicker(
+                                      context: context,
+                                      initialTime: selectedTime,
+                                      builder: (context, child) {
+                                        return Theme(
+                                          data: Theme.of(context).copyWith(
+                                            colorScheme:
+                                                const ColorScheme.light(
+                                                  primary: Color(0xFF0052CC),
+                                                ),
+                                          ),
+                                          child: child!,
+                                        );
+                                      },
+                                    );
+
+                                    if (picked != null) {
+                                      setDialogState(() {
+                                        selectedTime = picked;
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          const Text(
+                            "Share With",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          if (chatGroups.isNotEmpty) ...[
+                            _sectionLabel("CHAT GROUPS"),
+
+                            ...chatGroups.map((g) {
+                              final name = g["group_name"]?.toString() ?? "";
+
+                              return _premiumCheckTile(
+                                icon: Icons.groups_rounded,
+                                title: name,
+                                subtitle: "Share with this group",
+                                value: selectedGroupsForMeeting[name] ?? false,
+                                onChanged: (value) {
+                                  setDialogState(() {
+                                    selectedGroupsForMeeting[name] =
+                                        value ?? false;
+                                  });
+                                },
+                              );
+                            }),
+
+                            const SizedBox(height: 14),
+                          ],
+
+                          _sectionLabel("EMPLOYEES"),
+
+                          if (activeEmployees.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 20),
+                              child: Center(
+                                child: Text(
+                                  "No employees found",
+                                  style: TextStyle(
+                                    color: Color(0xFF64748B),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            )
+                          else
+                            ...activeEmployees.map((emp) {
+                              final name = emp["full_name"]?.toString() ?? "";
+                              final role =
+                                  emp["role"]?.toString() ?? "Employee";
+                              final initials =
+                                  emp["initials"]?.toString() ?? "?";
+
+                              return _premiumEmployeeTile(
+                                initials: initials,
+                                name: name,
+                                role: role,
+                                value: selectedAttendees[name] ?? false,
+                                onChanged: (value) {
+                                  setDialogState(() {
+                                    selectedAttendees[name] = value ?? false;
+                                  });
+                                },
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // FOOTER
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF8FAFF),
+                      border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text(
+                            "Cancel",
+                            style: TextStyle(
+                              color: Color(0xFF64748B),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.send_rounded, size: 17),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0052CC),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            final chosenPersons = selectedAttendees.entries
+                                .where((e) => e.value)
+                                .map((e) => e.key)
+                                .toList();
+
+                            final chosenGroups = selectedGroupsForMeeting
+                                .entries
+                                .where((e) => e.value)
+                                .map((e) => e.key)
+                                .toList();
+
+                            if (topicController.text.trim().isEmpty ||
+                                linkController.text.trim().isEmpty ||
+                                (chosenPersons.isEmpty &&
+                                    chosenGroups.isEmpty)) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    "Please complete the meeting details and select at least one employee or group.",
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+
+                            final formattedDateTime =
+                                "${DateFormat('yyyy-MM-dd').format(selectedDate)} ${selectedTime.format(context)}";
+
+                            try {
+                              await http.post(
+                                Uri.parse('$_baseUrl/chat/meetings'),
+                                headers: {'Content-Type': 'application/json'},
+                                body: jsonEncode({
+                                  'title': topicController.text.trim(),
+                                  'meetingTime': formattedDateTime,
+                                  'meetingLink': linkController.text.trim(),
+                                  'hostName': _loggedInEmployee,
+                                  'selectedPersons': chosenPersons,
+                                  'selectedGroups': chosenGroups,
+                                }),
+                              );
+
+                              if (!mounted) return;
+
+                              Navigator.pop(ctx);
+
+                              await _fetchHubData();
+
+                              if (mounted) {
+                                setState(() {
+                                  _whatsappNavIndex = 2;
+                                  _showMobileChatList = true;
+                                });
+
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      "Meeting scheduled & shared successfully!",
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      "Failed to schedule meeting: $e",
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          label: const Text(
+                            "Schedule & Share",
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _openCreateGroupDialog() {
+    final TextEditingController groupNameController = TextEditingController();
+
+    Map<String, bool> selectedMembers = {
+      for (var e in activeEmployees) e["full_name"].toString(): false,
+    };
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return Dialog(
+            backgroundColor: Colors.white,
+            elevation: 20,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 540, maxHeight: 700),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // BLUE HEADER
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 18, 20),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0052CC),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .14),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.group_add_rounded,
+                            color: Colors.white,
+                            size: 25,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Create Group",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                "Create a new team conversation",
+                                style: TextStyle(
+                                  color: Color(0xFFDCE8FF),
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Group Details",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          TextField(
+                            controller: groupNameController,
+                            textInputAction: TextInputAction.next,
+                            decoration: InputDecoration(
+                              labelText: "Group Name",
+                              hintText: "Enter group name",
+                              prefixIcon: const Icon(
+                                Icons.groups_rounded,
+                                color: Color(0xFF0052CC),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFF),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF0052CC),
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  "Select Members",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                "${selectedMembers.values.where((e) => e).length} selected",
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF0052CC),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          if (activeEmployees.isEmpty)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(28),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFF),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              child: const Column(
+                                children: [
+                                  Icon(
+                                    Icons.person_off_rounded,
+                                    color: Color(0xFF0052CC),
+                                    size: 30,
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    "No employees found",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF64748B),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            ...activeEmployees.map((emp) {
+                              final name = emp["full_name"]?.toString() ?? "";
+                              final role =
+                                  emp["role"]?.toString() ?? "Employee";
+                              final initials =
+                                  emp["initials"]?.toString() ?? "?";
+
+                              return _premiumEmployeeTile(
+                                initials: initials,
+                                name: name,
+                                role: role,
+                                value: selectedMembers[name] ?? false,
+                                onChanged: (value) {
+                                  setDialogState(() {
+                                    selectedMembers[name] = value ?? false;
+                                  });
+                                },
+                              );
+                            }),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // FOOTER
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF8FAFF),
+                      border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text(
+                            "Cancel",
+                            style: TextStyle(
+                              color: Color(0xFF64748B),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.group_add_rounded, size: 17),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0052CC),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            final members = selectedMembers.entries
+                                .where((e) => e.value)
+                                .map((e) => e.key)
+                                .toList();
+
+                            if (groupNameController.text.trim().isEmpty ||
+                                members.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    "Enter a group name and select at least one member.",
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+
+                            try {
+                              await http.post(
+                                Uri.parse('$_baseUrl/chat/groups'),
+                                headers: {'Content-Type': 'application/json'},
+                                body: jsonEncode({
+                                  'groupName': groupNameController.text.trim(),
+                                  'createdBy': _loggedInEmployee,
+                                  'members': members,
+                                }),
+                              );
+
+                              if (!mounted) return;
+
+                              Navigator.pop(ctx);
+                              await _fetchHubData();
+
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      "Group created successfully!",
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text("Failed to create group: $e"),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          label: const Text(
+                            "Create Group",
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _openEditMeetingDialog(Map<String, dynamic> meeting) {
+    final TextEditingController topicController = TextEditingController(
+      text: meeting["title"]?.toString() ?? "",
+    );
+
+    final TextEditingController linkController = TextEditingController(
+      text: meeting["meeting_link"]?.toString() ?? "",
+    );
+
+    List<dynamic> currentAttendees = [];
+
+    try {
+      currentAttendees = jsonDecode(meeting["attendees"] ?? '[]');
+    } catch (_) {}
+
+    Map<String, bool> selectedAttendees = {
+      for (var e in activeEmployees)
+        e["full_name"].toString(): currentAttendees.contains(
+          e["full_name"].toString(),
+        ),
+    };
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return Dialog(
+            backgroundColor: Colors.white,
+            elevation: 20,
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560, maxHeight: 680),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(24, 20, 18, 20),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF0052CC),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: .14),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.edit_calendar_rounded,
+                            color: Colors.white,
+                            size: 25,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "Edit Meeting",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                "Update meeting details and participants",
+                                style: TextStyle(
+                                  color: Color(0xFFDCE8FF),
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Meeting Information",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          TextField(
+                            controller: topicController,
+                            decoration: InputDecoration(
+                              labelText: "Meeting Topic",
+                              prefixIcon: const Icon(
+                                Icons.title_rounded,
+                                color: Color(0xFF0052CC),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFF),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF0052CC),
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          TextField(
+                            controller: linkController,
+                            keyboardType: TextInputType.url,
+                            decoration: InputDecoration(
+                              labelText: "Meeting Link",
+                              prefixIcon: const Icon(
+                                Icons.link_rounded,
+                                color: Color(0xFF0052CC),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFF),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF0052CC),
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          const Text(
+                            "Meeting Participants",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          ...activeEmployees.map((emp) {
+                            final name = emp["full_name"]?.toString() ?? "";
+                            final role = emp["role"]?.toString() ?? "Employee";
+                            final initials = emp["initials"]?.toString() ?? "?";
+
+                            return _premiumEmployeeTile(
+                              initials: initials,
+                              name: name,
+                              role: role,
+                              value: selectedAttendees[name] ?? false,
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  selectedAttendees[name] = value ?? false;
+                                });
+                              },
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFF8FAFF),
+                      border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text(
+                            "Cancel",
+                            style: TextStyle(
+                              color: Color(0xFF64748B),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.save_rounded, size: 17),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0052CC),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            final chosenPersons = selectedAttendees.entries
+                                .where((e) => e.value)
+                                .map((e) => e.key)
+                                .toList();
+
+                            try {
+                              await http.patch(
+                                Uri.parse(
+                                  '$_baseUrl/chat/meetings/${meeting["id"]}',
+                                ),
+                                headers: {'Content-Type': 'application/json'},
+                                body: jsonEncode({
+                                  'title': topicController.text.trim(),
+                                  'meetingLink': linkController.text.trim(),
+                                  'attendees': chosenPersons,
+                                }),
+                              );
+
+                              if (!mounted) return;
+
+                              Navigator.pop(ctx);
+                              await _fetchHubData();
+
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      "Meeting updated successfully!",
+                                    ),
+                                  ),
+                                );
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      "Failed to update meeting: $e",
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          label: const Text(
+                            "Update Meeting",
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _openMediaGalleryDialog() {
+    final mediaMessages = _currentStreamMessages.where((l) {
+      final payload = _messagePayload(l["message"]);
+
+      return (payload != null && payload["type"] == "file") ||
+          (l["message"] ?? "").toString().contains("Attached Document");
+    }).toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
         return Dialog(
           backgroundColor: Colors.white,
           elevation: 20,
@@ -746,10 +2031,7 @@ void _openMeetingSchedulerDialog() {
             borderRadius: BorderRadius.circular(24),
           ),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: 560,
-              maxHeight: 720,
-            ),
+            constraints: const BoxConstraints(maxWidth: 520, maxHeight: 650),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -770,48 +2052,44 @@ void _openMeetingSchedulerDialog() {
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: .14),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: .18),
-                          ),
                         ),
                         child: const Icon(
-                          Icons.video_call_rounded,
+                          Icons.folder_shared_rounded,
                           color: Colors.white,
                           size: 25,
                         ),
                       ),
                       const SizedBox(width: 14),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              "Schedule Meeting",
+                            const Text(
+                              "Media & Files",
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 18,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
-                            SizedBox(height: 4),
+                            const SizedBox(height: 4),
                             Text(
-                              "Create and share a meeting with your team",
-                              style: TextStyle(
+                              _selectedChatTarget,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
                                 color: Color(0xFFDCE8FF),
                                 fontSize: 11.5,
-                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ],
                         ),
                       ),
                       IconButton(
-                        tooltip: "Close",
                         onPressed: () => Navigator.pop(ctx),
                         icon: const Icon(
                           Icons.close_rounded,
                           color: Colors.white,
-                          size: 25,
                         ),
                       ),
                     ],
@@ -820,1603 +2098,427 @@ void _openMeetingSchedulerDialog() {
 
                 // BODY
                 Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Meeting Details",
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        TextField(
-                          controller: topicController,
-                          textInputAction: TextInputAction.next,
-                          decoration: InputDecoration(
-                            labelText: "Meeting Topic / Agenda",
-                            hintText: "Enter meeting topic",
-                            prefixIcon: const Icon(
-                              Icons.title_rounded,
-                              color: Color(0xFF0052CC),
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFFF8FAFF),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFF0052CC),
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        TextField(
-                          controller: linkController,
-                          keyboardType: TextInputType.url,
-                          decoration: InputDecoration(
-                            labelText: "Meeting Link",
-                            hintText: "https://meet.google.com/...",
-                            prefixIcon: const Icon(
-                              Icons.link_rounded,
-                              color: Color(0xFF0052CC),
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFFF8FAFF),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFF0052CC),
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 18),
-
-                        const Text(
-                          "Date & Time",
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _premiumPickerButton(
-                                icon: Icons.calendar_today_rounded,
-                                title: "Date",
-                                value: DateFormat(
-                                  'dd MMM yyyy',
-                                ).format(selectedDate),
-                                onTap: () async {
-                                  final picked = await showDatePicker(
-                                    context: context,
-                                    initialDate: selectedDate,
-                                    firstDate: DateTime.now(),
-                                    lastDate: DateTime(2100),
-                                    builder: (context, child) {
-                                      return Theme(
-                                        data: Theme.of(context).copyWith(
-                                          colorScheme:
-                                              const ColorScheme.light(
-                                            primary: Color(0xFF0052CC),
-                                          ),
-                                        ),
-                                        child: child!,
-                                      );
-                                    },
-                                  );
-
-                                  if (picked != null) {
-                                    setDialogState(() {
-                                      selectedDate = picked;
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _premiumPickerButton(
-                                icon: Icons.access_time_rounded,
-                                title: "Time",
-                                value: selectedTime.format(context),
-                                onTap: () async {
-                                  final picked = await showTimePicker(
-                                    context: context,
-                                    initialTime: selectedTime,
-                                    builder: (context, child) {
-                                      return Theme(
-                                        data: Theme.of(context).copyWith(
-                                          colorScheme:
-                                              const ColorScheme.light(
-                                            primary: Color(0xFF0052CC),
-                                          ),
-                                        ),
-                                        child: child!,
-                                      );
-                                    },
-                                  );
-
-                                  if (picked != null) {
-                                    setDialogState(() {
-                                      selectedTime = picked;
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        const Text(
-                          "Share With",
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        if (chatGroups.isNotEmpty) ...[
-                          _sectionLabel("CHAT GROUPS"),
-
-                          ...chatGroups.map((g) {
-                            final name =
-                                g["group_name"]?.toString() ?? "";
-
-                            return _premiumCheckTile(
-                              icon: Icons.groups_rounded,
-                              title: name,
-                              subtitle: "Share with this group",
-                              value:
-                                  selectedGroupsForMeeting[name] ?? false,
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  selectedGroupsForMeeting[name] =
-                                      value ?? false;
-                                });
-                              },
-                            );
-                          }),
-
-                          const SizedBox(height: 14),
-                        ],
-
-                        _sectionLabel("EMPLOYEES"),
-
-                        if (activeEmployees.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 20),
-                            child: Center(
-                              child: Text(
-                                "No employees found",
-                                style: TextStyle(
-                                  color: Color(0xFF64748B),
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                          )
-                        else
-                          ...activeEmployees.map((emp) {
-                            final name =
-                                emp["full_name"]?.toString() ?? "";
-                            final role =
-                                emp["role"]?.toString() ?? "Employee";
-                            final initials =
-                                emp["initials"]?.toString() ?? "?";
-
-                            return _premiumEmployeeTile(
-                              initials: initials,
-                              name: name,
-                              role: role,
-                              value:
-                                  selectedAttendees[name] ?? false,
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  selectedAttendees[name] =
-                                      value ?? false;
-                                });
-                              },
-                            );
-                          }),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // FOOTER
-                Container(
-                  padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF8FAFF),
-                    border: Border(
-                      top: BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    borderRadius: BorderRadius.vertical(
-                      bottom: Radius.circular(24),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text(
-                          "Cancel",
-                          style: TextStyle(
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        icon: const Icon(
-                          Icons.send_rounded,
-                          size: 17,
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0052CC),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 22,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        onPressed: () async {
-                          final chosenPersons = selectedAttendees
-                              .entries
-                              .where((e) => e.value)
-                              .map((e) => e.key)
-                              .toList();
-
-                          final chosenGroups = selectedGroupsForMeeting
-                              .entries
-                              .where((e) => e.value)
-                              .map((e) => e.key)
-                              .toList();
-
-                          if (topicController.text.trim().isEmpty ||
-                              linkController.text.trim().isEmpty ||
-                              (chosenPersons.isEmpty &&
-                                  chosenGroups.isEmpty)) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  "Please complete the meeting details and select at least one employee or group.",
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          final formattedDateTime =
-                              "${DateFormat('yyyy-MM-dd').format(selectedDate)} ${selectedTime.format(context)}";
-
-                          try {
-                            await http.post(
-                              Uri.parse(
-                                '$_baseUrl/chat/meetings',
-                              ),
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: jsonEncode({
-                                'title':
-                                    topicController.text.trim(),
-                                'meetingTime': formattedDateTime,
-                                'meetingLink':
-                                    linkController.text.trim(),
-                                'hostName': _loggedInEmployee,
-                                'selectedPersons': chosenPersons,
-                                'selectedGroups': chosenGroups,
-                              }),
-                            );
-
-                            if (!mounted) return;
-
-                            Navigator.pop(ctx);
-
-                            await _fetchHubData();
-
-                            if (mounted) {
-                              setState(() {
-                                _whatsappNavIndex = 2;
-                                _showMobileChatList = true;
-                              });
-
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    "Meeting scheduled & shared successfully!",
-                                  ),
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    "Failed to schedule meeting: $e",
-                                  ),
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        label: const Text(
-                          "Schedule & Share",
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    ),
-  );
-}
-
-void _openCreateGroupDialog() {
-  final TextEditingController groupNameController =
-      TextEditingController();
-
-  Map<String, bool> selectedMembers = {
-    for (var e in activeEmployees)
-      e["full_name"].toString(): false,
-  };
-
-  showDialog(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (context, setDialogState) {
-        return Dialog(
-          backgroundColor: Colors.white,
-          elevation: 20,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 24,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: 540,
-              maxHeight: 700,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // BLUE HEADER
-                Container(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 18, 20),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF0052CC),
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(24),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .14),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.group_add_rounded,
-                          color: Colors.white,
-                          size: 25,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Create Group",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              "Create a new team conversation",
-                              style: TextStyle(
-                                color: Color(0xFFDCE8FF),
-                                fontSize: 11.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(
-                          Icons.close_rounded,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Group Details",
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        TextField(
-                          controller: groupNameController,
-                          textInputAction: TextInputAction.next,
-                          decoration: InputDecoration(
-                            labelText: "Group Name",
-                            hintText: "Enter group name",
-                            prefixIcon: const Icon(
-                              Icons.groups_rounded,
-                              color: Color(0xFF0052CC),
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFFF8FAFF),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFF0052CC),
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                "Select Members",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF0F172A),
-                                ),
-                              ),
-                            ),
-                            Text(
-                              "${selectedMembers.values.where((e) => e).length} selected",
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFF0052CC),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        if (activeEmployees.isEmpty)
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(28),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFF),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
-                              ),
-                            ),
-                            child: const Column(
-                              children: [
-                                Icon(
-                                  Icons.person_off_rounded,
-                                  color: Color(0xFF0052CC),
-                                  size: 30,
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  "No employees found",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF64748B),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        else
-                          ...activeEmployees.map((emp) {
-                            final name =
-                                emp["full_name"]?.toString() ?? "";
-                            final role =
-                                emp["role"]?.toString() ?? "Employee";
-                            final initials =
-                                emp["initials"]?.toString() ?? "?";
-
-                            return _premiumEmployeeTile(
-                              initials: initials,
-                              name: name,
-                              role: role,
-                              value:
-                                  selectedMembers[name] ?? false,
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  selectedMembers[name] =
-                                      value ?? false;
-                                });
-                              },
-                            );
-                          }),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // FOOTER
-                Container(
-                  padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF8FAFF),
-                    border: Border(
-                      top: BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    borderRadius: BorderRadius.vertical(
-                      bottom: Radius.circular(24),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text(
-                          "Cancel",
-                          style: TextStyle(
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        icon: const Icon(
-                          Icons.group_add_rounded,
-                          size: 17,
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0052CC),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 22,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        onPressed: () async {
-                          final members = selectedMembers
-                              .entries
-                              .where((e) => e.value)
-                              .map((e) => e.key)
-                              .toList();
-
-                          if (groupNameController.text.trim().isEmpty ||
-                              members.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  "Enter a group name and select at least one member.",
-                                ),
-                              ),
-                            );
-                            return;
-                          }
-
-                          try {
-                            await http.post(
-                              Uri.parse(
-                                '$_baseUrl/chat/groups',
-                              ),
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: jsonEncode({
-                                'groupName':
-                                    groupNameController.text.trim(),
-                                'createdBy': _loggedInEmployee,
-                                'members': members,
-                              }),
-                            );
-
-                            if (!mounted) return;
-
-                            Navigator.pop(ctx);
-                            await _fetchHubData();
-
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    "Group created successfully!",
-                                  ),
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    "Failed to create group: $e",
-                                  ),
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        label: const Text(
-                          "Create Group",
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    ),
-  );
-}
-
- void _openEditMeetingDialog(Map<String, dynamic> meeting) {
-  final TextEditingController topicController =
-      TextEditingController(text: meeting["title"]?.toString() ?? "");
-
-  final TextEditingController linkController =
-      TextEditingController(text: meeting["meeting_link"]?.toString() ?? "");
-
-  List<dynamic> currentAttendees = [];
-
-  try {
-    currentAttendees = jsonDecode(meeting["attendees"] ?? '[]');
-  } catch (_) {}
-
-  Map<String, bool> selectedAttendees = {
-    for (var e in activeEmployees)
-      e["full_name"].toString():
-          currentAttendees.contains(e["full_name"].toString()),
-  };
-
-  showDialog(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (context, setDialogState) {
-        return Dialog(
-          backgroundColor: Colors.white,
-          elevation: 20,
-          insetPadding: const EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: 24,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: 560,
-              maxHeight: 680,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.fromLTRB(24, 20, 18, 20),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF0052CC),
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(24),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .14),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.edit_calendar_rounded,
-                          color: Colors.white,
-                          size: 25,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              "Edit Meeting",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              "Update meeting details and participants",
-                              style: TextStyle(
-                                color: Color(0xFFDCE8FF),
-                                fontSize: 11.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(
-                          Icons.close_rounded,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Meeting Information",
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        TextField(
-                          controller: topicController,
-                          decoration: InputDecoration(
-                            labelText: "Meeting Topic",
-                            prefixIcon: const Icon(
-                              Icons.title_rounded,
-                              color: Color(0xFF0052CC),
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFFF8FAFF),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFF0052CC),
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        TextField(
-                          controller: linkController,
-                          keyboardType: TextInputType.url,
-                          decoration: InputDecoration(
-                            labelText: "Meeting Link",
-                            prefixIcon: const Icon(
-                              Icons.link_rounded,
-                              color: Color(0xFF0052CC),
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFFF8FAFF),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD8E2F0),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: const BorderSide(
-                                color: Color(0xFF0052CC),
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        const Text(
-                          "Meeting Participants",
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        ...activeEmployees.map((emp) {
-                          final name =
-                              emp["full_name"]?.toString() ?? "";
-                          final role =
-                              emp["role"]?.toString() ?? "Employee";
-                          final initials =
-                              emp["initials"]?.toString() ?? "?";
-
-                          return _premiumEmployeeTile(
-                            initials: initials,
-                            name: name,
-                            role: role,
-                            value:
-                                selectedAttendees[name] ?? false,
-                            onChanged: (value) {
-                              setDialogState(() {
-                                selectedAttendees[name] =
-                                    value ?? false;
-                              });
-                            },
-                          );
-                        }),
-                      ],
-                    ),
-                  ),
-                ),
-
-                Container(
-                  padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF8FAFF),
-                    border: Border(
-                      top: BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    borderRadius: BorderRadius.vertical(
-                      bottom: Radius.circular(24),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text(
-                          "Cancel",
-                          style: TextStyle(
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        icon: const Icon(
-                          Icons.save_rounded,
-                          size: 17,
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0052CC),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 22,
-                            vertical: 14,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        onPressed: () async {
-                          final chosenPersons = selectedAttendees
-                              .entries
-                              .where((e) => e.value)
-                              .map((e) => e.key)
-                              .toList();
-
-                          try {
-                            await http.patch(
-                              Uri.parse(
-                                '$_baseUrl/chat/meetings/${meeting["id"]}',
-                              ),
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: jsonEncode({
-                                'title':
-                                    topicController.text.trim(),
-                                'meetingLink':
-                                    linkController.text.trim(),
-                                'attendees': chosenPersons,
-                              }),
-                            );
-
-                            if (!mounted) return;
-
-                            Navigator.pop(ctx);
-                            await _fetchHubData();
-
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    "Meeting updated successfully!",
-                                  ),
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    "Failed to update meeting: $e",
-                                  ),
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        label: const Text(
-                          "Update Meeting",
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    ),
-  );
-}
-
-
-void _openMediaGalleryDialog() {
-  final mediaMessages = _currentStreamMessages.where((l) {
-    final payload = _messagePayload(l["message"]);
-
-    return (payload != null && payload["type"] == "file") ||
-        (l["message"] ?? "")
-            .toString()
-            .contains("Attached Document");
-  }).toList();
-
-  showDialog(
-    context: context,
-    builder: (ctx) {
-      return Dialog(
-        backgroundColor: Colors.white,
-        elevation: 20,
-        insetPadding: const EdgeInsets.symmetric(
-          horizontal: 24,
-          vertical: 24,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: 520,
-            maxHeight: 650,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // HEADER
-              Container(
-                padding: const EdgeInsets.fromLTRB(24, 20, 18, 20),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF0052CC),
-                  borderRadius: BorderRadius.vertical(
-                    top: Radius.circular(24),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .14),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Icon(
-                        Icons.folder_shared_rounded,
-                        color: Colors.white,
-                        size: 25,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment:
-                            CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "Media & Files",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _selectedChatTarget,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFFDCE8FF),
-                              fontSize: 11.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // BODY
-              Flexible(
-                child: mediaMessages.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.all(50),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 70,
-                              height: 70,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEAF2FF),
-                                borderRadius:
-                                    BorderRadius.circular(20),
-                              ),
-                              child: const Icon(
-                                Icons.folder_off_rounded,
-                                color: Color(0xFF0052CC),
-                                size: 34,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            const Text(
-                              "No shared files",
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            const Text(
-                              "Files and documents shared in this chat will appear here.",
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(18),
-                        itemCount: mediaMessages.length,
-                        itemBuilder: (context, index) {
-                          final msg = mediaMessages[index];
-
-                          final payload =
-                              _messagePayload(msg["message"]);
-
-                          final fileName =
-                              payload?["fileName"]?.toString() ??
-                                  _plainMessage(msg["message"]);
-
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius:
-                                  BorderRadius.circular(16),
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
-                              ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x0A0F172A),
-                                  blurRadius: 8,
-                                  offset: Offset(0, 3),
-                                ),
-                              ],
-                            ),
-                            child: ListTile(
-                              contentPadding:
-                                  const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 6,
-                              ),
-                              leading: Container(
-                                width: 44,
-                                height: 44,
+                  child: mediaMessages.isEmpty
+                      ? Padding(
+                          padding: const EdgeInsets.all(50),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 70,
+                                height: 70,
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFEAF2FF),
-                                  borderRadius:
-                                      BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: const Icon(
-                                  Icons.insert_drive_file_rounded,
+                                  Icons.folder_off_rounded,
                                   color: Color(0xFF0052CC),
-                                  size: 22,
+                                  size: 34,
                                 ),
                               ),
-                              title: Text(
-                                fileName,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 12.5,
+                              const SizedBox(height: 16),
+                              const Text(
+                                "No shared files",
+                                style: TextStyle(
+                                  fontSize: 15,
                                   fontWeight: FontWeight.w800,
                                   color: Color(0xFF0F172A),
                                 ),
                               ),
-                              subtitle: Padding(
-                                padding:
-                                    const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  "Sent by ${msg["senderName"]} • ${msg["time"]}",
+                              const SizedBox(height: 6),
+                              const Text(
+                                "Files and documents shared in this chat will appear here.",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(18),
+                          itemCount: mediaMessages.length,
+                          itemBuilder: (context, index) {
+                            final msg = mediaMessages[index];
+
+                            final payload = _messagePayload(msg["message"]);
+
+                            final fileName =
+                                payload?["fileName"]?.toString() ??
+                                _plainMessage(msg["message"]);
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x0A0F172A),
+                                    blurRadius: 8,
+                                    offset: Offset(0, 3),
+                                  ),
+                                ],
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 6,
+                                ),
+                                leading: Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEAF2FF),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.insert_drive_file_rounded,
+                                    color: Color(0xFF0052CC),
+                                    size: 22,
+                                  ),
+                                ),
+                                title: Text(
+                                  fileName,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    fontSize: 10.5,
-                                    color: Color(0xFF64748B),
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                subtitle: Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    "Sent by ${msg["senderName"]} • ${msg["time"]}",
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      color: Color(0xFF64748B),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-
-              // FOOTER
-              Container(
-                padding: const EdgeInsets.fromLTRB(
-                  24,
-                  14,
-                  24,
-                  18,
+                            );
+                          },
+                        ),
                 ),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF8FAFF),
-                  border: Border(
-                    top: BorderSide(
-                      color: Color(0xFFE2E8F0),
+
+                // FOOTER
+                Container(
+                  padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF8FAFF),
+                    border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                    borderRadius: BorderRadius.vertical(
+                      bottom: Radius.circular(24),
                     ),
                   ),
-                  borderRadius: BorderRadius.vertical(
-                    bottom: Radius.circular(24),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton.icon(
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: const Icon(
-                        Icons.close_rounded,
-                        size: 17,
-                      ),
-                      label: const Text(
-                        "Close",
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded, size: 17),
+                        label: const Text(
+                          "Close",
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFF0052CC),
                         ),
                       ),
-                      style: TextButton.styleFrom(
-                        foregroundColor:
-                            const Color(0xFF0052CC),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
-
-
-Widget _sectionLabel(String text) {
-  return Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Text(
-      text,
-      style: const TextStyle(
-        fontSize: 10.5,
-        fontWeight: FontWeight.w900,
-        letterSpacing: .7,
-        color: Color(0xFF0052CC),
-      ),
-    ),
-  );
-}
-
-Widget _premiumPickerButton({
-  required IconData icon,
-  required String title,
-  required String value,
-  required VoidCallback onTap,
-}) {
-  return InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(14),
-    child: Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFF),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: const Color(0xFFD8E2F0),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEAF2FF),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(
-              icon,
-              color: const Color(0xFF0052CC),
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF0F172A),
-                    fontWeight: FontWeight.w800,
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          const Icon(
-            Icons.keyboard_arrow_down_rounded,
-            color: Color(0xFF64748B),
-            size: 19,
-          ),
-        ],
-      ),
-    ),
-  );
-}
+        );
+      },
+    );
+  }
 
-Widget _premiumCheckTile({
-  required IconData icon,
-  required String title,
-  required String subtitle,
-  required bool value,
-  required ValueChanged<bool?> onChanged,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(
-        color: value
-            ? const Color(0xFF0052CC)
-            : const Color(0xFFE2E8F0),
-      ),
-    ),
-    child: CheckboxListTile(
-      value: value,
-      onChanged: onChanged,
-      activeColor: const Color(0xFF0052CC),
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 12,
-      ),
-      secondary: Container(
-        width: 38,
-        height: 38,
-        decoration: BoxDecoration(
-          color: const Color(0xFFEAF2FF),
-          borderRadius: BorderRadius.circular(11),
-        ),
-        child: Icon(
-          icon,
-          color: const Color(0xFF0052CC),
-          size: 20,
-        ),
-      ),
-      title: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 12.5,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF0F172A),
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
+  Widget _sectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        text,
         style: const TextStyle(
           fontSize: 10.5,
-          color: Color(0xFF64748B),
+          fontWeight: FontWeight.w900,
+          letterSpacing: .7,
+          color: Color(0xFF0052CC),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
-Widget _premiumEmployeeTile({
-  required String initials,
-  required String name,
-  required String role,
-  required bool value,
-  required ValueChanged<bool?> onChanged,
-}) {
-  return Container(
-    margin: const EdgeInsets.only(bottom: 8),
-    decoration: BoxDecoration(
-      color: Colors.white,
+  Widget _premiumPickerButton({
+    required IconData icon,
+    required String title,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(
-        color: value
-            ? const Color(0xFF0052CC)
-            : const Color(0xFFE2E8F0),
-      ),
-    ),
-    child: CheckboxListTile(
-      value: value,
-      onChanged: onChanged,
-      activeColor: const Color(0xFF0052CC),
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 12,
-      ),
-      secondary: Container(
-        width: 40,
-        height: 40,
-        alignment: Alignment.center,
+      child: Container(
+        padding: const EdgeInsets.all(13),
         decoration: BoxDecoration(
-          color: const Color(0xFF0052CC),
-          borderRadius: BorderRadius.circular(12),
+          color: const Color(0xFFF8FAFF),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFD8E2F0)),
         ),
-        child: Text(
-          initials,
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF2FF),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: const Color(0xFF0052CC), size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF0F172A),
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Color(0xFF64748B),
+              size: 19,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _premiumCheckTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: value ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: CheckboxListTile(
+        value: value,
+        onChanged: onChanged,
+        activeColor: const Color(0xFF0052CC),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+        secondary: Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEAF2FF),
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Icon(icon, color: const Color(0xFF0052CC), size: 20),
+        ),
+        title: Text(
+          title,
           style: const TextStyle(
-            color: Colors.white,
-            fontSize: 11,
+            fontSize: 12.5,
             fontWeight: FontWeight.w800,
+            color: Color(0xFF0F172A),
           ),
         ),
-      ),
-      title: Text(
-        name,
-        style: const TextStyle(
-          fontSize: 12.5,
-          fontWeight: FontWeight.w800,
-          color: Color(0xFF0F172A),
+        subtitle: Text(
+          subtitle,
+          style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
         ),
       ),
-      subtitle: Text(
-        role,
-        style: const TextStyle(
-          fontSize: 10.5,
-          color: Color(0xFF64748B),
-        ),
-      ),
-    ),
-  );
-}
+    );
+  }
 
+  Widget _premiumEmployeeTile({
+    required String initials,
+    required String name,
+    required String role,
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: value ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: CheckboxListTile(
+        value: value,
+        onChanged: onChanged,
+        activeColor: const Color(0xFF0052CC),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+        secondary: Container(
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0052CC),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            initials,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        title: Text(
+          name,
+          style: const TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF0F172A),
+          ),
+        ),
+        subtitle: Text(
+          role,
+          style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+        ),
+      ),
+    );
+  }
 
   void _openGroupDetailsDialog(Map<String, dynamic> group) {
     final bool isCreator = group["created_by"] == _loggedInEmployee;
     List<String> admins = [];
-    try { admins = List<String>.from(jsonDecode(group["admins"] ?? '[]')); } catch (_) { admins = [group["created_by"]]; }
+    try {
+      admins = List<String>.from(jsonDecode(group["admins"] ?? '[]'));
+    } catch (_) {
+      admins = [group["created_by"]];
+    }
     final bool isAdmin = admins.contains(_loggedInEmployee) || isCreator;
 
     List<String> members = [];
-    try { members = List<String>.from(jsonDecode(group["members"] ?? '[]')); } catch (_) {}
+    try {
+      members = List<String>.from(jsonDecode(group["members"] ?? '[]'));
+    } catch (_) {}
 
-    final TextEditingController groupNameController = TextEditingController(text: group["group_name"]);
+    final TextEditingController groupNameController = TextEditingController(
+      text: group["group_name"],
+    );
     Map<String, bool> editedMembers = {
       for (var e in activeEmployees)
-        e["full_name"].toString(): members.contains(e["full_name"].toString())
+        e["full_name"].toString(): members.contains(e["full_name"].toString()),
     };
     Map<String, bool> editedAdmins = {
       for (var e in activeEmployees)
-        e["full_name"].toString(): admins.contains(e["full_name"].toString())
+        e["full_name"].toString(): admins.contains(e["full_name"].toString()),
     };
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520, maxHeight: 620),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 18,
+                  ),
                   decoration: const BoxDecoration(
                     color: Color(0xFF0052CC),
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(16),
+                    ),
                   ),
                   child: Row(
                     children: [
                       Container(
-                        width: 40, height: 40,
+                        width: 40,
+                        height: 40,
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: const Icon(Icons.groups_rounded, color: Colors.white, size: 22),
+                        child: const Icon(
+                          Icons.groups_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(group["group_name"], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
+                            Text(
+                              group["group_name"],
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
                             const SizedBox(height: 2),
-                            Text("${members.length} Members registered", style: const TextStyle(color: Color(0xFFDCE8FF), fontSize: 11)),
+                            Text(
+                              "${members.length} Members registered",
+                              style: const TextStyle(
+                                color: Color(0xFFDCE8FF),
+                                fontSize: 11,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close_rounded, color: Colors.white),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                        ),
                         onPressed: () => Navigator.pop(ctx),
                       ),
                     ],
@@ -2435,41 +2537,95 @@ Widget _premiumEmployeeTile({
                               labelText: 'Group Name',
                               filled: true,
                               fillColor: const Color(0xFFF8FAFC),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
-                              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFF0052CC))),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFCBD5E1),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF0052CC),
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 18),
                         ],
-                        const Text("Group Admins", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Color(0xFF0052CC))),
+                        const Text(
+                          "Group Admins",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                            color: Color(0xFF0052CC),
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         ...activeEmployees.map((emp) {
                           final name = emp["full_name"]?.toString() ?? "";
                           final isMember = editedMembers[name] ?? false;
                           final isGroupAdmin = editedAdmins[name] ?? false;
 
-                          if (!isMember || !isGroupAdmin) return const SizedBox.shrink();
+                          if (!isMember || !isGroupAdmin)
+                            return const SizedBox.shrink();
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 6),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFE2E8F0))),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: const Color(0xFFE2E8F0),
+                              ),
+                            ),
                             child: Row(
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text(name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                                      Text(
+                                        name,
+                                        style: const TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
                                       const SizedBox(height: 2),
-                                      const Text("Admin Access", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF0052CC))),
+                                      const Text(
+                                        "Admin Access",
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF0052CC),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
                                 if (isAdmin)
                                   TextButton(
-                                    child: const Text("Dismiss", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFDC2626))),
+                                    child: const Text(
+                                      "Dismiss",
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFFDC2626),
+                                      ),
+                                    ),
                                     onPressed: () {
                                       setDialogState(() {
                                         editedAdmins[name] = false;
@@ -2481,7 +2637,14 @@ Widget _premiumEmployeeTile({
                           );
                         }),
                         const SizedBox(height: 16),
-                        const Text("Group Members & Add Members", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Color(0xFF0052CC))),
+                        const Text(
+                          "Group Members & Add Members",
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13,
+                            color: Color(0xFF0052CC),
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         ...activeEmployees.map((emp) {
                           final name = emp["full_name"]?.toString() ?? "";
@@ -2490,32 +2653,67 @@ Widget _premiumEmployeeTile({
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 6),
-                            decoration: BoxDecoration(color: const Color(0xFFF8FAFC), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFE2E8F0))),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: const Color(0xFFE2E8F0),
+                              ),
+                            ),
                             child: CheckboxListTile(
                               dense: true,
-                              title: Text(name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                              title: Text(
+                                name,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                               subtitle: Text(
-                                isGroupAdmin ? "Admin" : (isMember ? "Group Member" : "Not in group (Add Member)"),
-                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: isMember ? (isGroupAdmin ? const Color(0xFF0052CC) : const Color(0xFF16A34A)) : const Color(0xFF64748B)),
+                                isGroupAdmin
+                                    ? "Admin"
+                                    : (isMember
+                                          ? "Group Member"
+                                          : "Not in group (Add Member)"),
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: isMember
+                                      ? (isGroupAdmin
+                                            ? const Color(0xFF0052CC)
+                                            : const Color(0xFF16A34A))
+                                      : const Color(0xFF64748B),
+                                ),
                               ),
                               value: isMember,
                               activeColor: const Color(0xFF0052CC),
-                              onChanged: isAdmin ? (val) {
-                                setDialogState(() {
-                                  editedMembers[name] = val ?? false;
-                                  if (!(val ?? false)) {
-                                    editedAdmins[name] = false;
-                                  }
-                                });
-                              } : null,
-                              secondary: isAdmin && isMember && !isGroupAdmin ? TextButton(
-                                child: const Text("Make Admin", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF0052CC))),
-                                onPressed: () {
-                                  setDialogState(() {
-                                    editedAdmins[name] = true;
-                                  });
-                                },
-                              ) : null,
+                              onChanged: isAdmin
+                                  ? (val) {
+                                      setDialogState(() {
+                                        editedMembers[name] = val ?? false;
+                                        if (!(val ?? false)) {
+                                          editedAdmins[name] = false;
+                                        }
+                                      });
+                                    }
+                                  : null,
+                              secondary: isAdmin && isMember && !isGroupAdmin
+                                  ? TextButton(
+                                      child: const Text(
+                                        "Make Admin",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF0052CC),
+                                        ),
+                                      ),
+                                      onPressed: () {
+                                        setDialogState(() {
+                                          editedAdmins[name] = true;
+                                        });
+                                      },
+                                    )
+                                  : null,
                             ),
                           );
                         }),
@@ -2524,10 +2722,15 @@ Widget _premiumEmployeeTile({
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 14,
+                  ),
                   decoration: const BoxDecoration(
                     color: Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                    borderRadius: BorderRadius.vertical(
+                      bottom: Radius.circular(16),
+                    ),
                     border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
                   ),
                   child: Row(
@@ -2535,7 +2738,13 @@ Widget _premiumEmployeeTile({
                     children: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx),
-                        child: const Text("Close", style: TextStyle(color: Color(0xFF64748B), fontWeight: FontWeight.bold)),
+                        child: const Text(
+                          "Close",
+                          style: TextStyle(
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                       if (isAdmin) ...[
                         const SizedBox(width: 10),
@@ -2543,13 +2752,27 @@ Widget _premiumEmployeeTile({
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF0052CC),
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                             elevation: 0,
                           ),
                           onPressed: () async {
-                            final newMembers = editedMembers.entries.where((e) => e.value).map((e) => e.key).toList();
-                            final newAdmins = editedAdmins.entries.where((e) => e.value && editedMembers[e.key] == true).map((e) => e.key).toList();
+                            final newMembers = editedMembers.entries
+                                .where((e) => e.value)
+                                .map((e) => e.key)
+                                .toList();
+                            final newAdmins = editedAdmins.entries
+                                .where(
+                                  (e) =>
+                                      e.value && editedMembers[e.key] == true,
+                                )
+                                .map((e) => e.key)
+                                .toList();
 
                             await http.patch(
                               Uri.parse('$_baseUrl/chat/groups/${group["id"]}'),
@@ -2565,7 +2788,10 @@ Widget _premiumEmployeeTile({
                             Navigator.pop(ctx);
                             _fetchHubData();
                           },
-                          child: const Text("Save Changes", style: TextStyle(fontWeight: FontWeight.bold)),
+                          child: const Text(
+                            "Save Changes",
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
                         ),
                       ],
                     ],
@@ -2587,18 +2813,18 @@ Widget _premiumEmployeeTile({
     );
     if (res.statusCode == 200) {
       _fetchHubData();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Meeting marked as $status successfully!")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Meeting marked as $status successfully!")),
+      );
     }
   }
 
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
-    if (text.isEmpty || _selectedChatTarget.isEmpty || _loggedInEmployee == null) return;
-
-    if (_isClientGroup) {
-      await _sendClientMessage(text);
+    if (text.isEmpty ||
+        _selectedChatTarget.isEmpty ||
+        _loggedInEmployee == null)
       return;
-    }
 
     try {
       final response = await http.post(
@@ -2615,12 +2841,16 @@ Widget _premiumEmployeeTile({
       );
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        debugPrint('Send message failed: ${response.statusCode} ${response.body}');
+        debugPrint(
+          'Send message failed: ${response.statusCode} ${response.body}',
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               behavior: SnackBarBehavior.floating,
-              content: Text('Message could not be sent (${response.statusCode}).'),
+              content: Text(
+                'Message could not be sent (${response.statusCode}).',
+              ),
             ),
           );
         }
@@ -2651,15 +2881,22 @@ Widget _premiumEmployeeTile({
 
   Future<void> _pickKbDocumentAndSend() async {
     if (_selectedChatTarget.isEmpty) return;
-    if (_isClientGroup) {
-      _showFileError('Files can be shared in client groups from Employee Workspace soon. Please send a message here.');
-      return;
-    }
 
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'csv', 'doc', 'docx', 'txt', 'ppt', 'pptx', 'jpg', 'jpeg', 'png'],
+        allowedExtensions: [
+          'pdf',
+          'csv',
+          'doc',
+          'docx',
+          'txt',
+          'ppt',
+          'pptx',
+          'jpg',
+          'jpeg',
+          'png',
+        ],
         withData: true,
       );
 
@@ -2687,9 +2924,9 @@ Widget _premiumEmployeeTile({
           // final sizeMb = (file.size / (1024 * 1024)).toStringAsFixed(2);
 
           final double sizeInKb = file.size / 1024;
-final String sizeText = sizeInKb > 1024 
-    ? '${(file.size / (1024 * 1024)).toStringAsFixed(2)} MB' 
-    : '${sizeInKb.toStringAsFixed(1)} KB';
+          final String sizeText = sizeInKb > 1024
+              ? '${(file.size / (1024 * 1024)).toStringAsFixed(2)} MB'
+              : '${sizeInKb.toStringAsFixed(1)} KB';
 
           return Container(
             margin: const EdgeInsets.all(14),
@@ -2697,7 +2934,9 @@ final String sizeText = sizeInKb > 1024
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(24),
-              boxShadow: const [BoxShadow(blurRadius: 28, color: Color(0x26000000))],
+              boxShadow: const [
+                BoxShadow(blurRadius: 28, color: Color(0x26000000)),
+              ],
             ),
             child: SafeArea(
               child: Column(
@@ -2716,7 +2955,11 @@ final String sizeText = sizeInKb > 1024
                     alignment: Alignment.centerLeft,
                     child: Text(
                       'Ready to share?',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -2732,20 +2975,35 @@ final String sizeText = sizeInKb > 1024
                         const CircleAvatar(
                           radius: 24,
                           backgroundColor: Color(0xFF0052CC),
-                          child: Icon(Icons.insert_drive_file_rounded, color: Colors.white),
+                          child: Icon(
+                            Icons.insert_drive_file_rounded,
+                            color: Colors.white,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(file.name, maxLines: 2, overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
+                              Text(
+                                file.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
                               const SizedBox(height: 4),
                               // Text('$sizeMb MB  •  Tap Send to upload',
                               //     style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                              Text('$sizeText  •  Tap Send to upload',
-    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                              Text(
+                                '$sizeText  •  Tap Send to upload',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -2760,7 +3018,9 @@ final String sizeText = sizeInKb > 1024
                           onPressed: () => Navigator.pop(ctx, false),
                           style: OutlinedButton.styleFrom(
                             minimumSize: const Size.fromHeight(48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                           ),
                           child: const Text('Cancel'),
                         ),
@@ -2775,7 +3035,9 @@ final String sizeText = sizeInKb > 1024
                             backgroundColor: const Color(0xFF0052CC),
                             foregroundColor: Colors.white,
                             minimumSize: const Size.fromHeight(48),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                           ),
                         ),
                       ),
@@ -2793,7 +3055,10 @@ final String sizeText = sizeInKb > 1024
         return;
       }
 
-      final request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/chat/send'));
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/chat/send'),
+      );
       request.fields['senderName'] = _loggedInEmployee ?? 'Admin';
       if (_isGroupChat) {
         request.fields['groupId'] = _selectedChatTarget;
@@ -2803,7 +3068,9 @@ final String sizeText = sizeInKb > 1024
         request.fields['isGroup'] = '0';
       }
       if (_replyingToMessage != null) {
-        request.fields['replyTo'] = _plainMessage(_replyingToMessage!['message']);
+        request.fields['replyTo'] = _plainMessage(
+          _replyingToMessage!['message'],
+        );
       }
       request.files.add(
         http.MultipartFile.fromBytes('file', file.bytes!, filename: file.name),
@@ -2820,7 +3087,9 @@ final String sizeText = sizeInKb > 1024
         await _fetchHubData();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('File uploaded and shared successfully.')),
+            const SnackBar(
+              content: Text('File uploaded and shared successfully.'),
+            ),
           );
         }
       } else {
@@ -2837,44 +3106,48 @@ final String sizeText = sizeInKb > 1024
 
   void _showFileError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   List<Map<String, dynamic>> get _currentStreamMessages {
     if (_selectedChatTarget.isEmpty) return [];
-    if (_isClientGroup) return _clientChatLogs[_selectedChatTarget] ?? [];
     return notificationLogs.where((log) {
       if (_isGroupChat) {
-        return _isSeenValue(log["isGroup"]) && log["recipientName"] == _selectedChatTarget;
+        return _isSeenValue(log["isGroup"]) &&
+            log["recipientName"] == _selectedChatTarget;
       } else {
-        return (log["senderName"] == _loggedInEmployee && log["recipientName"] == _selectedChatTarget) ||
-               (log["senderName"] == _selectedChatTarget && log["recipientName"] == _loggedInEmployee);
+        return (log["senderName"] == _loggedInEmployee &&
+                log["recipientName"] == _selectedChatTarget) ||
+            (log["senderName"] == _selectedChatTarget &&
+                log["recipientName"] == _loggedInEmployee);
       }
     }).toList();
   }
 
   Map<String, dynamic>? _messagePayload(dynamic raw) {
-  if (raw is Map) return Map<String, dynamic>.from(raw);
-  if (raw is! String) return null;
-  try {
-    final decoded = jsonDecode(raw);
-    if (decoded is Map) return Map<String, dynamic>.from(decoded);
-  } catch (_) {}
-  
-  // Handle text messages that contain the fallback attachment text like "📎 filename.csv"
-  if (raw.startsWith('📎 ')) {
-    final name = raw.replaceFirst('📎 ', '').trim();
-    return {
-      'type': 'file',
-      'fileName': name,
-      'name': name,
-      'url': '/uploads/chat/$name',
-      'fileUrl': '/uploads/chat/$name'
-    };
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is! String) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+
+    // Handle text messages that contain the fallback attachment text like "📎 filename.csv"
+    if (raw.startsWith('📎 ')) {
+      final name = raw.replaceFirst('📎 ', '').trim();
+      return {
+        'type': 'file',
+        'fileName': name,
+        'name': name,
+        'url': '/uploads/chat/$name',
+        'fileUrl': '/uploads/chat/$name',
+      };
+    }
+
+    return null;
   }
-  
-  return null;
-}
 
   String _plainMessage(dynamic raw) {
     final payload = _messagePayload(raw);
@@ -2893,7 +3166,7 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
- Widget _buildMessageContent(dynamic raw) {
+  Widget _buildMessageContent(dynamic raw) {
     Map<String, dynamic>? payload;
     String displayPreview = '';
 
@@ -2909,11 +3182,12 @@ final String sizeText = sizeInKb > 1024
       } catch (_) {}
     }
 
-    final innerPayload = payload != null && payload['payload'] is Map 
-        ? Map<String, dynamic>.from(payload['payload']) 
+    final innerPayload = payload != null && payload['payload'] is Map
+        ? Map<String, dynamic>.from(payload['payload'])
         : null;
 
-    final type = innerPayload?['type']?.toString() ?? payload?['type']?.toString();
+    final type =
+        innerPayload?['type']?.toString() ?? payload?['type']?.toString();
 
     // ✅ Render Day Planner Submission Card
     if (type == 'PLAN_SUBMITTED') {
@@ -2942,12 +3216,20 @@ final String sizeText = sizeInKb > 1024
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.assignment_turned_in_rounded, color: Colors.white, size: 18),
+                  const Icon(
+                    Icons.assignment_turned_in_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       "$sender Submitted Planner",
-                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                 ],
@@ -2955,7 +3237,10 @@ final String sizeText = sizeInKb > 1024
             ),
             Padding(
               padding: const EdgeInsets.all(12),
-              child: Text("$reportType Report • Date: $date", style: const TextStyle(fontWeight: FontWeight.bold)),
+              child: Text(
+                "$reportType Report • Date: $date",
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         ),
@@ -2975,16 +3260,26 @@ final String sizeText = sizeInKb > 1024
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              displayPreview.isNotEmpty ? displayPreview : (innerPayload?['taskName'] ?? 'Notification Update'),
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+              displayPreview.isNotEmpty
+                  ? displayPreview
+                  : (innerPayload?['taskName'] ?? 'Notification Update'),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
             ),
-            if (innerPayload?['content'] != null && innerPayload!['content'].toString().isNotEmpty) ...[
+            if (innerPayload?['content'] != null &&
+                innerPayload!['content'].toString().isNotEmpty) ...[
               const SizedBox(height: 6),
               _buildRichTextWithLinks(innerPayload['content'].toString()),
             ],
             if (innerPayload?['contentType'] != null) ...[
               const SizedBox(height: 4),
-              Text("Type: ${innerPayload!['contentType']}", style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+              Text(
+                "Type: ${innerPayload!['contentType']}",
+                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+              ),
             ],
           ],
         ),
@@ -2996,15 +3291,21 @@ final String sizeText = sizeInKb > 1024
     return _buildRichTextWithLinks(textValue);
   }
 
-
-
-  
-  
   Widget _buildRichTextWithLinks(String value) {
-    final regex = RegExp(r'(https?:\/\/[^\s]+|www\.[^\s]+)', caseSensitive: false);
+    final regex = RegExp(
+      r'(https?:\/\/[^\s]+|www\.[^\s]+)',
+      caseSensitive: false,
+    );
     final matches = regex.allMatches(value).toList();
     if (matches.isEmpty) {
-      return Text(value, style: const TextStyle(fontSize: 13, height: 1.45, color: Color(0xFF172033)));
+      return Text(
+        value,
+        style: const TextStyle(
+          fontSize: 13,
+          height: 1.45,
+          color: Color(0xFF172033),
+        ),
+      );
     }
 
     final spans = <InlineSpan>[];
@@ -3015,7 +3316,8 @@ final String sizeText = sizeInKb > 1024
       }
       var urlText = value.substring(match.start, match.end);
       var trailing = '';
-      while (urlText.isNotEmpty && '.,!?)]}'.contains(urlText[urlText.length - 1])) {
+      while (urlText.isNotEmpty &&
+          '.,!?)]}'.contains(urlText[urlText.length - 1])) {
         trailing = urlText[urlText.length - 1] + trailing;
         urlText = urlText.substring(0, urlText.length - 1);
       }
@@ -3023,7 +3325,11 @@ final String sizeText = sizeInKb > 1024
       spans.add(
         TextSpan(
           text: urlText,
-          style: const TextStyle(color: Color(0xFF0052CC), decoration: TextDecoration.underline, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            color: Color(0xFF0052CC),
+            decoration: TextDecoration.underline,
+            fontWeight: FontWeight.w700,
+          ),
           recognizer: TapGestureRecognizer()
             ..onTap = () async {
               final uri = Uri.tryParse(href);
@@ -3036,16 +3342,20 @@ final String sizeText = sizeInKb > 1024
       if (trailing.isNotEmpty) spans.add(TextSpan(text: trailing));
       cursor = match.end;
     }
-    if (cursor < value.length) spans.add(TextSpan(text: value.substring(cursor)));
+    if (cursor < value.length)
+      spans.add(TextSpan(text: value.substring(cursor)));
 
     return RichText(
       text: TextSpan(
-        style: const TextStyle(fontSize: 13, height: 1.45, color: Color(0xFF172033)),
+        style: const TextStyle(
+          fontSize: 13,
+          height: 1.45,
+          color: Color(0xFF172033),
+        ),
         children: spans,
       ),
     );
   }
-
 
   // ============================================================
   // FUTURE-READY 2050 UI HELPERS
@@ -3155,9 +3465,7 @@ final String sizeText = sizeInKb > 1024
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.13),
               borderRadius: BorderRadius.circular(15),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.20),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
             ),
             child: const Icon(
               Icons.forum_rounded,
@@ -3171,7 +3479,9 @@ final String sizeText = sizeInKb > 1024
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isMobile ? 'Communication Hub' : 'Chats, Groups & Meeting Hub',
+                  isMobile
+                      ? 'Communication Hub'
+                      : 'Chats, Groups & Meeting Hub',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -3223,9 +3533,7 @@ final String sizeText = sizeInKb > 1024
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.18),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -3281,402 +3589,6 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
-  // ── People: profile photo / colour ─────────────────────────────────────────
-  bool _sameName(dynamic a, dynamic b) =>
-      (a?.toString() ?? '').trim().toLowerCase() ==
-      (b?.toString() ?? '').trim().toLowerCase();
-
-  Future<void> _fetchPeople() async {
-    try {
-      final res = await http.get(
-        Uri.parse('$_baseUrl/workspace-tasks/people/avatars'),
-      );
-      if (res.statusCode != 200) return;
-      final body = jsonDecode(res.body);
-      final map = <String, Map<String, dynamic>>{};
-      for (final p in (body is Map ? (body['data'] as List? ?? []) : [])) {
-        if (p is! Map) continue;
-        final key = p['full_name']?.toString().trim().toLowerCase() ?? '';
-        if (key.isNotEmpty) map[key] = Map<String, dynamic>.from(p);
-      }
-      if (!mounted) return;
-      setState(() {
-        _people
-          ..clear()
-          ..addAll(map);
-        _photoCache.clear();
-      });
-    } catch (e) {
-      debugPrint('Avatar load error: $e');
-    }
-  }
-
-  Map<String, dynamic>? _personFor(String? name) {
-    final key = (name ?? '').trim().toLowerCase();
-    if (key.isEmpty) return null;
-    if (_people.containsKey(key)) return _people[key];
-    // My own profile from the login session (if the list has not loaded yet).
-    if (_sameName(name, _loggedInEmployee)) {
-      return _myUser;
-    }
-    return null;
-  }
-
-  ImageProvider? _photoFor(String? name) {
-    final key = (name ?? '').trim().toLowerCase();
-    if (key.isEmpty) return null;
-    final cached = _photoCache[key];
-    if (cached != null) return cached;
-    final person = _personFor(name);
-    final raw = (person?['profile_photo'] ?? person?['profilePhoto'] ?? '')
-        .toString()
-        .trim();
-    if (raw.isEmpty) return null;
-    try {
-      final ImageProvider image;
-      if (raw.startsWith('http')) {
-        image = NetworkImage(raw);
-      } else if (raw.startsWith('/')) {
-        image = NetworkImage('$_socketUrl$raw');
-      } else {
-        image = MemoryImage(base64Decode(raw.split(',').last));
-      }
-      _photoCache[key] = image;
-      return image;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Color? _colorFor(String? name) {
-    final person = _personFor(name);
-    final hex = (person?['avatar_color'] ?? person?['avatarColor'] ?? '')
-        .toString()
-        .replaceAll('#', '')
-        .trim();
-    if (hex.length != 6) return null;
-    final value = int.tryParse('FF$hex', radix: 16);
-    return value == null ? null : Color(value);
-  }
-
-  String _initialsForName(String name) {
-    final supplied = _personFor(name)?['initials']?.toString().trim() ?? '';
-    if (supplied.isNotEmpty) return supplied.toUpperCase();
-    final parts = name.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty) return '?';
-    if (parts.length == 1) return parts.first[0].toUpperCase();
-    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
-  }
-
-  bool _isAdminName(String name) {
-    return activeEmployees.any((e) =>
-        _sameName(e['full_name'], name) &&
-        (e['user_type']?.toString().toLowerCase() == 'admin' ||
-            e['is_main_admin'] == 1 ||
-            e['is_main_admin'] == true));
-  }
-
-  String _shortTime(dynamic value) {
-    if (value == null) return '';
-    final dt = DateTime.tryParse(value.toString());
-    if (dt == null) return value.toString();
-    final local = dt.toLocal();
-    final now = DateTime.now();
-    if (local.year == now.year && local.month == now.month && local.day == now.day) {
-      return DateFormat('h:mm a').format(local);
-    }
-    return DateFormat('dd MMM').format(local);
-  }
-
-  // ── Groups: membership + unread ────────────────────────────────────────────
-  bool _isMyGroup(String name) {
-    for (final g in chatGroups) {
-      if (g is! Map || g['group_name']?.toString() != name) continue;
-      if (_sameName(g['created_by'], _loggedInEmployee)) return true;
-      try {
-        final raw = g['members'];
-        final members = raw is List ? raw : jsonDecode(raw?.toString() ?? '[]');
-        if (members is List && members.any((m) => _sameName(m, _loggedInEmployee))) {
-          return true;
-        }
-      } catch (_) {}
-      return false;
-    }
-    return false;
-  }
-
-  int get _clientUnreadTotal => clientGroups.fold<int>(
-        0,
-        (sum, c) => sum + (int.tryParse('${c['unread'] ?? 0}') ?? 0),
-      );
-
-  int get _directUnreadTotal => notificationLogs.where((l) {
-        return !_isSeenValue(l['isGroup']) &&
-            l['recipientName'] == _loggedInEmployee &&
-            l['senderName'] != _loggedInEmployee &&
-            !_isSeenValue(l['isSeen']);
-      }).length;
-
-  int get _groupUnreadTotal =>
-      notificationLogs.where((l) {
-        return _isSeenValue(l['isGroup']) &&
-            l['senderName'] != _loggedInEmployee &&
-            !_isSeenValue(l['isSeen']) &&
-            _isMyGroup(l['recipientName']?.toString() ?? '');
-      }).length +
-      _clientUnreadTotal;
-
-  // ── Client groups (Employee Workspace team chats) ──────────────────────────
-  Future<void> _fetchClientGroups() async {
-    final me = _loggedInEmployee;
-    if (me == null) return;
-    try {
-      final res = await http.get(
-        Uri.parse('$_baseUrl/workspace-tasks/team/groups')
-            .replace(queryParameters: {'employee': me}),
-      );
-      if (res.statusCode != 200) return;
-      final body = jsonDecode(res.body);
-      final list = <Map<String, dynamic>>[];
-      for (final g in (body is Map ? (body['data'] as List? ?? []) : [])) {
-        if (g is Map) list.add(Map<String, dynamic>.from(g));
-      }
-      if (!mounted) return;
-      setState(() {
-        // The open group is being read right now.
-        if (_isClientGroup) {
-          for (final c in list) {
-            if (_sameName(c['client_name'], _selectedChatTarget)) c['unread'] = 0;
-          }
-        }
-        clientGroups = list;
-        _unreadTotal = _calculateUnreadTotal();
-      });
-    } catch (e) {
-      debugPrint('Client groups load error: $e');
-    }
-  }
-
-  Map<String, dynamic> _clientLog(String client, Map<String, dynamic> m) {
-    final created = DateTime.tryParse('${m['created_at'] ?? ''}')?.toLocal();
-    return {
-      'id': m['id'],
-      'senderName': m['sender_name']?.toString() ?? '',
-      'recipientName': client,
-      'message': m['message'] ?? '',
-      'time': created == null ? '' : DateFormat('dd MMM, h:mm a').format(created),
-      'isGroup': true,
-      'isClientGroup': true,
-      'isSeen': false,
-      'isFavorite': false,
-      'created_at': m['created_at'],
-    };
-  }
-
-  Future<void> _loadClientChat(String client) async {
-    try {
-      final res = await http.get(
-        Uri.parse('$_baseUrl/workspace-tasks/team/chat')
-            .replace(queryParameters: {'client': client}),
-      );
-      if (res.statusCode != 200) return;
-      final body = jsonDecode(res.body);
-      final rows = (body is Map ? (body['data'] as List? ?? []) : [])
-          .whereType<Map>()
-          .toList();
-      // Newest first, like the rest of the chat feed.
-      final logs = <Map<String, dynamic>>[
-        for (final m in rows.reversed) _clientLog(client, Map<String, dynamic>.from(m)),
-      ];
-      if (!mounted) return;
-      setState(() => _clientChatLogs[client] = logs);
-    } catch (e) {
-      debugPrint('Client chat load error: $e');
-    }
-  }
-
-  Future<void> _markClientSeen(String client) async {
-    final logs = _clientChatLogs[client] ?? const [];
-    final lastId = logs.isEmpty ? 0 : (int.tryParse('${logs.first['id']}') ?? 0);
-    if (mounted) {
-      setState(() {
-        for (final c in clientGroups) {
-          if (_sameName(c['client_name'], client)) c['unread'] = 0;
-        }
-        _unreadTotal = _calculateUnreadTotal();
-      });
-    }
-    if (lastId == 0 || _loggedInEmployee == null) return;
-    try {
-      await http.post(
-        Uri.parse('$_baseUrl/workspace-tasks/team/chat/seen'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'client': client,
-          'employee': _loggedInEmployee,
-          'lastId': lastId,
-        }),
-      );
-    } catch (e) {
-      debugPrint('Client chat seen error: $e');
-    }
-  }
-
-  Future<void> _openClientGroup(String client) async {
-    setState(() {
-      _selectedChatTarget = client;
-      _isGroupChat = true;
-      _isClientGroup = true;
-      _showMobileChatList = false;
-      _showEmojiPicker = false;
-      _replyingToMessage = null;
-    });
-    await _loadClientChat(client);
-    await _markClientSeen(client);
-  }
-
-  Future<void> _sendClientMessage(String text) async {
-    final client = _selectedChatTarget;
-    try {
-      final res = await http.post(
-        Uri.parse('$_baseUrl/workspace-tasks/team/chat'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'client': client,
-          'employee': _loggedInEmployee,
-          'message': text,
-        }),
-      );
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        var msg = 'Message could not be sent (${res.statusCode}).';
-        try {
-          final b = jsonDecode(res.body);
-          if (b is Map && b['message'] != null) msg = b['message'].toString();
-        } catch (_) {}
-        _showFileError(msg);
-        return;
-      }
-      _messageController.clear();
-      if (mounted) {
-        setState(() {
-          _replyingToMessage = null;
-          _showEmojiPicker = false;
-          _showMentionOverlay = false;
-        });
-      }
-      await _loadClientChat(client);
-      await _markClientSeen(client);
-      _fetchClientGroups();
-    } catch (e) {
-      debugPrint('Client message error: $e');
-      _showFileError('Message could not be sent. Please try again.');
-    }
-  }
-
-  Future<void> _handleClientChatEvent(dynamic payload) async {
-    if (!mounted || payload is! Map) return;
-    final client = payload['client']?.toString() ?? '';
-    final sender = payload['sender']?.toString() ?? '';
-    if (client.isEmpty) return;
-
-    final open = _isClientGroup && _sameName(_selectedChatTarget, client);
-    if (open) {
-      await _loadClientChat(_selectedChatTarget);
-      await _markClientSeen(_selectedChatTarget);
-    }
-    await _fetchClientGroups();
-
-    // Only groups I belong to make a sound.
-    final group = clientGroups.where((c) => _sameName(c['client_name'], client));
-    if (group.isEmpty || _sameName(sender, _loggedInEmployee) || !mounted) return;
-
-    final name = group.first['client_name']?.toString() ?? client;
-    final last = group.first['last_message'];
-    final text = last is Map ? _plainMessage(last['message']) : 'New message';
-    _playChatSound();
-    _showInPageNotification('$sender  •  $name', text);
-  }
-
-  void _openClientMembersDialog() {
-    final group = clientGroups.firstWhere(
-      (c) => _sameName(c['client_name'], _selectedChatTarget),
-      orElse: () => <String, dynamic>{},
-    );
-    final members = [
-      for (final m in (group['members'] as List? ?? const [])) m.toString(),
-    ];
-
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: Row(
-          children: [
-            _buildAvatar(
-              initials: '',
-              admin: false,
-              group: true,
-              client: true,
-              radius: 18,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                _selectedChatTarget,
-                style: const TextStyle(
-                  color: _ink,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: 360,
-          child: members.isEmpty
-              ? const Text('No team members are assigned to this client yet.')
-              : ListView(
-                  shrinkWrap: true,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        'Everyone assigned to this client is in this group.',
-                        style: TextStyle(color: _muted, fontSize: 11),
-                      ),
-                    ),
-                    for (final m in members)
-                      ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: _buildAvatar(
-                          initials: _initialsForName(m),
-                          admin: _isAdminName(m),
-                          name: m,
-                          radius: 16,
-                        ),
-                        title: Text(
-                          _sameName(m, _loggedInEmployee) ? '$m (You)' : m,
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildSectionTabs(bool compact) {
     final tabs = [
       (Icons.chat_bubble_outline_rounded, 'Chats'),
@@ -3694,11 +3606,7 @@ final String sizeText = sizeInKb > 1024
       child: Row(
         children: List.generate(tabs.length, (index) {
           final selected = _whatsappNavIndex == index;
-          final unread = index == 0
-              ? _directUnreadTotal
-              : index == 1
-                  ? _groupUnreadTotal
-                  : 0;
+          final unread = index == 0 ? _unreadTotal : 0;
 
           return Expanded(
             child: GestureDetector(
@@ -3713,9 +3621,7 @@ final String sizeText = sizeInKb > 1024
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOut,
-                padding: EdgeInsets.symmetric(
-                  vertical: compact ? 9 : 10,
-                ),
+                padding: EdgeInsets.symmetric(vertical: compact ? 9 : 10),
                 decoration: BoxDecoration(
                   color: selected ? Colors.white : Colors.transparent,
                   borderRadius: BorderRadius.circular(11),
@@ -3787,16 +3693,11 @@ final String sizeText = sizeInKb > 1024
         fontWeight: FontWeight.w600,
       ),
       decoration: InputDecoration(
-        hintText: mobile ? 'Search people, groups...' : 'Search chats & groups...',
-        hintStyle: const TextStyle(
-          color: Color(0xFF94A3B8),
-          fontSize: 11.5,
-        ),
-        prefixIcon: const Icon(
-          Icons.search_rounded,
-          size: 19,
-          color: _muted,
-        ),
+        hintText: mobile
+            ? 'Search people, groups...'
+            : 'Search chats & groups...',
+        hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
+        prefixIcon: const Icon(Icons.search_rounded, size: 19, color: _muted),
         suffixIcon: _searchController.text.isEmpty
             ? null
             : IconButton(
@@ -3805,11 +3706,7 @@ final String sizeText = sizeInKb > 1024
                   _searchController.clear();
                   setState(() {});
                 },
-                icon: const Icon(
-                  Icons.close_rounded,
-                  size: 16,
-                  color: _muted,
-                ),
+                icon: const Icon(Icons.close_rounded, size: 16, color: _muted),
               ),
         filled: true,
         fillColor: Colors.white,
@@ -3838,7 +3735,10 @@ final String sizeText = sizeInKb > 1024
     final supplied = emp['initials']?.toString().trim() ?? '';
     if (supplied.isNotEmpty) return supplied.toUpperCase();
 
-    final parts = name.split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((e) => e.isNotEmpty)
+        .toList();
     if (parts.length == 1) {
       return parts.first.substring(0, 1).toUpperCase();
     }
@@ -3849,66 +3749,50 @@ final String sizeText = sizeInKb > 1024
     required String initials,
     required bool admin,
     bool group = false,
-    bool client = false,
-    String? name,
     double radius = 22,
   }) {
-    final photo = group ? null : _photoFor(name);
-    final custom = group ? null : _colorFor(name);
-    final List<Color> colors = group
-        ? (client
-            ? const [Color(0xFFF59E0B), Color(0xFFEA580C)]
-            : const [Color(0xFF0EA5E9), Color(0xFF0284C7)])
-        : custom != null
-            ? [custom, Color.lerp(custom, Colors.black, 0.18)!]
-            : admin
-                ? const [Color(0xFF7C3AED), Color(0xFF5B21B6)]
-                : const [_primary, Color(0xFF1267E8)];
-    final label = initials.trim().isNotEmpty
-        ? initials.trim()
-        : _initialsForName(name ?? '');
-
     return Container(
       width: radius * 2,
       height: radius * 2,
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: colors),
+        gradient: LinearGradient(
+          colors: group
+              ? const [Color(0xFF0EA5E9), Color(0xFF0284C7)]
+              : admin
+              ? const [Color(0xFF7C3AED), Color(0xFF5B21B6)]
+              : const [_primary, Color(0xFF1267E8)],
+        ),
         shape: BoxShape.circle,
-        image: photo == null
-            ? null
-            : DecorationImage(image: photo, fit: BoxFit.cover),
-        border: photo == null
-            ? null
-            : Border.all(color: Colors.white, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: colors.first.withValues(alpha: 0.16),
+            color:
+                (group
+                        ? _cyan
+                        : admin
+                        ? const Color(0xFF7C3AED)
+                        : _primary)
+                    .withValues(alpha: 0.16),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
       ),
-      child: photo != null
-          ? null
-          : Center(
-              child: group
-                  ? Icon(
-                      client
-                          ? Icons.business_center_rounded
-                          : Icons.groups_2_rounded,
-                      color: Colors.white,
-                      size: radius * 0.82,
-                    )
-                  : Text(
-                      label,
-                      maxLines: 1,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: radius * 0.55,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-            ),
+      child: Center(
+        child: group
+            ? Icon(
+                Icons.groups_2_rounded,
+                color: Colors.white,
+                size: radius * 0.82,
+              )
+            : Text(
+                initials,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: radius * 0.55,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+      ),
     );
   }
 
@@ -3981,17 +3865,8 @@ final String sizeText = sizeInKb > 1024
             Stack(
               clipBehavior: Clip.none,
               children: [
-                _buildAvatar(
-                  initials: initials,
-                  admin: isAdmin,
-                  name: name,
-                  radius: 21,
-                ),
-                Positioned(
-                  right: -1,
-                  bottom: -1,
-                  child: _buildOnlineDot(),
-                ),
+                _buildAvatar(initials: initials, admin: isAdmin, radius: 21),
+                Positioned(right: -1, bottom: -1, child: _buildOnlineDot()),
               ],
             ),
             const SizedBox(width: 10),
@@ -4135,9 +4010,7 @@ final String sizeText = sizeInKb > 1024
     required int unreadCount,
     required String lastTime,
     required VoidCallback onTap,
-    VoidCallback? onPin,
-    String subtitle = 'Team group',
-    bool client = false,
+    required VoidCallback onPin,
   }) {
     return _HoverReactionSurface(
       onTap: onTap,
@@ -4157,13 +4030,7 @@ final String sizeText = sizeInKb > 1024
         ),
         child: Row(
           children: [
-            _buildAvatar(
-              initials: '',
-              admin: false,
-              group: true,
-              client: client,
-              radius: 21,
-            ),
+            _buildAvatar(initials: '', admin: false, group: true, radius: 21),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -4192,11 +4059,9 @@ final String sizeText = sizeInKb > 1024
                     ],
                   ),
                   const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                  const Text(
+                    'Team group',
+                    style: TextStyle(
                       color: _muted,
                       fontSize: 10.5,
                       fontWeight: FontWeight.w500,
@@ -4217,10 +4082,7 @@ final String sizeText = sizeInKb > 1024
             const SizedBox(width: 4),
             if (unreadCount > 0)
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 5,
-                  vertical: 3,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
                 decoration: const BoxDecoration(
                   color: _cyan,
                   borderRadius: BorderRadius.all(Radius.circular(9)),
@@ -4234,23 +4096,20 @@ final String sizeText = sizeInKb > 1024
                   ),
                 ),
               ),
-            if (onPin != null)
-              InkWell(
-                onTap: onPin,
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(
-                    pinned
-                        ? Icons.push_pin_rounded
-                        : Icons.push_pin_outlined,
-                    size: 15,
-                    color: pinned
-                        ? const Color(0xFFF59E0B)
-                        : const Color(0xFF94A3B8),
-                  ),
+            InkWell(
+              onTap: onPin,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                  size: 15,
+                  color: pinned
+                      ? const Color(0xFFF59E0B)
+                      : const Color(0xFF94A3B8),
                 ),
               ),
+            ),
           ],
         ),
       ),
@@ -4379,10 +4238,7 @@ final String sizeText = sizeInKb > 1024
               ),
               child: Column(
                 children: [
-                  _buildMeetingMeta(
-                    Icons.schedule_rounded,
-                    meetingTime,
-                  ),
+                  _buildMeetingMeta(Icons.schedule_rounded, meetingTime),
                   if (link.isNotEmpty) ...[
                     const SizedBox(height: 7),
                     InkWell(
@@ -4432,10 +4288,7 @@ final String sizeText = sizeInKb > 1024
                   OutlinedButton.icon(
                     onPressed: () => _openEditMeetingDialog(m),
                     icon: const Icon(Icons.edit_outlined, size: 14),
-                    label: const Text(
-                      'Edit',
-                      style: TextStyle(fontSize: 10.5),
-                    ),
+                    label: const Text('Edit', style: TextStyle(fontSize: 10.5)),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: _primary,
                       side: const BorderSide(color: Color(0xFFD6E4F7)),
@@ -4449,8 +4302,7 @@ final String sizeText = sizeInKb > 1024
                     ),
                   ),
                   ElevatedButton.icon(
-                    onPressed: () =>
-                        _updateMeetingStatus(m['id'], 'Completed'),
+                    onPressed: () => _updateMeetingStatus(m['id'], 'Completed'),
                     icon: const Icon(Icons.check_rounded, size: 14),
                     label: const Text(
                       'Complete',
@@ -4470,8 +4322,7 @@ final String sizeText = sizeInKb > 1024
                     ),
                   ),
                   ElevatedButton.icon(
-                    onPressed: () =>
-                        _updateMeetingStatus(m['id'], 'Rejected'),
+                    onPressed: () => _updateMeetingStatus(m['id'], 'Rejected'),
                     icon: const Icon(Icons.close_rounded, size: 14),
                     label: const Text(
                       'Reject',
@@ -4576,17 +4427,11 @@ final String sizeText = sizeInKb > 1024
                     ),
                     DropdownMenuItem(
                       value: 'Completed',
-                      child: Text(
-                        'Completed',
-                        style: TextStyle(fontSize: 11),
-                      ),
+                      child: Text('Completed', style: TextStyle(fontSize: 11)),
                     ),
                     DropdownMenuItem(
                       value: 'Rejected',
-                      child: Text(
-                        'Rejected',
-                        style: TextStyle(fontSize: 11),
-                      ),
+                      child: Text('Rejected', style: TextStyle(fontSize: 11)),
                     ),
                   ],
                   onChanged: (value) {
@@ -4600,8 +4445,8 @@ final String sizeText = sizeInKb > 1024
           child: _whatsappNavIndex == 0
               ? _buildEmployeeList(sortedEmployees, mobile: mobile)
               : _whatsappNavIndex == 1
-                  ? _buildGroupList(sortedGroups, mobile: mobile)
-                  : _buildMeetingList(filteredMeetings, mobile: mobile),
+              ? _buildGroupList(sortedGroups, mobile: mobile)
+              : _buildMeetingList(filteredMeetings, mobile: mobile),
         ),
       ],
     );
@@ -4628,14 +4473,13 @@ final String sizeText = sizeInKb > 1024
         final role = emp['role']?.toString().trim().isNotEmpty == true
             ? emp['role'].toString()
             : emp['user_type']?.toString() == 'admin'
-                ? 'Administrator'
-                : 'Employee';
+            ? 'Administrator'
+            : 'Employee';
         final isAdmin =
             emp['user_type']?.toString().toLowerCase() == 'admin' ||
-                emp['is_main_admin'] == 1 ||
-                emp['is_main_admin'] == true;
-        final selected =
-            _selectedChatTarget == name && !_isGroupChat;
+            emp['is_main_admin'] == 1 ||
+            emp['is_main_admin'] == true;
+        final selected = _selectedChatTarget == name && !_isGroupChat;
         final pinned = pinnedChats.contains(name);
 
         final unread = notificationLogs.where((l) {
@@ -4650,8 +4494,9 @@ final String sizeText = sizeInKb > 1024
               (l['senderName'] == _loggedInEmployee &&
                   l['recipientName'] == name);
         });
-        final lastTime =
-            msgs.isNotEmpty ? (msgs.first['time']?.toString() ?? '') : '';
+        final lastTime = msgs.isNotEmpty
+            ? (msgs.first['time']?.toString() ?? '')
+            : '';
 
         return _buildChatListTile(
           name: name,
@@ -4666,7 +4511,6 @@ final String sizeText = sizeInKb > 1024
             setState(() {
               _selectedChatTarget = name;
               _isGroupChat = false;
-              _isClientGroup = false;
               _showMobileChatList = false;
               _showEmojiPicker = false;
               _replyingToMessage = null;
@@ -4679,147 +4523,61 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
-  Widget _buildGroupList(
-    List<dynamic> groups, {
-    bool mobile = false,
-  }) {
-    final query = _searchController.text.trim().toLowerCase();
-    final clients = clientGroups.where((c) {
-      if (query.isEmpty) return true;
-      return (c['client_name']?.toString() ?? '').toLowerCase().contains(query);
-    }).toList();
-
-    if (groups.isEmpty && clients.isEmpty) {
+  Widget _buildGroupList(List<dynamic> groups, {bool mobile = false}) {
+    if (groups.isEmpty) {
       return _buildEmptyState(
         icon: Icons.groups_2_outlined,
         title: 'No groups found',
-        subtitle: 'Client groups appear here when you are assigned to an active client.',
+        subtitle: 'Create a group to start team conversations.',
       );
     }
 
-    final items = <Widget>[];
-    if (clients.isNotEmpty) {
-      items.add(_groupSectionLabel('Client groups', clients.length, Icons.business_center_rounded));
-      for (final c in clients) {
-        items.add(_buildClientGroupItem(c));
-      }
-    }
-    if (groups.isNotEmpty) {
-      items.add(_groupSectionLabel('Team groups', groups.length, Icons.groups_2_rounded));
-      for (final g in groups) {
-        items.add(_buildTeamGroupItem(g));
-      }
-    }
-
-    return ListView(
+    return ListView.builder(
       padding: const EdgeInsets.only(bottom: 12),
-      children: items,
-    );
-  }
+      itemCount: groups.length,
+      itemBuilder: (context, index) {
+        final group = groups[index];
+        final name = group['group_name']?.toString() ?? 'Untitled Group';
+        final selected = _selectedChatTarget == name && _isGroupChat;
+        final pinned = pinnedChats.contains(name);
 
-  Widget _groupSectionLabel(String text, int count, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 13, color: _muted),
-          const SizedBox(width: 6),
-          Text(
-            text.toUpperCase(),
-            style: const TextStyle(
-              color: _muted,
-              fontSize: 9.5,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.6,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFF4FA),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                color: _muted,
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        final unread = notificationLogs.where((l) {
+          return _isSeenValue(l['isGroup']) &&
+              l['recipientName'] == name &&
+              l['senderName'] != _loggedInEmployee &&
+              !_isSeenValue(l['isSeen']);
+        }).length;
 
-  Widget _buildClientGroupItem(Map<String, dynamic> c) {
-    final name = c['client_name']?.toString() ?? 'Client';
-    final selected = _isClientGroup && _sameName(_selectedChatTarget, name);
-    final last = c['last_message'] is Map
-        ? Map<String, dynamic>.from(c['last_message'] as Map)
-        : null;
-    final members = (c['members'] as List?)?.length ?? 0;
-    final subtitle = last == null
-        ? '$members member${members == 1 ? '' : 's'}  •  No messages yet'
-        : '${_sameName(last['sender'], _loggedInEmployee) ? 'You' : last['sender']}: ${_plainMessage(last['message'])}';
-
-    return _buildGroupListTile(
-      name: name,
-      selected: selected,
-      pinned: false,
-      unreadCount: selected ? 0 : (int.tryParse('${c['unread'] ?? 0}') ?? 0),
-      lastTime: _shortTime(last?['created_at']),
-      subtitle: subtitle,
-      client: true,
-      onTap: () => _openClientGroup(name),
-    );
-  }
-
-  Widget _buildTeamGroupItem(dynamic group) {
-    final name = group['group_name']?.toString() ?? 'Untitled Group';
-    final selected = _selectedChatTarget == name && _isGroupChat && !_isClientGroup;
-    final pinned = pinnedChats.contains(name);
-
-    final unread = notificationLogs.where((l) {
-      return _isSeenValue(l['isGroup']) &&
-          l['recipientName'] == name &&
-          l['senderName'] != _loggedInEmployee &&
-          !_isSeenValue(l['isSeen']);
-    }).length;
-
-    final msgs = notificationLogs.where((l) {
-      return _isSeenValue(l['isGroup']) && l['recipientName'] == name;
-    });
-    final lastTime =
-        msgs.isNotEmpty ? (msgs.first['time']?.toString() ?? '') : '';
-
-    return _buildGroupListTile(
-      name: name,
-      selected: selected,
-      pinned: pinned,
-      unreadCount: unread,
-      lastTime: lastTime,
-      onTap: () {
-        setState(() {
-          _selectedChatTarget = name;
-          _isGroupChat = true;
-          _isClientGroup = false;
-          _showMobileChatList = false;
-          _showEmojiPicker = false;
-          _replyingToMessage = null;
+        final msgs = notificationLogs.where((l) {
+          return _isSeenValue(l['isGroup']) && l['recipientName'] == name;
         });
-        _markMessagesSeen(name, true);
+        final lastTime = msgs.isNotEmpty
+            ? (msgs.first['time']?.toString() ?? '')
+            : '';
+
+        return _buildGroupListTile(
+          name: name,
+          selected: selected,
+          pinned: pinned,
+          unreadCount: unread,
+          lastTime: lastTime,
+          onTap: () {
+            setState(() {
+              _selectedChatTarget = name;
+              _isGroupChat = true;
+              _showMobileChatList = false;
+              _showEmojiPicker = false;
+              _replyingToMessage = null;
+            });
+            _markMessagesSeen(name, true);
+          },
+          onPin: () => _toggleChatPin(name, true, pinned),
+        );
       },
-      onPin: () => _toggleChatPin(name, true, pinned),
     );
   }
 
-  Widget _buildMeetingList(
-    List<dynamic> meetings, {
-    bool mobile = false,
-  }) {
+  Widget _buildMeetingList(List<dynamic> meetings, {bool mobile = false}) {
     if (meetings.isEmpty) {
       return _buildEmptyState(
         icon: Icons.event_busy_rounded,
@@ -4893,9 +4651,9 @@ final String sizeText = sizeInKb > 1024
 
     final group = _isGroupChat
         ? chatGroups.cast<dynamic>().firstWhere(
-              (g) => g['group_name']?.toString() == _selectedChatTarget,
-              orElse: () => {},
-            )
+            (g) => g['group_name']?.toString() == _selectedChatTarget,
+            orElse: () => {},
+          )
         : null;
 
     return Container(
@@ -4905,9 +4663,7 @@ final String sizeText = sizeInKb > 1024
       ),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.94),
-        border: const Border(
-          bottom: BorderSide(color: _border),
-        ),
+        border: const Border(bottom: BorderSide(color: _border)),
       ),
       child: Row(
         children: [
@@ -4927,36 +4683,34 @@ final String sizeText = sizeInKb > 1024
                 size: 21,
               ),
             ),
-          _isGroupChat
-              ? _buildAvatar(
-                  initials: '',
-                  admin: false,
-                  group: true,
-                  client: _isClientGroup,
-                  radius: mobile ? 20 : 21.5,
-                )
-              : _buildAvatar(
-                  initials: _initialsForName(target),
-                  admin: _isAdminName(target),
-                  name: _selectedChatTarget,
-                  radius: mobile ? 20 : 21.5,
-                ),
+          Container(
+            width: mobile ? 40 : 43,
+            height: mobile ? 40 : 43,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: _isGroupChat
+                    ? const [Color(0xFF0EA5E9), Color(0xFF0284C7)]
+                    : const [_primary, Color(0xFF1267E8)],
+              ),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _isGroupChat ? Icons.groups_2_rounded : Icons.chat_bubble_rounded,
+              color: Colors.white,
+              size: mobile ? 19 : 21,
+            ),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(12),
               onTap: () {
-                if (_isClientGroup) {
-                  _openClientMembersDialog();
-                } else if (_isGroupChat && group is Map && group.isNotEmpty) {
+                if (_isGroupChat && group is Map && group.isNotEmpty) {
                   _openGroupDetailsDialog(Map<String, dynamic>.from(group));
                 }
               },
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 4,
-                  vertical: 3,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -4972,11 +4726,9 @@ final String sizeText = sizeInKb > 1024
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      _isClientGroup
-                          ? 'Client group  •  Tap to see the team'
-                          : _isGroupChat
-                              ? 'Group conversation  •  Tap for members & settings'
-                              : 'Private conversation  •  Real-time messaging',
+                      _isGroupChat
+                          ? 'Group conversation  •  Tap for members & settings'
+                          : 'Private conversation  •  Real-time messaging',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -5006,10 +4758,7 @@ final String sizeText = sizeInKb > 1024
     );
   }
 
-  Widget _buildMessageBubble(
-    Map<String, dynamic> log, {
-    bool mobile = false,
-  }) {
+  Widget _buildMessageBubble(Map<String, dynamic> log, {bool mobile = false}) {
     final isSentByMe = log['senderName'] == _loggedInEmployee;
     final isSeen = _isSeenValue(log['isSeen']);
     final sender = log['senderName']?.toString() ?? 'Unknown';
@@ -5017,167 +4766,156 @@ final String sizeText = sizeInKb > 1024
     final time = log['time']?.toString() ?? '';
 
     return Align(
-      alignment: isSentByMe
-          ? Alignment.centerRight
-          : Alignment.centerLeft,
+      alignment: isSentByMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (!isSentByMe) ...[
-              _buildAvatar(
-                initials: _initialsForName(sender),
-                admin: _isAdminName(sender),
-                name: sender,
-                radius: mobile ? 13 : 15,
-              ),
-              const SizedBox(width: 7),
-            ],
-            Flexible(
-              child: _HoverReactionSurface(
-                hoverAction: _buildHoverAction(
-                  icon: Icons.add_reaction_outlined,
-                  tooltip: 'Quick reaction',
-                ),
-                child: Container(
-                  constraints: BoxConstraints(
-                    maxWidth: mobile
-                        ? MediaQuery.of(context).size.width * 0.82
-                        : 590,
-                  ),
-                  padding: const EdgeInsets.fromLTRB(13, 11, 10, 9),
-                  decoration: BoxDecoration(
-                    gradient: isSentByMe
-                        ? const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [Color(0xFFEAF2FF), Color(0xFFF2F7FF)],
-                          )
-                        : const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [Colors.white, Color(0xFFFBFDFF)],
-                          ),
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(17),
-                      topRight: const Radius.circular(17),
-                      bottomLeft: Radius.circular(isSentByMe ? 17 : 5),
-                      bottomRight: Radius.circular(isSentByMe ? 5 : 17),
-                    ),
-                    border: Border.all(
-                      color: isSentByMe
-                          ? const Color(0xFFCFE0FF)
-                          : const Color(0xFFE3EAF3),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _primary.withValues(alpha: isSentByMe ? 0.055 : 0.025),
-                        blurRadius: 15,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (_isGroupChat && !isSentByMe) ...[
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                sender,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: _primary,
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                      ],
-                      _buildMessageContent(rawMessage),
-                      const SizedBox(height: 7),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            time,
-                            style: const TextStyle(
-                              color: Color(0xFF94A3B8),
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (isSentByMe) ...[
-                            const SizedBox(width: 6),
-                            Icon(
-                              isSeen ? Icons.done_all_rounded : Icons.done_rounded,
-                              size: 14,
-                              color: isSeen ? _primary : const Color(0xFF94A3B8),
-                            ),
-                            if (isSeen) ...[
-                              const SizedBox(width: 3),
-                              const Text(
-                                'Seen',
-                                style: TextStyle(
-                                  color: _primary,
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ],
-                          ],
-                          const Spacer(),
-                          InkWell(
-                            onTap: () => _copyMessage(rawMessage),
-                            borderRadius: BorderRadius.circular(8),
-                            child: const Padding(
-                              padding: EdgeInsets.all(4),
-                              child: Icon(
-                                Icons.copy_rounded,
-                                size: 14,
-                                color: _muted,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 3),
-                          InkWell(
-                            onTap: () {
-                              setState(() => _replyingToMessage = log);
-                            },
-                            borderRadius: BorderRadius.circular(8),
-                            child: const Padding(
-                              padding: EdgeInsets.all(4),
-                              child: Icon(
-                                Icons.reply_rounded,
-                                size: 15,
-                                color: _muted,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+        child: _HoverReactionSurface(
+          hoverAction: _buildHoverAction(
+            icon: Icons.add_reaction_outlined,
+            tooltip: 'Quick reaction',
+          ),
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: mobile ? MediaQuery.of(context).size.width * 0.82 : 590,
             ),
-            if (isSentByMe) ...[
-              const SizedBox(width: 7),
-              _buildAvatar(
-                initials: _initialsForName(sender),
-                admin: _isAdminName(sender),
-                name: sender,
-                radius: mobile ? 13 : 15,
+            padding: const EdgeInsets.fromLTRB(13, 11, 10, 9),
+            decoration: BoxDecoration(
+              gradient: isSentByMe
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFEAF2FF), Color(0xFFF2F7FF)],
+                    )
+                  : const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Colors.white, Color(0xFFFBFDFF)],
+                    ),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(17),
+                topRight: const Radius.circular(17),
+                bottomLeft: Radius.circular(isSentByMe ? 17 : 5),
+                bottomRight: Radius.circular(isSentByMe ? 5 : 17),
               ),
-            ],
-          ],
+              border: Border.all(
+                color: isSentByMe
+                    ? const Color(0xFFCFE0FF)
+                    : const Color(0xFFE3EAF3),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: _primary.withValues(alpha: isSentByMe ? 0.055 : 0.025),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_isGroupChat && !isSentByMe) ...[
+                  Row(
+                    children: [
+                      Container(
+                        width: 23,
+                        height: 23,
+                        decoration: const BoxDecoration(
+                          color: _primaryLight,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            sender.isEmpty ? '?' : sender[0].toUpperCase(),
+                            style: const TextStyle(
+                              color: _primary,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          sender,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: _primary,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                _buildMessageContent(rawMessage),
+                const SizedBox(height: 7),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      time,
+                      style: const TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (isSentByMe) ...[
+                      const SizedBox(width: 6),
+                      Icon(
+                        isSeen ? Icons.done_all_rounded : Icons.done_rounded,
+                        size: 14,
+                        color: isSeen ? _primary : const Color(0xFF94A3B8),
+                      ),
+                      if (isSeen) ...[
+                        const SizedBox(width: 3),
+                        const Text(
+                          'Seen',
+                          style: TextStyle(
+                            color: _primary,
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ],
+                    const Spacer(),
+                    InkWell(
+                      onTap: () => _copyMessage(rawMessage),
+                      borderRadius: BorderRadius.circular(8),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.copy_rounded,
+                          size: 14,
+                          color: _muted,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    InkWell(
+                      onTap: () {
+                        setState(() => _replyingToMessage = log);
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: const Padding(
+                        padding: EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.reply_rounded,
+                          size: 15,
+                          color: _muted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -5190,10 +4928,7 @@ final String sizeText = sizeInKb > 1024
       children: [
         Positioned.fill(
           child: CustomPaint(
-            painter: _ChatBackdropPainter(
-              primary: _primary,
-              secondary: _cyan,
-            ),
+            painter: _ChatBackdropPainter(primary: _primary, secondary: _cyan),
           ),
         ),
         Positioned.fill(
@@ -5212,9 +4947,7 @@ final String sizeText = sizeInKb > 1024
           ),
         ),
         if (messages.isEmpty)
-          Center(
-            child: _buildEmptyConversation(mobile: mobile),
-          )
+          Center(child: _buildEmptyConversation(mobile: mobile))
         else
           ListView.builder(
             reverse: true,
@@ -5226,10 +4959,7 @@ final String sizeText = sizeInKb > 1024
             ),
             itemCount: messages.length,
             itemBuilder: (context, index) {
-              return _buildMessageBubble(
-                messages[index],
-                mobile: mobile,
-              );
+              return _buildMessageBubble(messages[index], mobile: mobile);
             },
           ),
       ],
@@ -5244,9 +4974,7 @@ final String sizeText = sizeInKb > 1024
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.82),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: const Color(0xFFDDE8F5),
-        ),
+        border: Border.all(color: const Color(0xFFDDE8F5)),
         boxShadow: [
           BoxShadow(
             color: _primary.withValues(alpha: 0.06),
@@ -5286,11 +5014,7 @@ final String sizeText = sizeInKb > 1024
           Text(
             'Start the conversation with $_selectedChatTarget.',
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: _muted,
-              fontSize: 10.5,
-              height: 1.45,
-            ),
+            style: const TextStyle(color: _muted, fontSize: 10.5, height: 1.45),
           ),
         ],
       ),
@@ -5306,17 +5030,11 @@ final String sizeText = sizeInKb > 1024
       decoration: BoxDecoration(
         color: const Color(0xFFEAF2FF),
         borderRadius: BorderRadius.circular(12),
-        border: const Border(
-          left: BorderSide(color: _primary, width: 3),
-        ),
+        border: const Border(left: BorderSide(color: _primary, width: 3)),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.reply_rounded,
-            size: 16,
-            color: _primary,
-          ),
+          const Icon(Icons.reply_rounded, size: 16, color: _primary),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -5334,11 +5052,7 @@ final String sizeText = sizeInKb > 1024
             tooltip: 'Cancel reply',
             visualDensity: VisualDensity.compact,
             onPressed: () => setState(() => _replyingToMessage = null),
-            icon: const Icon(
-              Icons.close_rounded,
-              size: 17,
-              color: _muted,
-            ),
+            icon: const Icon(Icons.close_rounded, size: 17, color: _muted),
           ),
         ],
       ),
@@ -5381,7 +5095,6 @@ final String sizeText = sizeInKb > 1024
             leading: _buildAvatar(
               initials: _employeeInitials(emp),
               admin: emp['user_type']?.toString().toLowerCase() == 'admin',
-              name: emp['full_name']?.toString(),
               radius: 15,
             ),
             title: Text(
@@ -5396,11 +5109,9 @@ final String sizeText = sizeInKb > 1024
               final text = _messageController.text;
               final lastAtIndex = text.lastIndexOf('@');
               if (lastAtIndex != -1) {
-                final newText =
-                    '${text.substring(0, lastAtIndex)}@$name ';
+                final newText = '${text.substring(0, lastAtIndex)}@$name ';
                 _messageController.text = newText;
-                _messageController.selection =
-                    TextSelection.fromPosition(
+                _messageController.selection = TextSelection.fromPosition(
                   TextPosition(offset: newText.length),
                 );
               }
@@ -5425,11 +5136,7 @@ final String sizeText = sizeInKb > 1024
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.description_outlined,
-            color: _primary,
-            size: 17,
-          ),
+          const Icon(Icons.description_outlined, color: _primary, size: 17),
           const SizedBox(width: 7),
           Expanded(
             child: Text(
@@ -5447,11 +5154,7 @@ final String sizeText = sizeInKb > 1024
             tooltip: 'Remove attachment',
             visualDensity: VisualDensity.compact,
             onPressed: () => setState(() => _selectedFileName = null),
-            icon: const Icon(
-              Icons.close_rounded,
-              size: 16,
-              color: _muted,
-            ),
+            icon: const Icon(Icons.close_rounded, size: 16, color: _muted),
           ),
         ],
       ),
@@ -5468,9 +5171,7 @@ final String sizeText = sizeInKb > 1024
       ),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.96),
-        border: const Border(
-          top: BorderSide(color: _border),
-        ),
+        border: const Border(top: BorderSide(color: _border)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.035),
@@ -5500,14 +5201,14 @@ final String sizeText = sizeInKb > 1024
                   onEmojiSelected: (category, emoji) {
                     final current = _messageController.text;
                     final selection = _messageController.selection;
-                    final offset = selection.isValid && selection.baseOffset >= 0
+                    final offset =
+                        selection.isValid && selection.baseOffset >= 0
                         ? selection.baseOffset
                         : current.length;
                     final newText =
                         '${current.substring(0, offset)}${emoji.emoji}${current.substring(offset)}';
                     _messageController.text = newText;
-                    _messageController.selection =
-                        TextSelection.collapsed(
+                    _messageController.selection = TextSelection.collapsed(
                       offset: offset + emoji.emoji.length,
                     );
                   },
@@ -5521,9 +5222,8 @@ final String sizeText = sizeInKb > 1024
                   icon: Icons.emoji_emotions_outlined,
                   tooltip: 'Emoji',
                   active: _showEmojiPicker,
-                  onTap: () => setState(
-                    () => _showEmojiPicker = !_showEmojiPicker,
-                  ),
+                  onTap: () =>
+                      setState(() => _showEmojiPicker = !_showEmojiPicker),
                 ),
                 _buildComposerIcon(
                   icon: Icons.attach_file_rounded,
@@ -5534,9 +5234,8 @@ final String sizeText = sizeInKb > 1024
                 Expanded(
                   child: CallbackShortcuts(
                     bindings: <ShortcutActivator, VoidCallback>{
-                      const SingleActivator(
-                        LogicalKeyboardKey.enter,
-                      ): _sendMessage,
+                      const SingleActivator(LogicalKeyboardKey.enter):
+                          _sendMessage,
                     },
                     child: TextField(
                       controller: _messageController,
@@ -5564,15 +5263,11 @@ final String sizeText = sizeInKb > 1024
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: _border,
-                          ),
+                          borderSide: const BorderSide(color: _border),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: _border,
-                          ),
+                          borderSide: const BorderSide(color: _border),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
@@ -5630,11 +5325,7 @@ final String sizeText = sizeInKb > 1024
           child: SizedBox(
             width: 38,
             height: 42,
-            child: Icon(
-              icon,
-              size: 21,
-              color: _primary,
-            ),
+            child: Icon(icon, size: 21, color: _primary),
           ),
         ),
       ),
@@ -5649,9 +5340,7 @@ final String sizeText = sizeInKb > 1024
         child: Column(
           children: [
             _buildChatHeader(mobile: mobile),
-            Expanded(
-              child: _buildChatBody(mobile: mobile),
-            ),
+            Expanded(child: _buildChatBody(mobile: mobile)),
             _buildComposer(mobile: mobile),
           ],
         ),
@@ -5696,13 +5385,8 @@ final String sizeText = sizeInKb > 1024
               ),
             ),
           ),
-          Container(
-            width: 1,
-            color: _border,
-          ),
-          Expanded(
-            child: _buildChatPanel(),
-          ),
+          Container(width: 1, color: _border),
+          Expanded(child: _buildChatPanel()),
         ],
       ),
     );
@@ -5775,7 +5459,7 @@ final String sizeText = sizeInKb > 1024
 
       final isParticipant =
           m['host_name'] == _loggedInEmployee ||
-              attendees.contains(_loggedInEmployee);
+          attendees.contains(_loggedInEmployee);
 
       if (!isParticipant) return false;
 
@@ -5797,8 +5481,7 @@ final String sizeText = sizeInKb > 1024
 
     if (searchQuery.isNotEmpty) {
       sortedEmployees = sortedEmployees.where((e) {
-        final name =
-            e['full_name']?.toString().toLowerCase() ?? '';
+        final name = e['full_name']?.toString().toLowerCase() ?? '';
         final role = e['role']?.toString().toLowerCase() ?? '';
         final email = e['email']?.toString().toLowerCase() ?? '';
         final staffId = e['staff_id']?.toString().toLowerCase() ?? '';
@@ -5844,8 +5527,9 @@ final String sizeText = sizeInKb > 1024
 
     if (searchQuery.isNotEmpty) {
       sortedGroups = sortedGroups.where((g) {
-        return (g['group_name']?.toString().toLowerCase() ?? '')
-            .contains(searchQuery);
+        return (g['group_name']?.toString().toLowerCase() ?? '').contains(
+          searchQuery,
+        );
       }).toList();
     }
 
@@ -5859,12 +5543,10 @@ final String sizeText = sizeInKb > 1024
       if (!pinA && pinB) return 1;
 
       final msgsA = notificationLogs.where((l) {
-        return _isSeenValue(l['isGroup']) &&
-            l['recipientName'] == nameA;
+        return _isSeenValue(l['isGroup']) && l['recipientName'] == nameA;
       });
       final msgsB = notificationLogs.where((l) {
-        return _isSeenValue(l['isGroup']) &&
-            l['recipientName'] == nameB;
+        return _isSeenValue(l['isGroup']) && l['recipientName'] == nameB;
       });
 
       final timeA = msgsA.isNotEmpty
@@ -5877,42 +5559,42 @@ final String sizeText = sizeInKb > 1024
     });
 
     return LayoutBuilder(
-        builder: (context, constraints) {
-          final isMobile = constraints.maxWidth < 760;
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 760;
 
-          return SizedBox(
-            height: MediaQuery.of(context).size.height - 120,
-            child: _buildAmbientBackground(
-              child: Padding(
-                padding: EdgeInsets.all(isMobile ? 10 : 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (!isMobile || _showMobileChatList) ...[
-                      _buildNotificationHero(isMobile),
-                      SizedBox(height: isMobile ? 10 : 16),
-                    ],
-                    
-                    Expanded(
-                      child: isMobile
-                          ? _buildMobileWorkspace(
-                              sortedEmployees: sortedEmployees,
-                              sortedGroups: sortedGroups,
-                              filteredMeetings: filteredMeetings,
-                            )
-                          : _buildDesktopWorkspace(
-                              sortedEmployees: sortedEmployees,
-                              sortedGroups: sortedGroups,
-                              filteredMeetings: filteredMeetings,
-                            ),
-                    ),
+        return SizedBox(
+          height: MediaQuery.of(context).size.height - 120,
+          child: _buildAmbientBackground(
+            child: Padding(
+              padding: EdgeInsets.all(isMobile ? 10 : 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!isMobile || _showMobileChatList) ...[
+                    _buildNotificationHero(isMobile),
+                    SizedBox(height: isMobile ? 10 : 16),
                   ],
-                ),
+
+                  Expanded(
+                    child: isMobile
+                        ? _buildMobileWorkspace(
+                            sortedEmployees: sortedEmployees,
+                            sortedGroups: sortedGroups,
+                            filteredMeetings: filteredMeetings,
+                          )
+                        : _buildDesktopWorkspace(
+                            sortedEmployees: sortedEmployees,
+                            sortedGroups: sortedGroups,
+                            filteredMeetings: filteredMeetings,
+                          ),
+                  ),
+                ],
               ),
             ),
-          );
-        },
-      );
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -5928,8 +5610,7 @@ class _HoverReactionSurface extends StatefulWidget {
   });
 
   @override
-  State<_HoverReactionSurface> createState() =>
-      _HoverReactionSurfaceState();
+  State<_HoverReactionSurface> createState() => _HoverReactionSurfaceState();
 }
 
 class _HoverReactionSurfaceState extends State<_HoverReactionSurface> {
@@ -5957,7 +5638,7 @@ class _HoverReactionSurfaceState extends State<_HoverReactionSurface> {
           clipBehavior: Clip.none,
           children: [
             content,
-              if (_hovered && widget.hoverAction != null)
+            if (_hovered && widget.hoverAction != null)
               Positioned(
                 top: -5,
                 right: -4,
@@ -5978,10 +5659,7 @@ class _ChatBackdropPainter extends CustomPainter {
   final Color primary;
   final Color secondary;
 
-  _ChatBackdropPainter({
-    required this.primary,
-    required this.secondary,
-  });
+  _ChatBackdropPainter({required this.primary, required this.secondary});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -6024,9 +5702,6 @@ class _ChatBackdropPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ChatBackdropPainter oldDelegate) {
-    return oldDelegate.primary != primary ||
-        oldDelegate.secondary != secondary;
+    return oldDelegate.primary != primary || oldDelegate.secondary != secondary;
   }
 }
-
-

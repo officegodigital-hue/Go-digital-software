@@ -234,10 +234,13 @@ class _EmployeeStatusScreenState extends State<EmployeeStatusScreen> {
 
         setState(() {
           masterEmployeeData = mappedRows;
-          _loading = false;
         });
 
-        _fetchEmployeeSummaryList();
+        await _fetchEmployeeSummaryList();
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+        });
       } else {
         setState(() {
           _error = 'Failed to load (${r.statusCode})';
@@ -429,6 +432,7 @@ Thank you.''';
       },
     );
   }
+
   Future<void> _openWhatsAppTaskMessage({
     required String employeeName,
     required String employeePhone,
@@ -446,7 +450,11 @@ Thank you.''';
     if (phone.length < 10 || phone.length > 15) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Valid WhatsApp number not available for $employeeName.')),
+        SnackBar(
+          content: Text(
+            'Valid WhatsApp number not available for $employeeName.',
+          ),
+        ),
       );
       return;
     }
@@ -487,7 +495,53 @@ Thank you.''';
       }
     }
   }
+
   void _navigateToEmployeeDetailView(String employeeName) async {
+    // EMPLOYEE_VIEW_LOADING_V1
+    final loadingOverlay = OverlayEntry(
+      builder: (_) => Positioned.fill(
+        child: ColoredBox(
+          color: const Color(0x66000000),
+          child: Center(
+            child: Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              elevation: 8,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 32,
+                  vertical: 28,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      height: 36,
+                      width: 36,
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF0052CC),
+                        strokeWidth: 3,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Loading $employeeName details...',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF334155),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Overlay.of(context).insert(loadingOverlay);
     List<Map<String, dynamic>> employeeAssignments = [];
     Map<String, int> dbTaskProgressCounts = {};
     String employeePhone = '';
@@ -661,6 +715,9 @@ Thank you.''';
     } catch (e) {
       debugPrint('Error fetching employee task details: $e');
     }
+
+    loadingOverlay.remove();
+    loadingOverlay.dispose();
 
     if (!mounted) return;
 
@@ -913,7 +970,11 @@ Thank you.''';
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              const Icon(Icons.chat_bubble_rounded, size: 14, color: Color(0xFF2563EB)),
+                                              const Icon(
+                                                Icons.chat_bubble_rounded,
+                                                size: 14,
+                                                color: Color(0xFF2563EB),
+                                              ),
                                               SizedBox(width: 5),
                                               Text(
                                                 'Chat',
@@ -927,11 +988,11 @@ Thank you.''';
                                           ),
                                         ),
                                       ),
-                                          const SizedBox(width: 6),
-                                          InkWell(
-                                            borderRadius: BorderRadius.circular(7),
-                                            onTap: () {
-                                              _openWhatsAppTaskMessage(
+                                      const SizedBox(width: 6),
+                                      InkWell(
+                                        borderRadius: BorderRadius.circular(7),
+                                        onTap: () {
+                                          _openWhatsAppTaskMessage(
                                             employeeName: employeeName,
                                             employeePhone: employeePhone,
                                             clientName: clientName.toString(),
@@ -939,24 +1000,28 @@ Thank you.''';
                                             completed: 0,
                                             total: 1,
                                           );
-                                            },
-                                            child: Container(
-                                              width: 25,
-                                              height: 25,
-                                              alignment: Alignment.center,
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFE8F5E9),
-                                                borderRadius: BorderRadius.circular(7),
-                                                border: Border.all(color: const Color(0xFF25D366)),
-                                              ),
-                                              child: Image.asset(
-                                                'assets/icons/godigital_whatsapp_chat.png',
-                                                width: 14,
-                                                height: 14,
-                                                fit: BoxFit.contain,
-                                              ),
+                                        },
+                                        child: Container(
+                                          width: 25,
+                                          height: 25,
+                                          alignment: Alignment.center,
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFE8F5E9),
+                                            borderRadius: BorderRadius.circular(
+                                              7,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(0xFF25D366),
                                             ),
                                           ),
+                                          child: Image.asset(
+                                            'assets/icons/godigital_whatsapp_chat.png',
+                                            width: 14,
+                                            height: 14,
+                                            fit: BoxFit.contain,
+                                          ),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                   const SizedBox(height: 4),
@@ -1207,14 +1272,24 @@ Thank you.''';
                                                                 ),
                                                           ),
                                                         ),
-                                                        child: const Icon(Icons.chat_bubble_rounded, size: 14, color: Color(0xFF2563EB)),
+                                                        child: const Icon(
+                                                          Icons
+                                                              .chat_bubble_rounded,
+                                                          size: 14,
+                                                          color: Color(
+                                                            0xFF2563EB,
+                                                          ),
+                                                        ),
                                                       ),
                                                     ),
-                                          const SizedBox(width: 6),
-                                          InkWell(
-                                            borderRadius: BorderRadius.circular(7),
-                                            onTap: () {
-                                              _openWhatsAppTaskMessage(
+                                                    const SizedBox(width: 6),
+                                                    InkWell(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            7,
+                                                          ),
+                                                      onTap: () {
+                                                        _openWhatsAppTaskMessage(
                                                           employeeName:
                                                               employeeName,
                                                           employeePhone:
@@ -1225,24 +1300,34 @@ Thank you.''';
                                                           completed: compR,
                                                           total: totalR,
                                                         );
-                                            },
-                                            child: Container(
-                                              width: 25,
-                                              height: 25,
-                                              alignment: Alignment.center,
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFE8F5E9),
-                                                borderRadius: BorderRadius.circular(7),
-                                                border: Border.all(color: const Color(0xFF25D366)),
-                                              ),
-                                              child: Image.asset(
-                                                'assets/icons/godigital_whatsapp_chat.png',
-                                                width: 14,
-                                                height: 14,
-                                                fit: BoxFit.contain,
-                                              ),
-                                            ),
-                                          ),
+                                                      },
+                                                      child: Container(
+                                                        width: 25,
+                                                        height: 25,
+                                                        alignment:
+                                                            Alignment.center,
+                                                        decoration: BoxDecoration(
+                                                          color: const Color(
+                                                            0xFFE8F5E9,
+                                                          ),
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                7,
+                                                              ),
+                                                          border: Border.all(
+                                                            color: const Color(
+                                                              0xFF25D366,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        child: Image.asset(
+                                                          'assets/icons/godigital_whatsapp_chat.png',
+                                                          width: 14,
+                                                          height: 14,
+                                                          fit: BoxFit.contain,
+                                                        ),
+                                                      ),
+                                                    ),
                                                     const SizedBox(width: 8),
                                                     Container(
                                                       padding:

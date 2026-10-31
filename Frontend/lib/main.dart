@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:godigital_portal/client_work_repository/assets_module/core/theme/app_theme.dart' as assets_theme;
+import 'package:godigital_portal/client_work_repository/assets_module/core/theme/app_theme.dart'
+    as assets_theme;
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/screens/login_screen.dart';
 import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
@@ -46,6 +47,7 @@ import 'package:godigital_portal/screens/admin_dashboard/performance_page.dart';
 import 'package:godigital_portal/screens/SettingsPage.dart';
 import 'package:godigital_portal/screens/admin_dashboard/AdminDayPlannerScreen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/task_deadline_rules_screen.dart';
+import 'screens/admin_dashboard/privacy_policy_screen.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_workspace_page.dart'
     show AdminWorkspaceScreen;
 
@@ -103,13 +105,15 @@ class MyApp extends StatelessWidget {
           );
         },
         routes: {
+          '/privacy-policy': (context) => const PrivacyPolicyScreen(),
           '/': (context) => const AuthGate(),
 
           '/home': (context) => const HomeScreen(),
-          '/client-work-repository': (context) => const ClientWorkRepositoryPage(),
+          '/client-work-repository': (context) =>
+              const ClientWorkRepositoryPage(),
 
           '/profile': (context) => const ProfilePage(),
-  
+
           '/admin': (context) => const AdminGuard(child: AdminDashboard()),
 
           '/employee': (context) => const EmployeeLayoutPage(),
@@ -155,15 +159,17 @@ class MyApp extends StatelessWidget {
               const AdminGuard(child: NotificationsScreen()),
           '/admin-panel': (context) =>
               const AdminGuard(child: AdminPanelScreen()),
-          '/access-master': (context) => 
-              const AdminGuard(child: AccessMasterScreen()), // 🟢 Added Access Master route
+          '/access-master': (context) => const AdminGuard(
+            child: AccessMasterScreen(),
+          ), // 🟢 Added Access Master route
           '/time-manager': (context) =>
               const AdminGuard(child: TimeManagerScreen()),
           '/performance': (context) =>
               const AdminGuard(child: PerformanceScreen()),
           '/settings': (context) => const AdminGuard(child: SettingsPage()),
 
-          '/emergency-broadcast': (context) => const AdminGuard(child: EmergencyBroadcastPage()),
+          '/emergency-broadcast': (context) =>
+              const AdminGuard(child: EmergencyBroadcastPage()),
 
           // Admin → Employee Workspace (all clients, all employees, live) and
           // Task Deadline Rules (start / complete / weekly pace per task).
@@ -249,9 +255,10 @@ class AdminGuard extends StatelessWidget {
         }
 
         final userType = auth.userType?.toLowerCase().trim() ?? '';
-        final isMainAdmin = auth.user?['is_main_admin'] == true || 
-                             auth.user?['is_main_admin'] == 1 || 
-                             auth.user?['is_main_admin'].toString() == '1';
+        final isMainAdmin =
+            auth.user?['is_main_admin'] == true ||
+            auth.user?['is_main_admin'] == 1 ||
+            auth.user?['is_main_admin'].toString() == '1';
 
         if (userType == 'admin' || isMainAdmin) {
           return child;
@@ -259,11 +266,13 @@ class AdminGuard extends StatelessWidget {
 
         // 🟢 Access Master (application_access) moolama antha employee-kku admin access irukka nu check panrom
         final user = auth.user ?? {};
-        final appAccess = user['application_access'] as Map<String, dynamic>? ?? {};
-        
+        final appAccess =
+            user['application_access'] as Map<String, dynamic>? ?? {};
+
         bool hasAdminAccess = false;
         for (var app in ['attendance', 'task_manager', 'client_repository']) {
-          final accType = appAccess[app]?['access_type']?.toString().toLowerCase() ?? '';
+          final accType =
+              appAccess[app]?['access_type']?.toString().toLowerCase() ?? '';
           if (accType == 'admin') {
             hasAdminAccess = true;
             break;
@@ -279,4 +288,3 @@ class AdminGuard extends StatelessWidget {
     );
   }
 }
-

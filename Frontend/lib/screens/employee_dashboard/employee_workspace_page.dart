@@ -1,5 +1,4 @@
-import 'package:godigital_portal/services/socket_auth.dart';
-import 'package:godigital_portal/services/auth_storage.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -26,12 +25,15 @@ class EmployeeWorkspacePage extends StatefulWidget {
   final EmployeeRole role;
   final List<String> allowedPages;
   final String? initialSection;
+
   /// Called with a sidebar page name (e.g. 'Day Planner') when a workspace
   /// button should open another page. Wire it to the dashboard's page switch.
   final ValueChanged<String>? onNavigate;
+
   /// Open a specific client card + tab, e.g. from the top-bar running chip:
   /// {client, due_date: 'yyyy-mm-dd', section: 'My Tasks' | 'Content Calendar'}
   final Map<String, dynamic>? focus;
+
   /// Top-bar search text — filters the client cards by client name.
   final String searchQuery;
 
@@ -80,7 +82,9 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
     if (focus == null) return;
     final name = '${focus['client'] ?? ''}'.trim().toLowerCase();
     final due = '${focus['due_date'] ?? ''}';
-    final sameClient = clients.where((c) => c.name.trim().toLowerCase() == name).toList();
+    final sameClient = clients
+        .where((c) => c.name.trim().toLowerCase() == name)
+        .toList();
     if (sameClient.isEmpty) {
       _pendingFocus = null;
       return;
@@ -137,10 +141,15 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
   }
 
   bool get _isHandler =>
-      widget.role == EmployeeRole.pageHandler || widget.role == EmployeeRole.adsHandler;
+      widget.role == EmployeeRole.pageHandler ||
+      widget.role == EmployeeRole.adsHandler;
 
   /// "Add Additional Task" → form → open the new card on My Tasks.
-  Future<void> _openAddTask(String employeeName, String token, {String? client}) async {
+  Future<void> _openAddTask(
+    String employeeName,
+    String token, {
+    String? client,
+  }) async {
     final created = await AdditionalTaskDialog.show(
       context,
       employeeName: employeeName,
@@ -182,73 +191,88 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
     final employeeId = int.tryParse((user?['id'] ?? '').toString()) ?? 0;
     final rawRole = (auth.userRole ?? widget.role.title).trim();
 
-    return PremiumTheme.wrap(context, Container(
-      color: const Color(0xFFF4F7FC),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (_selectedClient == null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
-              child: _WorkspaceHeader(
-                employeeName: employeeName,
-                role: widget.role.title,
-                // Page / Ads Handlers can add their own additional task.
-                onAddTask: _isHandler
-                    ? () => _openAddTask(employeeName, auth.token ?? '')
-                    : null,
+    return PremiumTheme.wrap(
+      context,
+      Container(
+        color: const Color(0xFFF4F7FC),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_selectedClient == null &&
+                MediaQuery.sizeOf(context).width >= 600)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+                child: _WorkspaceHeader(
+                  employeeName: employeeName,
+                  role: widget.role.title,
+                  // Page / Ads Handlers can add their own additional task.
+                  onAddTask: _isHandler
+                      ? () => _openAddTask(employeeName, auth.token ?? '')
+                      : null,
+                ),
               ),
-            ),
-          Expanded(
-            child: _selectedClient == null
-                ? _ClientWorkspace(
-                    key: ValueKey('client-cards-$_focusStamp'),
-                    employeeName: employeeName,
-                    role: widget.role,
-                    // Page/Ads handlers must load their assigned clients just
-                    // like the reference Client sidebar, even if the standalone
-                    // Assigned Task page is not enabled for their account.
-                    // Every role sees the tasks the admin assigned to them
-                    // (developer, UI/UX … included), not only handlers.
-                    showAssignedTasks: true,
-                    showAdditionalTasks: widget.allowedPages.contains(
-                      'Additional Task',
-                    ),
-                    searchQuery: widget.searchQuery,
-                    onClientsLoaded: (clients) {
-                      if (_pendingFocus != null) {
-                        _applyFocus(clients);
-                        return;
-                      }
-                      final selectedClient = _selectedClient;
-                      if (selectedClient == null) return;
-                      for (final client in clients) {
-                        if (client.name.toLowerCase() ==
-                                selectedClient.name.toLowerCase() &&
-                            _dateKey(client.submissionDate) ==
-                                _dateKey(selectedClient.submissionDate)) {
-                          setState(() => _selectedClient = client);
-                          break;
+            Expanded(
+              child: _selectedClient == null
+                  ? _ClientWorkspace(
+                      key: ValueKey('client-cards-$_focusStamp'),
+                      employeeName: employeeName,
+                      role: widget.role,
+                      mobileHeader: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                        child: _WorkspaceHeader(
+                          employeeName: employeeName,
+                          role: widget.role.title,
+                          onAddTask: _isHandler
+                              ? () =>
+                                    _openAddTask(employeeName, auth.token ?? '')
+                              : null,
+                        ),
+                      ),
+                      // Page/Ads handlers must load their assigned clients just
+                      // like the reference Client sidebar, even if the standalone
+                      // Assigned Task page is not enabled for their account.
+                      // Every role sees the tasks the admin assigned to them
+                      // (developer, UI/UX … included), not only handlers.
+                      showAssignedTasks: true,
+                      showAdditionalTasks: widget.allowedPages.contains(
+                        'Additional Task',
+                      ),
+                      searchQuery: widget.searchQuery,
+                      onClientsLoaded: (clients) {
+                        if (_pendingFocus != null) {
+                          _applyFocus(clients);
+                          return;
                         }
-                      }
-                    },
-                    onSelectClient: (client) {
-                      setState(() {
-                        _focusSection = null;
-                        _selectedClient = client;
-                      });
-                    },
-                  )
-                : _buildClientWorkspace(
-                    employeeName,
-                    employeeId,
-                    auth.token ?? '',
-                    rawRole,
-                  ),
-          ),
-        ],
+                        final selectedClient = _selectedClient;
+                        if (selectedClient == null) return;
+                        for (final client in clients) {
+                          if (client.name.toLowerCase() ==
+                                  selectedClient.name.toLowerCase() &&
+                              _dateKey(client.submissionDate) ==
+                                  _dateKey(selectedClient.submissionDate)) {
+                            setState(() => _selectedClient = client);
+                            break;
+                          }
+                        }
+                      },
+                      onSelectClient: (client) {
+                        setState(() {
+                          _focusSection = null;
+                          _selectedClient = client;
+                        });
+                      },
+                    )
+                  : _buildClientWorkspace(
+                      employeeName,
+                      employeeId,
+                      auth.token ?? '',
+                      rawRole,
+                    ),
+            ),
+          ],
+        ),
       ),
-    ));
+    );
   }
 
   Widget _buildClientWorkspace(
@@ -402,7 +426,11 @@ class _WorkspaceHeader extends StatelessWidget {
   final String role;
   final VoidCallback? onAddTask;
 
-  const _WorkspaceHeader({required this.employeeName, required this.role, this.onAddTask});
+  const _WorkspaceHeader({
+    required this.employeeName,
+    required this.role,
+    this.onAddTask,
+  });
 
   Widget _addButton(bool compact) {
     return FilledButton.icon(
@@ -410,12 +438,18 @@ class _WorkspaceHeader extends StatelessWidget {
       style: FilledButton.styleFrom(
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF0B4CB0),
-        padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 16, vertical: 12),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 12 : 16,
+          vertical: 12,
+        ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 0,
       ),
       icon: const Icon(Icons.add_task_rounded, size: 18),
-      label: const Text('Add Additional Task', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
+      label: const Text(
+        'Add Additional Task',
+        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
+      ),
     );
   }
 
@@ -537,7 +571,11 @@ class _CountedTabBarState extends State<_CountedTabBar> {
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setAuthFn(authenticateSocket).setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
     )..connect();
     void refresh(dynamic _) {
       _debounce?.cancel();
@@ -545,6 +583,7 @@ class _CountedTabBarState extends State<_CountedTabBar> {
         if (mounted) _load();
       });
     }
+
     _socket!
       ..on('task_updated', refresh)
       ..on('calendar:assigned', refresh);
@@ -562,14 +601,21 @@ class _CountedTabBarState extends State<_CountedTabBar> {
       final date = widget.submissionDate.length >= 10
           ? widget.submissionDate.substring(0, 10)
           : widget.submissionDate;
-      final uri = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/counts').replace(queryParameters: {
-        'employee': widget.employeeName,
-        'client': widget.clientName,
-        'date': date,
-      });
-      final res = await http.get(uri, headers: {
-        if (widget.authToken.isNotEmpty) 'Authorization': 'Bearer ${widget.authToken}',
-      });
+      final uri = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/counts')
+          .replace(
+            queryParameters: {
+              'employee': widget.employeeName,
+              'client': widget.clientName,
+              'date': date,
+            },
+          );
+      final res = await http.get(
+        uri,
+        headers: {
+          if (widget.authToken.isNotEmpty)
+            'Authorization': 'Bearer ${widget.authToken}',
+        },
+      );
       if (res.statusCode != 200 || !mounted) return;
       final data = jsonDecode(res.body)['data'] as Map? ?? {};
       final my = data['my_tasks'] as Map? ?? {};
@@ -689,8 +735,10 @@ class _ClientContextHeaderState extends State<_ClientContextHeader> {
         _collapsed ? Icons.unfold_more_rounded : Icons.unfold_less_rounded,
         size: 17,
       ),
-      label: Text(_collapsed ? 'Show details' : 'Hide details',
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+      label: Text(
+        _collapsed ? 'Show details' : 'Hide details',
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+      ),
     );
     final back = TextButton.icon(
       onPressed: widget.onBack,
@@ -707,13 +755,7 @@ class _ClientContextHeaderState extends State<_ClientContextHeader> {
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
-        child: Row(
-          children: [
-            back,
-            const Spacer(),
-            toggle,
-          ],
-        ),
+        child: Row(children: [back, const Spacer(), toggle]),
       );
     }
 
@@ -749,7 +791,10 @@ class _ClientContextHeaderState extends State<_ClientContextHeader> {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFEAF2FF),
                           borderRadius: BorderRadius.circular(20),
@@ -773,7 +818,8 @@ class _ClientContextHeaderState extends State<_ClientContextHeader> {
             const SizedBox(height: 4),
             Text(
               [
-                if (widget.employeeName.isNotEmpty) 'Welcome, ${widget.employeeName}',
+                if (widget.employeeName.isNotEmpty)
+                  'Welcome, ${widget.employeeName}',
                 'Client workspace',
                 'Submit date: ${_formatDate(client.submissionDate)}',
               ].join(' · '),
@@ -792,7 +838,7 @@ class _ClientContextHeaderState extends State<_ClientContextHeader> {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(width: 10),
+
                 Expanded(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
@@ -846,14 +892,19 @@ class _ClientStatTiles extends StatelessWidget {
           ),
           itemBuilder: (context, index) {
             final (label, value, color) = items[index];
-            final highlight = value > 0 && label != 'Tasks' && label != 'Pending';
+            final highlight =
+                value > 0 && label != 'Tasks' && label != 'Pending';
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
               decoration: BoxDecoration(
-                color: highlight ? color.withValues(alpha: 0.07) : const Color(0xFFF8FAFC),
+                color: highlight
+                    ? color.withValues(alpha: 0.07)
+                    : const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: highlight ? color.withValues(alpha: 0.35) : const Color(0xFFE2E8F0),
+                  color: highlight
+                      ? color.withValues(alpha: 0.35)
+                      : const Color(0xFFE2E8F0),
                 ),
               ),
               child: Column(
@@ -864,7 +915,9 @@ class _ClientStatTiles extends StatelessWidget {
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: compact ? 15 : 16,
-                      color: highlight || label == 'Tasks' ? color : const Color(0xFF14213D),
+                      color: highlight || label == 'Tasks'
+                          ? color
+                          : const Color(0xFF14213D),
                     ),
                   ),
                   Text(
@@ -1036,10 +1089,12 @@ class _ClientLiveTrackingSection extends StatefulWidget {
   });
 
   @override
-  State<_ClientLiveTrackingSection> createState() => _ClientLiveTrackingSectionState();
+  State<_ClientLiveTrackingSection> createState() =>
+      _ClientLiveTrackingSectionState();
 }
 
-class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> {
+class _ClientLiveTrackingSectionState
+    extends State<_ClientLiveTrackingSection> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _rows = [];
@@ -1057,7 +1112,8 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
       var changed = false;
       for (final row in _rows) {
         if (row['running'] == true) {
-          row['duration_secs'] = (int.tryParse('${row['duration_secs'] ?? 0}') ?? 0) + 1;
+          row['duration_secs'] =
+              (int.tryParse('${row['duration_secs'] ?? 0}') ?? 0) + 1;
           changed = true;
         }
       }
@@ -1065,7 +1121,11 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
     });
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setAuthFn(authenticateSocket).setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
     )..connect();
     _socket!.on('task_updated', (_) {
       _refreshDebounce?.cancel();
@@ -1084,27 +1144,46 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
   }
 
   Future<void> _load({bool silent = false}) async {
-    if (!silent) setState(() { _loading = true; _error = null; });
+    if (!silent)
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
     try {
       final date = widget.client.submissionDate.length >= 10
           ? widget.client.submissionDate.substring(0, 10)
           : widget.client.submissionDate;
-      final uri = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/live').replace(queryParameters: {
-        'employee': widget.employeeName,
-        'client': widget.client.name,
-        'date': date,
-      });
-      final response = await http.get(uri, headers: {
-        'Content-Type': 'application/json',
-        if (widget.authToken.isNotEmpty) 'Authorization': 'Bearer ${widget.authToken}',
-      });
-      if (response.statusCode != 200) throw Exception('Request failed (${response.statusCode})');
+      final uri = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/live')
+          .replace(
+            queryParameters: {
+              'employee': widget.employeeName,
+              'client': widget.client.name,
+              'date': date,
+            },
+          );
+      final response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (widget.authToken.isNotEmpty)
+            'Authorization': 'Bearer ${widget.authToken}',
+        },
+      );
+      if (response.statusCode != 200)
+        throw Exception('Request failed (${response.statusCode})');
       final decoded = jsonDecode(response.body);
       final rows = decoded is Map && decoded['data'] is List
-          ? (decoded['data'] as List).whereType<Map>().map((r) => Map<String, dynamic>.from(r)).toList()
+          ? (decoded['data'] as List)
+                .whereType<Map>()
+                .map((r) => Map<String, dynamic>.from(r))
+                .toList()
           : <Map<String, dynamic>>[];
       if (!mounted) return;
-      setState(() { _rows = rows; _loading = false; _error = null; });
+      setState(() {
+        _rows = rows;
+        _loading = false;
+        _error = null;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1124,14 +1203,17 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
     final raw = (value ?? '').toString().trim();
     if (raw.isEmpty || raw == 'null') return '—';
     final parsed = DateTime.tryParse(raw);
-    return parsed == null ? raw : DateFormat('dd MMM, hh:mm a').format(parsed.toLocal());
+    return parsed == null
+        ? raw
+        : DateFormat('dd MMM, hh:mm a').format(parsed.toLocal());
   }
 
   final Set<String> _busy = {};
 
   Map<String, String> get _jsonHeaders => {
     'Content-Type': 'application/json',
-    if (widget.authToken.isNotEmpty) 'Authorization': 'Bearer ${widget.authToken}',
+    if (widget.authToken.isNotEmpty)
+      'Authorization': 'Bearer ${widget.authToken}',
   };
 
   Future<String?> _askReason(String title, String hint) async {
@@ -1159,7 +1241,10 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
               onPressed: () {
                 if (controller.text.trim().isEmpty) {
@@ -1185,7 +1270,10 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
     final isCalendar = row['kind'] == 'CONTENT_CALENDAR';
     final body = <String, dynamic>{};
     if (action == 'hold') {
-      final reason = await _askReason('Hold ${row['title']}', 'Why are you putting this on hold?');
+      final reason = await _askReason(
+        'Hold ${row['title']}',
+        'Why are you putting this on hold?',
+      );
       if (reason == null) return;
       body['reason'] = reason;
     }
@@ -1194,12 +1282,20 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
         context: context,
         builder: (c) => AlertDialog(
           title: Text('Complete ${row['title']}?'),
-          content: Text(isCalendar
-              ? 'The category is marked prepared. Assign it from the Content Calendar.'
-              : 'It moves to Task Review and is completed once approved.'),
+          content: Text(
+            isCalendar
+                ? 'The category is marked prepared. Assign it from the Content Calendar.'
+                : 'It moves to Task Review and is completed once approved.',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Complete')),
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Complete'),
+            ),
           ],
         ),
       );
@@ -1208,7 +1304,9 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
     late final Uri uri;
     if (isCalendar) {
       final sheetAction = action == 'restart' ? 'start' : action;
-      uri = Uri.parse('${ApiConfig.baseUrl}/tasks/content-calendar/sheet-$sheetAction');
+      uri = Uri.parse(
+        '${ApiConfig.baseUrl}/tasks/content-calendar/sheet-$sheetAction',
+      );
       body.addAll({
         'source_assignment_id': row['source_assignment_id'],
         'source_role': row['source_role'],
@@ -1216,25 +1314,46 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
         if (sheetAction == 'start') 'day_planner_confirmed': true,
       });
     } else {
-      uri = Uri.parse('${ApiConfig.baseUrl}/tracking-items/${row['task_id']}/$action');
+      uri = Uri.parse(
+        '${ApiConfig.baseUrl}/tracking-items/${row['task_id']}/$action',
+      );
     }
     setState(() => _busy.add(key));
     try {
-      var res = await http.post(uri, headers: _jsonHeaders, body: jsonEncode(body));
-      if (res.statusCode == 409 && res.body.contains('DAY_PLAN_CONFIRM_REQUIRED')) {
+      var res = await http.post(
+        uri,
+        headers: _jsonHeaders,
+        body: jsonEncode(body),
+      );
+      if (res.statusCode == 409 &&
+          res.body.contains('DAY_PLAN_CONFIRM_REQUIRED')) {
         if (!mounted || !await TaskActions.confirmDayPlan(context, res)) return;
         body['day_planner_confirmed'] = true;
-        res = await http.post(uri, headers: _jsonHeaders, body: jsonEncode(body));
+        res = await http.post(
+          uri,
+          headers: _jsonHeaders,
+          body: jsonEncode(body),
+        );
       }
-      if (res.statusCode == 409 && res.body.contains('AUTO_HOLD_REASON_REQUIRED')) {
+      if (res.statusCode == 409 &&
+          res.body.contains('AUTO_HOLD_REASON_REQUIRED')) {
         String running = 'Your running task';
         try {
-          final list = (jsonDecode(res.body)['running'] as List? ?? []).whereType<Map>();
-          if (list.isNotEmpty) running = list.map((r) => '${r['title']}').join(', ');
+          final list = (jsonDecode(res.body)['running'] as List? ?? [])
+              .whereType<Map>();
+          if (list.isNotEmpty)
+            running = list.map((r) => '${r['title']}').join(', ');
         } catch (_) {}
-        final reason = await _askReason('Put the running task on hold?', '$running will be held. Why?');
+        final reason = await _askReason(
+          'Put the running task on hold?',
+          '$running will be held. Why?',
+        );
         if (reason == null) return;
-        res = await http.post(uri, headers: _jsonHeaders, body: jsonEncode({...body, 'auto_hold_reason': reason}));
+        res = await http.post(
+          uri,
+          headers: _jsonHeaders,
+          body: jsonEncode({...body, 'auto_hold_reason': reason}),
+        );
       }
       if (!mounted) return;
       if (res.statusCode != 200) {
@@ -1242,7 +1361,9 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
         try {
           msg = '${jsonDecode(res.body)['message'] ?? msg}';
         } catch (_) {}
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(msg)));
       }
       await _load(silent: true);
     } catch (_) {
@@ -1259,7 +1380,8 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
   Widget _actionButtons(Map<String, dynamic> row) {
     final status = '${row['status'] ?? ''}'.toUpperCase();
     final busy = _busy.contains('${row['key']}');
-    Widget btn(String label, IconData icon, Color color, String action) => Padding(
+    Widget btn(String label, IconData icon, Color color, String action) =>
+        Padding(
           padding: const EdgeInsets.only(left: 6),
           child: OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
@@ -1270,7 +1392,13 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
             ),
             onPressed: busy ? null : () => _act(row, action),
             icon: Icon(icon, size: 15),
-            label: Text(label, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800)),
+            label: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         );
     const blue = Color(0xFF004AAD);
@@ -1278,7 +1406,8 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
     const green = Color(0xFF16A34A);
     const amber = Color(0xFFB45309);
     final buttons = <Widget>[
-      if (status == 'IDLE') btn('START', Icons.play_arrow_rounded, blue, 'start'),
+      if (status == 'IDLE')
+        btn('START', Icons.play_arrow_rounded, blue, 'start'),
       if (status == 'IN PROGRESS') ...[
         btn('HOLD', Icons.pause_rounded, orange, 'hold'),
         btn('COMPLETE', Icons.check_rounded, green, 'complete'),
@@ -1290,36 +1419,75 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
   }
 
   (String, Color, Color) _statusStyle(String status) => switch (status) {
-    'IN PROGRESS' => ('IN PROGRESS', const Color(0xFFEFF6FF), const Color(0xFF004AAD)),
+    'IN PROGRESS' => (
+      'IN PROGRESS',
+      const Color(0xFFEFF6FF),
+      const Color(0xFF004AAD),
+    ),
     'ON HOLD' => ('ON HOLD', const Color(0xFFFEF3C7), const Color(0xFF92400E)),
-    'COMPLETED' => ('PREPARED', const Color(0xFFEDE9FE), const Color(0xFF6D28D9)),
-    'IN REVIEW' => ('IN REVIEW', const Color(0xFFEDE9FE), const Color(0xFF6D28D9)),
+    'COMPLETED' => (
+      'PREPARED',
+      const Color(0xFFEDE9FE),
+      const Color(0xFF6D28D9),
+    ),
+    'IN REVIEW' => (
+      'IN REVIEW',
+      const Color(0xFFEDE9FE),
+      const Color(0xFF6D28D9),
+    ),
     'REWORK' => ('REWORK', const Color(0xFFFFEDD5), const Color(0xFFC2410C)),
-    'APPROVED' => ('APPROVED', const Color(0xFFDCFCE7), const Color(0xFF15803D)),
-    'ASSIGNED' => ('ASSIGNED', const Color(0xFFDCFCE7), const Color(0xFF15803D)),
-    'REJECTED' => ('REJECTED', const Color(0xFFFEE2E2), const Color(0xFFB91C1C)),
-    _ => (status.isEmpty ? 'IDLE' : status, const Color(0xFFF1F5F9), const Color(0xFF64748B)),
+    'APPROVED' => (
+      'APPROVED',
+      const Color(0xFFDCFCE7),
+      const Color(0xFF15803D),
+    ),
+    'ASSIGNED' => (
+      'ASSIGNED',
+      const Color(0xFFDCFCE7),
+      const Color(0xFF15803D),
+    ),
+    'REJECTED' => (
+      'REJECTED',
+      const Color(0xFFFEE2E2),
+      const Color(0xFFB91C1C),
+    ),
+    _ => (
+      status.isEmpty ? 'IDLE' : status,
+      const Color(0xFFF1F5F9),
+      const Color(0xFF64748B),
+    ),
   };
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
-      return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text(_error!, textAlign: TextAlign.center),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(onPressed: _load, icon: const Icon(Icons.refresh), label: const Text('Retry')),
-      ]));
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error!, textAlign: TextAlign.center),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
     }
     if (_rows.isEmpty) {
-      return const Center(child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Text(
-          'Nothing is being tracked for this client yet. Start a task in My Tasks or a category in Content Calendar.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Color(0xFF64748B)),
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Nothing is being tracked for this client yet. Start a task in My Tasks or a category in Content Calendar.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFF64748B)),
+          ),
         ),
-      ));
+      );
     }
     return RefreshIndicator(
       onRefresh: _load,
@@ -1330,7 +1498,9 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
         itemBuilder: (context, i) {
           final row = _rows[i];
           final isCalendar = row['kind'] == 'CONTENT_CALENDAR';
-          final (label, bg, fg) = _statusStyle('${row['status'] ?? ''}'.toUpperCase());
+          final (label, bg, fg) = _statusStyle(
+            '${row['status'] ?? ''}'.toUpperCase(),
+          );
           final running = row['running'] == true;
           final holdReason = '${row['hold_reason'] ?? ''}'.trim();
           return Container(
@@ -1338,57 +1508,102 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: running ? const Color(0xFF93C5FD) : const Color(0xFFE2E8F0)),
+              border: Border.all(
+                color: running
+                    ? const Color(0xFF93C5FD)
+                    : const Color(0xFFE2E8F0),
+              ),
             ),
-            child: Row(children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: isCalendar ? const Color(0xFFEAF2FF) : const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(10),
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: isCalendar
+                        ? const Color(0xFFEAF2FF)
+                        : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    isCalendar
+                        ? Icons.calendar_month_rounded
+                        : Icons.task_alt_rounded,
+                    size: 20,
+                    color: isCalendar
+                        ? const Color(0xFF004AAD)
+                        : const Color(0xFF334155),
+                  ),
                 ),
-                child: Icon(
-                  isCalendar ? Icons.calendar_month_rounded : Icons.task_alt_rounded,
-                  size: 20,
-                  color: isCalendar ? const Color(0xFF004AAD) : const Color(0xFF334155),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${row['title'] ?? ''}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        [
+                          if ('${row['heading'] ?? ''}'.trim().isNotEmpty)
+                            '${row['heading']}',
+                          if (isCalendar)
+                            'Last activity ${_time(row['last_activity_at'])}'
+                          else
+                            'Started ${_time(row['started_at'])}',
+                          if (holdReason.isNotEmpty &&
+                              row['status'] == 'ON HOLD')
+                            'Hold: $holdReason',
+                        ].join(' · '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('${row['title'] ?? ''}',
-                    style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0F172A))),
-                const SizedBox(height: 3),
+                const SizedBox(width: 12),
                 Text(
-                  [
-                    if ('${row['heading'] ?? ''}'.trim().isNotEmpty) '${row['heading']}',
-                    if (isCalendar) 'Last activity ${_time(row['last_activity_at'])}'
-                    else 'Started ${_time(row['started_at'])}',
-                    if (holdReason.isNotEmpty && row['status'] == 'ON HOLD') 'Hold: $holdReason',
-                  ].join(' · '),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                  _duration(row['duration_secs']),
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    color: running
+                        ? const Color(0xFF004AAD)
+                        : const Color(0xFF0F172A),
+                  ),
                 ),
-              ])),
-              const SizedBox(width: 12),
-              Text(
-                _duration(row['duration_secs']),
-                style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                  color: running ? const Color(0xFF004AAD) : const Color(0xFF0F172A),
+                const SizedBox(width: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      color: fg,
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-                child: Text(label, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: fg)),
-              ),
-              _actionButtons(row),
-            ]),
+                _actionButtons(row),
+              ],
+            ),
           );
         },
       ),
@@ -1402,11 +1617,13 @@ class _ClientLiveTrackingSectionState extends State<_ClientLiveTrackingSection> 
 class _WorkspaceTeamChat extends StatefulWidget {
   final String employeeName;
   final String clientName;
+  final String? initialTarget;
 
   const _WorkspaceTeamChat({
     super.key,
     required this.employeeName,
     required this.clientName,
+    this.initialTarget,
   });
 
   @override
@@ -1425,15 +1642,24 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
   bool _sending = false;
   io.Socket? _socket;
 
-  bool _same(String a, String b) => a.trim().toLowerCase() == b.trim().toLowerCase();
+  bool _same(String a, String b) =>
+      a.trim().toLowerCase() == b.trim().toLowerCase();
 
   @override
   void initState() {
     super.initState();
+    if (widget.initialTarget != null &&
+        widget.initialTarget!.trim().isNotEmpty) {
+      _selected = widget.initialTarget!.trim();
+    }
     _loadAll();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setAuthFn(authenticateSocket).setTransports(['websocket']).enableForceNew().disableAutoConnect().build(),
+      io.OptionBuilder()
+          .setTransports(['websocket'])
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
     )..connect();
     _socket!
       ..on('workspace_client_chat', (data) {
@@ -1457,14 +1683,19 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
       _error = null;
     });
     try {
-      final res = await http.get(Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/team')
-          .replace(queryParameters: {'client': widget.clientName}));
-      if (res.statusCode != 200) throw Exception('Request failed (${res.statusCode})');
-      final members = ((jsonDecode(res.body)['data'] as Map?)?['members'] as List? ?? [])
-          .whereType<Map>()
-          .map((m) => Map<String, dynamic>.from(m))
-          .where((m) => !_same('${m['name']}', widget.employeeName))
-          .toList();
+      final res = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}/workspace-tasks/team',
+        ).replace(queryParameters: {'client': widget.clientName}),
+      );
+      if (res.statusCode != 200)
+        throw Exception('Request failed (${res.statusCode})');
+      final members =
+          ((jsonDecode(res.body)['data'] as Map?)?['members'] as List? ?? [])
+              .whereType<Map>()
+              .map((m) => Map<String, dynamic>.from(m))
+              .where((m) => !_same('${m['name']}', widget.employeeName))
+              .toList();
       if (!mounted) return;
       setState(() => _members = members);
       await Future.wait([_loadGroup(), _loadDirect()]);
@@ -1480,8 +1711,11 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
 
   Future<void> _loadGroup() async {
     try {
-      final res = await http.get(Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/team/chat')
-          .replace(queryParameters: {'client': widget.clientName}));
+      final res = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}/workspace-tasks/team/chat',
+        ).replace(queryParameters: {'client': widget.clientName}),
+      );
       if (res.statusCode != 200 || !mounted) return;
       setState(() {
         _groupMessages = (jsonDecode(res.body)['data'] as List? ?? [])
@@ -1494,8 +1728,11 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
 
   Future<void> _loadDirect() async {
     try {
-      final res = await http.get(Uri.parse(
-          '${ApiConfig.baseUrl}/chat/${Uri.encodeComponent(widget.employeeName)}'));
+      final res = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}/chat/${Uri.encodeComponent(widget.employeeName)}',
+        ),
+      );
       if (res.statusCode != 200 || !mounted) return;
       final body = jsonDecode(res.body);
       setState(() {
@@ -1591,14 +1828,24 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       leading: CircleAvatar(
         radius: 16,
-        backgroundColor: selected ? const Color(0xFF1456C0) : const Color(0xFFEAF2FF),
+        backgroundColor: selected
+            ? const Color(0xFF1456C0)
+            : const Color(0xFFEAF2FF),
         foregroundColor: selected ? Colors.white : const Color(0xFF1456C0),
         child: Icon(icon, size: 16),
       ),
-      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 11)),
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+      ),
+      subtitle: Text(
+        subtitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 11),
+      ),
       onTap: () => setState(() => _selected = id),
     );
   }
@@ -1608,11 +1855,18 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(_error!, textAlign: TextAlign.center),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(onPressed: _loadAll, icon: const Icon(Icons.refresh_rounded), label: const Text('Try again')),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_error!, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _loadAll,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
       );
     }
     final conversation = _conversation;
@@ -1627,21 +1881,39 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
       child: ListView(
         padding: const EdgeInsets.all(8),
         children: [
-          _contact(_group, '${widget.clientName} group', '${_members.length + 1} members', Icons.groups_rounded),
+          _contact(
+            _group,
+            '${widget.clientName} group',
+            '${_members.length + 1} members',
+            Icons.groups_rounded,
+          ),
           const Padding(
             padding: EdgeInsets.fromLTRB(10, 10, 10, 4),
-            child: Text('TEAM ON THIS CLIENT',
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF64748B), letterSpacing: 0.6)),
+            child: Text(
+              'TEAM ON THIS CLIENT',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF64748B),
+                letterSpacing: 0.6,
+              ),
+            ),
           ),
           if (_members.isEmpty)
             const Padding(
               padding: EdgeInsets.all(10),
-              child: Text('No other employees are assigned to this client.',
-                  style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B))),
+              child: Text(
+                'No other employees are assigned to this client.',
+                style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+              ),
             ),
           for (final m in _members)
-            _contact('${m['name']}', '${m['name']}',
-                ((m['roles'] as List?) ?? []).join(', '), Icons.person_rounded),
+            _contact(
+              '${m['name']}',
+              '${m['name']}',
+              ((m['roles'] as List?) ?? []).join(', '),
+              Icons.person_rounded,
+            ),
         ],
       ),
     );
@@ -1653,7 +1925,11 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             isGroup ? '${widget.clientName} group' : _selected,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Color(0xFF14213D)),
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF14213D),
+            ),
           ),
         ),
         Expanded(
@@ -1666,7 +1942,9 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
             child: conversation.isEmpty
                 ? Center(
                     child: Text(
-                      isGroup ? 'Say hello to the ${widget.clientName} team.' : 'Start a conversation.',
+                      isGroup
+                          ? 'Say hello to the ${widget.clientName} team.'
+                          : 'Start a conversation.',
                       style: const TextStyle(color: Color(0xFF64748B)),
                     ),
                   )
@@ -1679,27 +1957,49 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
                       final sender = '${message['senderName'] ?? ''}';
                       final isMine = _same(sender, widget.employeeName);
                       return Align(
-                        alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+                        alignment: isMine
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
                         child: Container(
                           constraints: const BoxConstraints(maxWidth: 520),
                           margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 13,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
-                            color: isMine ? const Color(0xFFEAF2FF) : const Color(0xFFF1F5F9),
+                            color: isMine
+                                ? const Color(0xFFEAF2FF)
+                                : const Color(0xFFF1F5F9),
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               if (isGroup && !isMine)
-                                Text(sender,
-                                    style: const TextStyle(
-                                        fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF1456C0))),
-                              Text('${message['message'] ?? ''}',
-                                  style: const TextStyle(color: Color(0xFF14213D), fontSize: 13)),
+                                Text(
+                                  sender,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF1456C0),
+                                  ),
+                                ),
+                              Text(
+                                '${message['message'] ?? ''}',
+                                style: const TextStyle(
+                                  color: Color(0xFF14213D),
+                                  fontSize: 13,
+                                ),
+                              ),
                               const SizedBox(height: 4),
-                              Text(_time(message['time']),
-                                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 10)),
+                              Text(
+                                _time(message['time']),
+                                style: const TextStyle(
+                                  color: Color(0xFF64748B),
+                                  fontSize: 10,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1719,7 +2019,9 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _send(),
                 decoration: InputDecoration(
-                  hintText: isGroup ? 'Message the ${widget.clientName} team…' : 'Write a message…',
+                  hintText: isGroup
+                      ? 'Message the ${widget.clientName} team…'
+                      : 'Write a message…',
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(
@@ -1734,7 +2036,11 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
               tooltip: 'Send',
               onPressed: _sending ? null : _send,
               icon: _sending
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Icon(Icons.send_rounded),
             ),
           ],
@@ -1753,11 +2059,20 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
                 DropdownButtonFormField<String>(
                   value: _selected,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: 'Chat', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Chat',
+                    border: OutlineInputBorder(),
+                  ),
                   items: [
-                    DropdownMenuItem(value: _group, child: Text('${widget.clientName} group')),
+                    DropdownMenuItem(
+                      value: _group,
+                      child: Text('${widget.clientName} group'),
+                    ),
                     for (final m in _members)
-                      DropdownMenuItem(value: '${m['name']}', child: Text('${m['name']}')),
+                      DropdownMenuItem(
+                        value: '${m['name']}',
+                        child: Text('${m['name']}'),
+                      ),
                   ],
                   onChanged: (v) => setState(() => _selected = v ?? _group),
                 ),
@@ -1768,14 +2083,17 @@ class _WorkspaceTeamChatState extends State<_WorkspaceTeamChat> {
           }
           return Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [contacts, const SizedBox(width: 14), Expanded(child: chat)],
+            children: [
+              contacts,
+              const SizedBox(width: 14),
+              Expanded(child: chat),
+            ],
           );
         },
       ),
     );
   }
 }
-
 
 bool _chatIsGroup(dynamic value) =>
     value == true || value == 1 || value?.toString() == '1';
@@ -1835,7 +2153,8 @@ class _WorkspaceClient {
     if (overdue > 0) return 'OVERDUE';
     if (inReview > 0) return 'IN REVIEW';
     final started = inProgress + onHold + inReview + completed + rework > 0;
-    if (!started && assignedAt != null &&
+    if (!started &&
+        assignedAt != null &&
         DateTime.now().difference(assignedAt!).inDays < 3) {
       return 'NEW';
     }
@@ -1868,7 +2187,14 @@ class _WorkspaceClient {
       totalRows == 0 ? 0 : (completed * 100 / totalRows).round();
 }
 
-enum _WorkspaceTaskStatus { pending, inProgress, onHold, inReview, rework, completed }
+enum _WorkspaceTaskStatus {
+  pending,
+  inProgress,
+  onHold,
+  inReview,
+  rework,
+  completed,
+}
 
 class _WorkspaceTask {
   final String key;
@@ -1910,6 +2236,8 @@ class _WorkspaceTask {
 }
 
 class _ClientWorkspace extends StatefulWidget {
+  // GODIGITAL_FULL_MOBILE_SCROLL_V2
+  final Widget? mobileHeader;
   final String employeeName;
   final EmployeeRole role;
   final bool showAssignedTasks;
@@ -1920,6 +2248,7 @@ class _ClientWorkspace extends StatefulWidget {
 
   const _ClientWorkspace({
     super.key,
+    this.mobileHeader,
     required this.employeeName,
     required this.role,
     required this.showAssignedTasks,
@@ -1956,7 +2285,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
   void _initSocketListener() {
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setAuthFn(authenticateSocket)
+      io.OptionBuilder()
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
@@ -1998,15 +2327,18 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
       _error = null;
     });
     try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/cards')
-          .replace(queryParameters: {'employee': widget.employeeName});
+      final uri = Uri.parse(
+        '${ApiConfig.baseUrl}/workspace-tasks/cards',
+      ).replace(queryParameters: {'employee': widget.employeeName});
       final response = await http.get(uri);
       if (response.statusCode != 200) {
         throw Exception('Request failed (${response.statusCode})');
       }
       final decoded = jsonDecode(response.body);
       if (decoded is! Map || decoded['data'] is! List) {
-        throw const FormatException('Unexpected response from the task service.');
+        throw const FormatException(
+          'Unexpected response from the task service.',
+        );
       }
       int n(dynamic v) => v is int ? v : int.tryParse('${v ?? 0}') ?? 0;
 
@@ -2020,7 +2352,8 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
           // Work a Page / Ads Handler gave this employee from the Content
           // Calendar always shows; admin-only additional tasks follow the
           // "Additional Task" page permission.
-          if (isAdditional && !widget.showAdditionalTasks &&
+          if (isAdditional &&
+              !widget.showAdditionalTasks &&
               t['handler_assigned'] != true) {
             continue;
           }
@@ -2071,7 +2404,9 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
           );
         }
         if (tasks.isEmpty) continue;
-        tasks.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        tasks.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
         loadedClients.add(
           _WorkspaceClient(
             name: '${card['client_name'] ?? ''}',
@@ -2079,12 +2414,15 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
             employeeRole: widget.role,
             tasks: tasks,
             toReview: n(card['to_review']),
-            assignedAt: DateTime.tryParse('${card['assigned_at'] ?? ''}')?.toLocal(),
+            assignedAt: DateTime.tryParse(
+              '${card['assigned_at'] ?? ''}',
+            )?.toLocal(),
             team: (card['team'] as List? ?? [])
                 .whereType<Map>()
                 .map((t) => Map<String, dynamic>.from(t))
                 .toList(),
-            isAdditional: card['additional'] == true ||
+            isAdditional:
+                card['additional'] == true ||
                 tasks.any((t) => t.isAdditional || t.handlerAssigned),
             additionalBy: (card['additional_by'] as List? ?? [])
                 .map((e) => '$e'.trim())
@@ -2153,6 +2491,64 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
 
     final windowed = _windowed();
     final visible = _filtered(windowed);
+
+    // GODIGITAL_PINNED_FILTER_V4
+    // Welcome scrolls away; filters stay pinned on mobile.
+    if (MediaQuery.sizeOf(context).width < 600) {
+      return RefreshIndicator(
+        onRefresh: _loadClients,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          slivers: [
+            if (widget.mobileHeader != null)
+              SliverToBoxAdapter(child: widget.mobileHeader!),
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _WorkspacePinnedFilterDelegate(
+                child: _filterBar(windowed),
+              ),
+            ),
+            if (visible.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 48),
+                  child: Center(
+                    child: Text(
+                      'No client cards match these filters.',
+                      style: TextStyle(color: Color(0xFF64748B)),
+                    ),
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.only(bottom: 24),
+                sliver: SliverList.builder(
+                  itemCount: visible.length,
+                  itemBuilder: (context, index) {
+                    final client = visible[index];
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      child: SizedBox(
+                        height: 390,
+                        child: _RibbonedCard(
+                          ribbon: client.ribbon,
+                          additional: client.isAdditional,
+                          child: _ClientCard(
+                            client: client,
+                            onOpen: () => widget.onSelectClient(client),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2218,13 +2614,15 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
     }).toList();
   }
 
-  String _monthKey(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
+  String _monthKey(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
   List<_WorkspaceClient> _filtered(List<_WorkspaceClient> source) {
     final q = widget.searchQuery.trim().toLowerCase();
     final list = source.where((c) {
       if (q.isNotEmpty && !c.name.toLowerCase().contains(q)) return false;
-      if (_month != null && (c.dueDate == null || _monthKey(c.dueDate!) != _month)) {
+      if (_month != null &&
+          (c.dueDate == null || _monthKey(c.dueDate!) != _month)) {
         return false;
       }
       if (_ribbonFilter == 'ALL') return true;
@@ -2238,6 +2636,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
       final db = b.dueDate ?? DateTime(2100);
       return da.compareTo(db);
     }
+
     list.sort((a, b) {
       // Completed cards always go to the end.
       if (a.isCompleted != b.isCompleted) return a.isCompleted ? 1 : -1;
@@ -2258,19 +2657,47 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
   }
 
   static const _ribbonOrder = [
-    'ALL', 'NEW', 'PROCESSING', 'CURRENT', 'HOLD', 'REWORK', 'OVERDUE', 'IN REVIEW',
-    'TO REVIEW', 'ADDITIONAL', 'PENDING', 'COMPLETED',
+    'ALL',
+    'NEW',
+    'PROCESSING',
+    'CURRENT',
+    'HOLD',
+    'REWORK',
+    'OVERDUE',
+    'IN REVIEW',
+    'TO REVIEW',
+    'ADDITIONAL',
+    'PENDING',
+    'COMPLETED',
   ];
 
+  // GODIGITAL_RESPONSIVE_FILTER_V3
+  // Compact desktop toolbar and mobile Option B.
   Widget _filterBar(List<_WorkspaceClient> windowed) {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    final monthKeys = windowed
-        .map((c) => c.dueDate)
-        .whereType<DateTime>()
-        .map(_monthKey)
-        .toSet()
-        .toList()
-      ..sort();
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    final monthKeys =
+        windowed
+            .map((c) => c.dueDate)
+            .whereType<DateTime>()
+            .map(_monthKey)
+            .toSet()
+            .toList()
+          ..sort();
+
     int countFor(String f) => switch (f) {
       'ALL' => windowed.length,
       'PENDING' => windowed.where((c) => c.ribbon == null).length,
@@ -2278,82 +2705,236 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
       'ADDITIONAL' => windowed.where((c) => c.isAdditional).length,
       _ => windowed.where((c) => c.ribbon == f).length,
     };
-    final ribbons = _ribbonOrder.where((f) => f == 'ALL' || countFor(f) > 0).toList();
 
-    InputDecoration deco(String label) => InputDecoration(
+    final ribbons = _ribbonOrder
+        .where((f) => f == 'ALL' || countFor(f) > 0)
+        .toList();
+
+    InputDecoration decoration(String label) => InputDecoration(
       labelText: label,
       isDense: true,
       filled: true,
       fillColor: Colors.white,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
     );
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 210,
-                child: DropdownButtonFormField<String>(
-                  value: _sort,
-                  isExpanded: true,
-                  decoration: deco('Sort'),
-                  items: const [
-                    DropdownMenuItem(value: 'date_asc', child: Text('Submit date ↑ (nearest)')),
-                    DropdownMenuItem(value: 'date_desc', child: Text('Submit date ↓ (latest)')),
-                    DropdownMenuItem(value: 'name_asc', child: Text('Client name A → Z')),
-                    DropdownMenuItem(value: 'name_desc', child: Text('Client name Z → A')),
-                  ],
-                  onChanged: (v) => setState(() => _sort = v ?? 'date_asc'),
-                ),
-              ),
-              SizedBox(
-                width: 180,
-                child: DropdownButtonFormField<String?>(
-                  value: monthKeys.contains(_month) ? _month : null,
-                  isExpanded: true,
-                  decoration: deco('Month'),
-                  items: [
-                    const DropdownMenuItem<String?>(value: null, child: Text('All months')),
-                    for (final k in monthKeys)
-                      DropdownMenuItem<String?>(
-                        value: k,
-                        child: Text('${months[int.parse(k.substring(5)) - 1]} ${k.substring(0, 4)}'),
-                      ),
-                  ],
-                  onChanged: (v) => setState(() => _month = v),
-                ),
-              ),
-              FilterChip(
-                label: const Text('Show older than 2 months'),
-                selected: _showOlder,
-                onSelected: (v) => setState(() => _showOlder = v),
-              ),
-            ],
+    final sortField = DropdownButtonFormField<String>(
+      key: const ValueKey('workspace-sort-v3'),
+      value: _sort,
+      isExpanded: true,
+      decoration: decoration('Sort'),
+      selectedItemBuilder: (context) => const [
+        Text('Submit date ↑', overflow: TextOverflow.ellipsis),
+        Text('Submit date ↓', overflow: TextOverflow.ellipsis),
+        Text('Client A - Z', overflow: TextOverflow.ellipsis),
+        Text('Client Z - A', overflow: TextOverflow.ellipsis),
+      ],
+      items: const [
+        DropdownMenuItem(
+          value: 'date_asc',
+          child: Text('Submit date ↑ (nearest)'),
+        ),
+        DropdownMenuItem(
+          value: 'date_desc',
+          child: Text('Submit date ↓ (latest)'),
+        ),
+        DropdownMenuItem(value: 'name_asc', child: Text('Client name A → Z')),
+        DropdownMenuItem(value: 'name_desc', child: Text('Client name Z → A')),
+      ],
+      onChanged: (value) {
+        setState(() => _sort = value ?? 'date_asc');
+      },
+    );
+
+    final monthField = DropdownButtonFormField<String?>(
+      key: ValueKey('workspace-month-v3-${monthKeys.join("-")}'),
+      value: monthKeys.contains(_month) ? _month : null,
+      isExpanded: true,
+      decoration: decoration('Month'),
+      items: [
+        const DropdownMenuItem<String?>(value: null, child: Text('All months')),
+        for (final key in monthKeys)
+          DropdownMenuItem<String?>(
+            value: key,
+            child: Text(
+              '${months[int.parse(key.substring(5)) - 1]} '
+              '${key.substring(0, 4)}',
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final f in ribbons)
-                ChoiceChip(
-                  avatar: f == 'ALL' ? null : CircleAvatar(backgroundColor: _ribbonColor(f), radius: 5),
-                  label: Text('${f == 'ALL' ? 'All' : f[0] + f.substring(1).toLowerCase()} (${countFor(f)})'),
-                  selected: _ribbonFilter == f,
-                  onSelected: (_) => setState(() => _ribbonFilter = f),
-                ),
-            ],
-          ),
-        ],
+      ],
+      onChanged: (value) {
+        setState(() => _month = value);
+      },
+    );
+
+    final olderChip = FilterChip(
+      label: const Text(
+        'Older 2m',
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
       ),
+      tooltip: 'Show older than 2 months',
+      selected: _showOlder,
+      showCheckmark: true,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+      onSelected: (value) {
+        setState(() => _showOlder = value);
+      },
+    );
+
+    final statusChips = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final f in ribbons)
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: ChoiceChip(
+              avatar: f == 'ALL'
+                  ? null
+                  : CircleAvatar(backgroundColor: _ribbonColor(f), radius: 4),
+              label: Text(
+                '${f == 'ALL'
+                    ? 'All'
+                    : f == 'TO REVIEW'
+                    ? 'Review'
+                    : f[0] + f.substring(1).toLowerCase()} ${countFor(f)}',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              selected: _ribbonFilter == f,
+              showCheckmark: false,
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              onSelected: (_) {
+                setState(() => _ribbonFilter = f);
+              },
+            ),
+          ),
+      ],
+    );
+
+    // GODIGITAL_EMPLOYEE_TOOLBAR_V9
+    // GODIGITAL_EMPLOYEE_MONTH_V12
+    // Sort and Month share the first section.
+    // Status filters have equal widths on desktop.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final mobile = constraints.maxWidth < 600;
+
+        if (mobile) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: SizedBox(height: 48, child: sortField)),
+                    const SizedBox(width: 8),
+                    Expanded(child: SizedBox(height: 48, child: monthField)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: statusChips,
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+          child: SizedBox(
+            height: 48,
+            child: LayoutBuilder(
+              builder: (context, desktopConstraints) {
+                final minimumWidth = 160.0 * (ribbons.length + 2);
+                final toolbarWidth = desktopConstraints.maxWidth < minimumWidth
+                    ? minimumWidth
+                    : desktopConstraints.maxWidth;
+
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: toolbarWidth,
+                    height: 48,
+                    child: Row(
+                      children: [
+                        Expanded(child: SizedBox(height: 44, child: sortField)),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: SizedBox(height: 44, child: monthField),
+                        ),
+                        const SizedBox(width: 10),
+                        for (final f in ribbons) ...[
+                          Expanded(
+                            child: SizedBox(
+                              height: 44,
+                              child: Material(
+                                color: _ribbonFilter == f
+                                    ? const Color(0xFF1456CE)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: () {
+                                    setState(() => _ribbonFilter = f);
+                                  },
+                                  child: Container(
+                                    alignment: Alignment.center,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: _ribbonFilter == f
+                                            ? const Color(0xFF1456CE)
+                                            : const Color(0xFFD8E1EF),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '${f == 'ALL'
+                                          ? 'All'
+                                          : f == 'TO REVIEW'
+                                          ? 'Review'
+                                          : f[0] + f.substring(1).toLowerCase()} ${countFor(f)}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: _ribbonFilter == f
+                                            ? Colors.white
+                                            : const Color(0xFF25324A),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2381,7 +2962,11 @@ class _RibbonedCard extends StatelessWidget {
   final bool additional;
   final Widget child;
 
-  const _RibbonedCard({required this.ribbon, required this.child, this.additional = false});
+  const _RibbonedCard({
+    required this.ribbon,
+    required this.child,
+    this.additional = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2424,12 +3009,20 @@ class _AdditionalTag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(9, 3, 9, 4),
       decoration: const BoxDecoration(
-        gradient: LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFF9333EA)]),
+        gradient: LinearGradient(
+          colors: [Color(0xFF7C3AED), Color(0xFF9333EA)],
+        ),
         borderRadius: BorderRadius.only(
           bottomLeft: Radius.circular(8),
           bottomRight: Radius.circular(8),
         ),
-        boxShadow: [BoxShadow(color: Color(0x337C3AED), blurRadius: 6, offset: Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x337C3AED),
+            blurRadius: 6,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
@@ -2457,48 +3050,202 @@ class _ClientCard extends StatelessWidget {
 
   const _ClientCard({required this.client, required this.onOpen});
 
-  static Widget _taskLine(String name, int done, int total, {double indent = 0}) => Padding(
-        padding: EdgeInsets.only(left: indent, top: 3, bottom: 3),
-        child: Row(
-          children: [
-            Icon(
-              Icons.circle,
-              size: 7,
-              color: total > 0 && done >= total
-                  ? const Color(0xFF16A34A)
-                  : done == 0
-                  ? const Color(0xFF94A3B8)
-                  : const Color(0xFF2563EB),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xFF475569), fontSize: 12),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(
-                color: total > 0 && done >= total ? const Color(0xFFDCFCE7) : const Color(0xFFEFF5FF),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$done/$total',
-                style: TextStyle(
-                  color: total > 0 && done >= total ? const Color(0xFF15803D) : const Color(0xFF1456C0),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ],
+  static Widget _taskLine(
+    String name,
+    int done,
+    int total, {
+    double indent = 0,
+  }) => Padding(
+    padding: EdgeInsets.only(left: indent, top: 3, bottom: 3),
+    child: Row(
+      children: [
+        Icon(
+          Icons.circle,
+          size: 7,
+          color: total > 0 && done >= total
+              ? const Color(0xFF16A34A)
+              : done == 0
+              ? const Color(0xFF94A3B8)
+              : const Color(0xFF2563EB),
         ),
-      );
+
+        Expanded(
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Color(0xFF475569), fontSize: 12),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: total > 0 && done >= total
+                ? const Color(0xFFDCFCE7)
+                : const Color(0xFFEFF5FF),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            '$done/$total',
+            style: TextStyle(
+              color: total > 0 && done >= total
+                  ? const Color(0xFF15803D)
+                  : const Color(0xFF1456C0),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 
   /// Team · tasks (role, person, each category with completed/total) in a popup.
+  // Restored Team actions: reuse the existing Chat widget and employee API.
+  static Future<void> _teamWhatsApp(
+    BuildContext context,
+    Map<String, dynamic> member,
+  ) async {
+    final name = '${member['employee'] ?? ''}'.trim();
+    String phone = '';
+    for (final key in [
+      'phone_number',
+      'phone',
+      'mobile',
+      'mobile_number',
+      'employee_phone',
+    ]) {
+      final value = '${member[key] ?? ''}'.trim();
+      if (value.isNotEmpty && value.toLowerCase() != 'null') {
+        phone = value;
+        break;
+      }
+    }
+    if (phone.isEmpty) {
+      try {
+        final token = context.read<AuthService>().token ?? '';
+        final response = await http.get(
+          Uri.parse('${ApiConfig.baseUrl}/employees'),
+          headers: {if (token.isNotEmpty) 'Authorization': 'Bearer $token'},
+        );
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body);
+          final employees =
+              (decoded is Map ? decoded['data'] : decoded) as List? ?? [];
+          for (final item in employees.whereType<Map>()) {
+            final foundName = '${item['full_name'] ?? item['name'] ?? ''}'
+                .trim();
+            if (foundName.toLowerCase() == name.toLowerCase()) {
+              phone =
+                  '${item['phone_number'] ?? item['phone'] ?? item['mobile'] ?? ''}'
+                      .trim();
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Team WhatsApp contact lookup error: $e');
+      }
+    }
+    if (!context.mounted) return;
+    var digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length == 11 && digits.startsWith('0')) {
+      digits = '91${digits.substring(1)}';
+    } else if (digits.length == 10) {
+      digits = '91$digits';
+    }
+    if (digits.length < 10 || digits.length > 15) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Valid WhatsApp number unavailable for $name')),
+      );
+      return;
+    }
+    try {
+      final url = Uri.https('wa.me', '/$digits', {'text': 'Hi $name'});
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication) &&
+          context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to open WhatsApp')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Team WhatsApp launch error: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to open WhatsApp')),
+        );
+      }
+    }
+  }
+
+  static Future<void> _teamDirectChat(
+    BuildContext context,
+    _WorkspaceClient client,
+    Map<String, dynamic> member,
+  ) async {
+    final target = '${member['employee'] ?? ''}'.trim();
+    final auth = context.read<AuthService>();
+    final user = auth.user;
+    final sender =
+        '${user?['fullName'] ?? user?['full_name'] ?? user?['name'] ?? ''}'
+            .trim();
+    if (target.isEmpty || sender.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Employee identity is unavailable for Chat'),
+        ),
+      );
+      return;
+    }
+    if (sender.toLowerCase() == target.toLowerCase()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select another employee to chat')),
+      );
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: const Color(0xFFF4F7FC),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 960, maxHeight: 650),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Chat · $target',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: _WorkspaceTeamChat(
+                  employeeName: sender,
+                  clientName: client.name,
+                  initialTarget: target,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   static Future<void> showTeam(BuildContext context, _WorkspaceClient client) {
     final taskGroups = _workspaceTaskGroups(client);
     return showDialog<void>(
@@ -2517,7 +3264,8 @@ class _ClientCard extends StatelessWidget {
               PremiumTheme.dialogHeader(
                 'Team · tasks',
                 icon: Icons.groups_2_rounded,
-                subtitle: '${client.name} · Submit ${_formatDate(client.submissionDate)}',
+                subtitle:
+                    '${client.name} · Submit ${_formatDate(client.submissionDate)}',
                 onClose: () => Navigator.pop(dialogContext),
               ),
               Flexible(
@@ -2526,7 +3274,8 @@ class _ClientCard extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
                   children: [
                     if (client.team.isEmpty)
-                      for (final group in taskGroups) _taskLine(group.$1, group.$2, group.$3),
+                      for (final group in taskGroups)
+                        _taskLine(group.$1, group.$2, group.$3),
                     for (final member in client.team)
                       Container(
                         margin: const EdgeInsets.only(bottom: 10),
@@ -2545,12 +3294,17 @@ class _ClientCard extends StatelessWidget {
                                   radius: 13,
                                   backgroundColor: const Color(0xFF0757D5),
                                   child: Text(
-                                    _clientInitials('${member['employee'] ?? ''}'),
+                                    _clientInitials(
+                                      '${member['employee'] ?? ''}',
+                                    ),
                                     style: const TextStyle(
-                                        color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w800),
+                                      color: Colors.white,
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(width: 8),
+
                                 Expanded(
                                   child: Text(
                                     '${member['employee'] ?? ''}',
@@ -2564,7 +3318,10 @@ class _ClientCard extends StatelessWidget {
                                   ),
                                 ),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFEAF2FF),
                                     borderRadius: BorderRadius.circular(10),
@@ -2578,10 +3335,56 @@ class _ClientCard extends StatelessWidget {
                                     ),
                                   ),
                                 ),
+                                // TEAM_COMMUNICATION_ACTIONS_V2
+                                const SizedBox(width: 5),
+                                Tooltip(
+                                  message: 'WhatsApp',
+                                  child: IconButton(
+                                    onPressed: () =>
+                                        _teamWhatsApp(dialogContext, member),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 34,
+                                      minHeight: 34,
+                                    ),
+                                    icon: Image.asset(
+                                      'assets/icons/godigital_whatsapp_chat.png',
+                                      width: 23,
+                                      height: 23,
+                                      errorBuilder: (_, _, _) => const Icon(
+                                        Icons.call_rounded,
+                                        color: Color(0xFF25D366),
+                                        size: 23,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Tooltip(
+                                  message: 'Chat',
+                                  child: IconButton(
+                                    onPressed: () => _teamDirectChat(
+                                      dialogContext,
+                                      client,
+                                      member,
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 34,
+                                      minHeight: 34,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.forum_rounded,
+                                      color: Color(0xFF0757D5),
+                                      size: 22,
+                                    ),
+                                  ),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 6),
-                            for (final task in (member['tasks'] as List? ?? []).whereType<Map>())
+                            for (final task
+                                in (member['tasks'] as List? ?? [])
+                                    .whereType<Map>())
                               _taskLine(
                                 '${task['name'] ?? ''}',
                                 int.tryParse('${task['completed'] ?? 0}') ?? 0,
@@ -2591,8 +3394,13 @@ class _ClientCard extends StatelessWidget {
                             if ((member['tasks'] as List? ?? []).isEmpty)
                               const Padding(
                                 padding: EdgeInsets.only(left: 4, top: 2),
-                                child: Text('No categories',
-                                    style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
+                                child: Text(
+                                  'No categories',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF94A3B8),
+                                  ),
+                                ),
                               ),
                           ],
                         ),
@@ -2655,7 +3463,10 @@ class _ClientCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(20),
                       onTap: () => showTeam(context, client),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFEFF5FF),
                           borderRadius: BorderRadius.circular(20),
@@ -2664,7 +3475,11 @@ class _ClientCard extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.groups_2_rounded, size: 15, color: Color(0xFF0757D5)),
+                            const Icon(
+                              Icons.groups_2_rounded,
+                              size: 15,
+                              color: Color(0xFF0757D5),
+                            ),
                             if (teamCount > 0) ...[
                               const SizedBox(width: 4),
                               Text(
@@ -2689,7 +3504,10 @@ class _ClientCard extends StatelessWidget {
               children: [
                 Text(
                   'Submit date: ${_formatDate(client.submissionDate)}',
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                  style: const TextStyle(
+                    color: Color(0xFF64748B),
+                    fontSize: 12,
+                  ),
                 ),
                 if (client.additionalBy.isNotEmpty) ...[
                   const SizedBox(width: 8),
@@ -2697,7 +3515,10 @@ class _ClientCard extends StatelessWidget {
                     child: Tooltip(
                       message: 'Assigned by ${client.additionalBy.join(', ')}',
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF3E8FF),
                           borderRadius: BorderRadius.circular(10),
@@ -2732,7 +3553,7 @@ class _ClientCard extends StatelessWidget {
                     fontSize: 12,
                   ),
                 ),
-                const SizedBox(width: 10),
+
                 Expanded(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
@@ -2752,12 +3573,24 @@ class _ClientCard extends StatelessWidget {
               runSpacing: 6,
               children: [
                 if (client.inProgress > 0)
-                  _CountChip('In progress', client.inProgress, const Color(0xFF2563EB)),
+                  _CountChip(
+                    'In progress',
+                    client.inProgress,
+                    const Color(0xFF2563EB),
+                  ),
                 if (client.onHold > 0)
                   _CountChip('Hold', client.onHold, const Color(0xFFD97706)),
                 if (client.toReview > 0)
-                  _CountChip('To review', client.toReview, const Color(0xFFDC2626)),
-                _CountChip('Complete', client.completed, const Color(0xFF15803D)),
+                  _CountChip(
+                    'To review',
+                    client.toReview,
+                    const Color(0xFFDC2626),
+                  ),
+                _CountChip(
+                  'Complete',
+                  client.completed,
+                  const Color(0xFF15803D),
+                ),
               ],
             ),
             const Spacer(),
@@ -2841,14 +3674,12 @@ List<(String, int, int)> _workspaceTaskGroups(_WorkspaceClient client) {
     case EmployeeRole.designer:
       return [
         group('Creative / Design', tasks),
-        for (final task in tasks)
-          (task.name, task.completedCount, task.total),
+        for (final task in tasks) (task.name, task.completedCount, task.total),
       ];
     case EmployeeRole.videographer:
       return [
         group('Video Production', tasks),
-        for (final task in tasks)
-          (task.name, task.completedCount, task.total),
+        for (final task in tasks) (task.name, task.completedCount, task.total),
       ];
   }
 }
@@ -2951,4 +3782,37 @@ String _statusLabel(_WorkspaceTaskStatus status) {
     case _WorkspaceTaskStatus.completed:
       return 'Complete';
   }
+}
+
+// GODIGITAL_PINNED_FILTER_DELEGATE_V4
+class _WorkspacePinnedFilterDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+
+  _WorkspacePinnedFilterDelegate({required this.child});
+
+  @override
+  double get minExtent => 164;
+
+  @override
+  double get maxExtent => 164;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Material(
+      color: const Color(0xFFF4F7FC),
+      elevation: overlapsContent ? 3 : 0,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: SizedBox(width: double.infinity, child: child),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _WorkspacePinnedFilterDelegate oldDelegate) =>
+      true;
 }
