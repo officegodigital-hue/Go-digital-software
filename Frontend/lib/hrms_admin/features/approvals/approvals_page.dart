@@ -37,7 +37,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   String employee = 'All Employees';
   String status = 'All Status';
   String dateRange = 'All Dates';
-  String period = 'Today';
+  String period = 'This Month';
   DateTime _selectedDate = DateUtils.dateOnly(DateTime.now());
   String searchQuery = '';
   List<_ApprovalRequest> requests = [];
@@ -304,7 +304,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                             onPeriod: (value) { setState(() => period = value); _load(); },
                             selectedDate: _selectedDate,
                             onDate: (value) { setState(() => _selectedDate = value); _load(); },
-                            onReset: () { setState(() { searchQuery = ''; employee = 'All Employees'; status = 'All Status'; period = 'Today'; _selectedDate = DateUtils.dateOnly(DateTime.now()); }); _load(); },
+                            onReset: () { setState(() { searchQuery = ''; employee = 'All Employees'; status = 'All Status'; period = 'This Month'; _selectedDate = DateUtils.dateOnly(DateTime.now()); }); _load(); },
                             onReview: _updateStatus,
                             corrections: _CorrectionRequestsPanel(corrections: _corrections.where((c) {
                               if (period == 'All') return true;
@@ -405,7 +405,7 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                                     employee = 'All Employees';
                                     status = 'All Status';
                                     dateRange = 'All Dates';
-                                    period = 'Today';
+                                    period = 'This Month';
                                     _load();
                                   },
                                   onApprove: (request) =>
