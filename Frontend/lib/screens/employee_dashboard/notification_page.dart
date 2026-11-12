@@ -427,14 +427,35 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         if (!mounted || payload is! Map) return;
         final recipient = payload['recipientName']?.toString();
         final sender = payload['senderName']?.toString();
+        final seenAt = payload['seenAt']?.toString();
 
-        if (recipient != _loggedInEmployee) return;
+        // The sender needs this event to show "Seen <time>" on their messages.
+        if (recipient != _loggedInEmployee && sender != _loggedInEmployee) {
+          return;
+        }
         setState(() {
           for (final log in notificationLogs) {
             if (sender != null &&
                 log['senderName'] == sender &&
-                log['recipientName'] == recipient) {
+                log['recipientName'] == recipient &&
+                !_isSeenValue(log['isGroup'])) {
+              log['seenAt'] ??= seenAt;
               log['isSeen'] = true;
+            }
+          }
+          _unreadTotal = _calculateUnreadTotal();
+        });
+      });
+
+      _socket!.on('message_seen_changed', (payload) {
+        if (!mounted || payload is! Map) return;
+        final id = int.tryParse(payload['id']?.toString() ?? '');
+        if (id == null) return;
+        setState(() {
+          for (final log in notificationLogs) {
+            if (int.tryParse(log['id']?.toString() ?? '') == id) {
+              log['isSeen'] = payload['isSeen'] == true;
+              log['seenAt'] = payload['seenAt'];
             }
           }
           _unreadTotal = _calculateUnreadTotal();
@@ -498,16 +519,25 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       'time': incoming['time'] ?? 'Just Now',
       'isGroup': isGroup,
       'isSeen': sender == _loggedInEmployee,
+      'seenAt': null,
       'isFavorite': false,
+      'createdAt':
+          incoming['createdAt']?.toString() ?? DateTime.now().toIso8601String(),
       'created_at': DateTime.now().toIso8601String(),
     };
 
+    final openNow = _isCurrentConversation(row);
     setState(() {
       notificationLogs.insert(0, row);
-      if (sender != _loggedInEmployee && !_isCurrentConversation(row)) {
+      if (sender != _loggedInEmployee && !openNow) {
         _unreadTotal++;
       }
     });
+
+    // Recipient already has this chat open, so it is seen right away.
+    if (sender != _loggedInEmployee && openNow) {
+      _markMessagesSeen(isGroup ? recipient : sender, isGroup);
+    }
 
     if (sender != _loggedInEmployee) {
       _playChatSound();
@@ -594,6 +624,48 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _showMentionOverlay = false;
       });
     }
+  }
+
+  DateTime? _parseLogTime(dynamic value) {
+    if (value == null) return null;
+    final parsed = DateTime.tryParse(value.toString());
+    return parsed?.toLocal();
+  }
+
+  /// Newest message time in a conversation (0 when there are no messages).
+  int _lastActivityMs(Iterable<Map<String, dynamic>> msgs) {
+    var latest = 0;
+    for (final m in msgs) {
+      final t = _parseLogTime(m['createdAt'] ?? m['created_at']);
+      if (t != null && t.millisecondsSinceEpoch > latest) {
+        latest = t.millisecondsSinceEpoch;
+      }
+    }
+    return latest;
+  }
+
+  int _unreadFrom(Iterable<Map<String, dynamic>> msgs) {
+    return msgs
+        .where(
+          (l) =>
+              l['senderName'] != _loggedInEmployee &&
+              !_isSeenValue(l['isSeen']),
+        )
+        .length;
+  }
+
+  /// "Seen 10:32 am" today, "Seen yesterday 6:05 pm", or "Seen 03 Nov, 6:05 pm".
+  String _seenLabel(dynamic seenAt) {
+    final t = _parseLogTime(seenAt);
+    if (t == null) return 'Seen';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(t.year, t.month, t.day);
+    final time = DateFormat('h:mm a').format(t).toLowerCase();
+    final diff = today.difference(day).inDays;
+    if (diff == 0) return 'Seen $time';
+    if (diff == 1) return 'Seen yesterday $time';
+    return 'Seen ${DateFormat('dd MMM').format(t)}, $time';
   }
 
   bool _isSeenValue(dynamic value) {
@@ -749,6 +821,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           if (!group &&
               sender == targetName &&
               recipient == _loggedInEmployee) {
+            if (!_isSeenValue(log["isSeen"])) {
+              log["seenAt"] = DateTime.now().toUtc().toIso8601String();
+            }
             log["isSeen"] = true;
           }
         } else if (group &&
@@ -4874,9 +4949,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ),
                       if (isSeen) ...[
                         const SizedBox(width: 3),
-                        const Text(
-                          'Seen',
-                          style: TextStyle(
+                        Text(
+                          _isGroupChat ? 'Seen' : _seenLabel(log['seenAt']),
+                          style: const TextStyle(
                             color: _primary,
                             fontSize: 8.5,
                             fontWeight: FontWeight.w900,
@@ -5515,13 +5590,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 l['recipientName'] == nameB);
       });
 
-      final timeA = msgsA.isNotEmpty
-          ? (msgsA.first['created_at'] ?? msgsA.first['time'] ?? '').toString()
-          : '';
-      final timeB = msgsB.isNotEmpty
-          ? (msgsB.first['created_at'] ?? msgsB.first['time'] ?? '').toString()
-          : '';
-      return timeB.compareTo(timeA);
+      // Chats with unread messages come first
+      final unreadA = _unreadFrom(msgsA) > 0;
+      final unreadB = _unreadFrom(msgsB) > 0;
+      if (unreadA && !unreadB) return -1;
+      if (!unreadA && unreadB) return 1;
+
+      // Then newest message first
+      final byTime = _lastActivityMs(msgsB).compareTo(_lastActivityMs(msgsA));
+      if (byTime != 0) return byTime;
+      return nameA.toLowerCase().compareTo(nameB.toLowerCase());
     });
 
     List<dynamic> sortedGroups = List<dynamic>.from(chatGroups);
@@ -5550,13 +5628,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return _isSeenValue(l['isGroup']) && l['recipientName'] == nameB;
       });
 
-      final timeA = msgsA.isNotEmpty
-          ? (msgsA.first['created_at'] ?? msgsA.first['time'] ?? '').toString()
-          : '';
-      final timeB = msgsB.isNotEmpty
-          ? (msgsB.first['created_at'] ?? msgsB.first['time'] ?? '').toString()
-          : '';
-      return timeB.compareTo(timeA);
+      final unreadA = _unreadFrom(msgsA) > 0;
+      final unreadB = _unreadFrom(msgsB) > 0;
+      if (unreadA && !unreadB) return -1;
+      if (!unreadA && unreadB) return 1;
+
+      final byTime = _lastActivityMs(msgsB).compareTo(_lastActivityMs(msgsA));
+      if (byTime != 0) return byTime;
+      return nameA.toLowerCase().compareTo(nameB.toLowerCase());
     });
 
     return LayoutBuilder(

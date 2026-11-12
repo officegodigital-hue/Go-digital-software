@@ -237,6 +237,7 @@ router.get('/:employeeName', async (req, res) => {
             lastMessageId: r.id,
             lastSenderName: r.sender_name,
             isSeen: !!r.is_seen,
+            seenAt: r.seen_at || null,
           });
         }
       }
@@ -304,8 +305,10 @@ router.get('/:employeeName', async (req, res) => {
         recipientName: r.recipient_name,
         message: r.message,
         time: formatTime(r.created_at),
+        createdAt: r.created_at,
         isGroup: !!r.is_group,
         isSeen: !!r.is_seen,
+        seenAt: r.seen_at || null,
         isFavorite: !!r.is_favorite,
         isArchived: !!r.is_archived,
         attachment
@@ -497,22 +500,40 @@ router.patch('/mark-seen', async (req, res) => {
   }
 
   try {
-    const [result] = await db.query(
-      `
-        UPDATE notifications
-        SET is_seen = 1
-        WHERE recipient_name = ?
-          AND sender_name = ?
-          AND is_seen = 0
-      `,
-      [recipientName, senderName]
-    );
+    const seenAt = new Date();
+    let result;
+    try {
+      [result] = await db.query(
+        `
+          UPDATE notifications
+          SET is_seen = 1, seen_at = ?
+          WHERE recipient_name = ?
+            AND sender_name = ?
+            AND is_seen = 0
+        `,
+        [seenAt, recipientName, senderName]
+      );
+    } catch (dbError) {
+      // seen_at column not added yet: fall back to the old behaviour
+      if (dbError.code !== 'ER_BAD_FIELD_ERROR') throw dbError;
+      [result] = await db.query(
+        `
+          UPDATE notifications
+          SET is_seen = 1
+          WHERE recipient_name = ?
+            AND sender_name = ?
+            AND is_seen = 0
+        `,
+        [recipientName, senderName]
+      );
+    }
 
     const io = req.app.get('io');
-    if (io) {
+    if (io && result.affectedRows > 0) {
       io.emit('messages_seen', {
         recipientName,
         senderName,
+        seenAt: seenAt.toISOString(),
         affectedRows: result.affectedRows
       });
     }
@@ -520,6 +541,7 @@ router.patch('/mark-seen', async (req, res) => {
     return res.json({
       success: true,
       message: 'Messages marked as seen',
+      seenAt: seenAt.toISOString(),
       affectedRows: result.affectedRows
     });
 
@@ -544,27 +566,39 @@ router.patch('/mark-seen-group', async (req, res) => {
   }
 
   try {
-    let query = `
-      UPDATE notifications
-      SET is_seen = 1
+    const seenAt = new Date();
+    let where = `
       WHERE recipient_name = ?
         AND is_group = 1
         AND is_seen = 0
     `;
-    const values = [groupName];
+    const whereValues = [groupName];
 
     if (employeeName) {
-      query += ` AND sender_name != ?`;
-      values.push(employeeName);
+      where += ` AND sender_name != ?`;
+      whereValues.push(employeeName);
     }
 
-    const [result] = await db.query(query, values);
+    let result;
+    try {
+      [result] = await db.query(
+        `UPDATE notifications SET is_seen = 1, seen_at = ? ${where}`,
+        [seenAt, ...whereValues]
+      );
+    } catch (dbError) {
+      if (dbError.code !== 'ER_BAD_FIELD_ERROR') throw dbError;
+      [result] = await db.query(
+        `UPDATE notifications SET is_seen = 1 ${where}`,
+        whereValues
+      );
+    }
     const io = req.app.get('io');
 
     if (io) {
       io.emit('group_messages_seen', {
         groupName,
         employeeName: employeeName || null,
+        seenAt: seenAt.toISOString(),
         affectedRows: result.affectedRows
       });
     }
@@ -655,8 +689,10 @@ router.post('/send', (req, res, next) => {
       recipientName: targetRecipient,
       message: finalMessage,
       time: 'Just Now',
+      createdAt: new Date().toISOString(),
       isGroup: isGroupMsg,
       isSeen: false,
+      seenAt: null,
       isFavorite: false,
       isArchived: false,
       attachment
@@ -1224,9 +1260,11 @@ router.patch('/:id', async (req, res) => {
       values.push(isFavorite ? 1 : 0);
     }
 
+    let seenAt = null;
     if (isSeen !== undefined) {
-      updates.push('is_seen = ?');
-      values.push(isSeen ? 1 : 0);
+      seenAt = isSeen ? new Date() : null;
+      updates.push('is_seen = ?', 'seen_at = ?');
+      values.push(isSeen ? 1 : 0, seenAt);
     }
 
     if (isArchived !== undefined) {
@@ -1264,7 +1302,8 @@ router.patch('/:id', async (req, res) => {
       if (isSeen !== undefined) {
         io.emit('message_seen_changed', {
           id: Number(id),
-          isSeen: !!isSeen
+          isSeen: !!isSeen,
+          seenAt: seenAt ? seenAt.toISOString() : null
         });
       }
 

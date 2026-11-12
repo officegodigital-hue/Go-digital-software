@@ -80,8 +80,10 @@ router.get('/:employeeName', async (req, res) => {
         otherParty: isSentByMe ? r.recipient_name : r.sender_name,
         message: r.message,
         time: formatTime(r.created_at),
+        createdAt: r.created_at,
         type: isSentByMe ? 'SENT' : 'RECEIVED',
         isSeen: !!r.is_seen,
+        seenAt: r.seen_at || null,
         isFavorite: !!r.is_favorite,
         isArchived: !!r.is_archived,
       };
@@ -106,7 +108,7 @@ router.patch('/:id', async (req, res) => {
     const updates = [];
     const values = [];
     if (isFavorite !== undefined) { updates.push('is_favorite = ?'); values.push(isFavorite ? 1 : 0); }
-    if (isSeen !== undefined)      { updates.push('is_seen = ?');      values.push(isSeen ? 1 : 0); }
+    if (isSeen !== undefined)      { updates.push('is_seen = ?', 'seen_at = ?'); values.push(isSeen ? 1 : 0, isSeen ? new Date() : null); }
     if (isArchived !== undefined) { updates.push('is_archived = ?'); values.push(isArchived ? 1 : 0); }
     values.push(id);
 
