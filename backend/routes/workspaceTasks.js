@@ -240,6 +240,7 @@ async function ensureHandlerRows(assignment, task, employee, employeeId) {
 
 const ROW_SELECT = `
   SELECT tti.*, tl.deliverables, tl.client_name, tl.employee_name,
+         tl.additional_task_id AS tl_additional_task_id,
          tl.submission_date AS tl_submission_date,
          ta.deadline AS ta_deadline, ta.maintenance_date AS ta_maintenance,
          mr.manager_action, mr.manager_comment, mr.reviewed_at
@@ -288,6 +289,7 @@ function shapeRows(rows) {
       sub_no: subNo,
       display_no: subNo > 0 ? `${r.s_no}.${subNo}` : `${r.s_no}`,
       deliverable: r.deliverables,
+      is_additional: Boolean(r.tl_additional_task_id),
       client_name: r.client_name,
       employee_name: r.employee_name || '',
       submit_date: dateKey(r.submit_date || r.tl_submission_date),
@@ -917,6 +919,14 @@ async function reviewerAssignmentIds(employee, client) {
     .map((a) => a.id);
 }
 
+// Client names (lower-cased) where the employee is the Ads / Page Handler.
+async function reviewerClientNames(employee, client) {
+  const ids = await reviewerAssignmentIds(employee, client);
+  if (!ids.length) return [];
+  const [rows] = await db.query('SELECT DISTINCT client_name FROM task_assignments WHERE id IN (?)', [ids]);
+  return rows.map((r) => norm(r.client_name)).filter(Boolean);
+}
+
 // GET /review — { data: my own reviewed rows, team: rows I can review }
 async function buildReview(employee, client, date) {
     const employeeId = await employeeIdFor(employee);
@@ -941,12 +951,17 @@ async function buildReview(employee, client, date) {
     let team = [];
     const assignmentIds = await reviewerAssignmentIds(employee, client);
     if (assignmentIds.length) {
+      const handlerClients = await reviewerClientNames(employee, client);
+      // Normal team work of my assignments + ADDITIONAL work (it has no assignment)
+      // of the clients I handle, so additional tasks can be approved / sent to rework.
       const [teamRows] = await db.query(
         `${ROW_SELECT}
          WHERE ${REVIEW_WHERE}
-           AND tl.task_assignment_id IN (?)
+           AND (tl.task_assignment_id IN (?)
+                OR (tl.additional_task_id IS NOT NULL
+                    AND LOWER(TRIM(tl.client_name)) IN (?)))
          ORDER BY COALESCE(tti.complete_time, tti.updated_at) DESC, tti.id DESC`,
-        [assignmentIds],
+        [assignmentIds, handlerClients.length ? handlerClients : ['']],
       );
       // Page / Ads Handler: the whole team's work AND their own handler work
       // (a person who is both Page and Ads Handler reviews their own rows too).
@@ -1013,7 +1028,8 @@ router.post('/review/:id/decision', async (req, res) => {
   }
   try {
     const [[item]] = await db.query(
-      `SELECT tti.id, tti.status, tti.review_status, tl.task_assignment_id, tl.client_name
+      `SELECT tti.id, tti.status, tti.review_status, tl.task_assignment_id, tl.client_name,
+              tl.additional_task_id
        FROM time_tracking_task_items tti
        JOIN task_list tl ON tl.id = tti.task_list_id
        WHERE tti.id = ?`,
@@ -1023,7 +1039,11 @@ router.post('/review/:id/decision', async (req, res) => {
     const allowed = await reviewerAssignmentIds(employee, item.client_name);
     const userType = String(req.user?.userType || req.user?.user_type || '').toLowerCase();
     const admin = userType === 'admin' || req.body?.as_admin === true && await isAdminUser(employee);
-    if (!admin && (!item.task_assignment_id || !allowed.includes(item.task_assignment_id))) {
+    // Additional work has no assignment: the Ads / Page Handler of that client may review it.
+    const permitted = item.additional_task_id
+      ? allowed.length > 0
+      : Boolean(item.task_assignment_id) && allowed.includes(item.task_assignment_id);
+    if (!admin && !permitted) {
       return res.status(403).json({ success: false, message: 'Only the Ads / Page Handler of this client can review this task' });
     }
     if (upper(item.review_status) === 'APPROVED') {
@@ -3694,7 +3714,5 @@ router.get('/admin/content-calendar/:client', async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
-
-
 
 module.exports = router;
