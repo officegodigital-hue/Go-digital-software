@@ -90,10 +90,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         {'key': '/admin-panel', 'title': 'Employee Management'},
         {'key': '/time-manager', 'title': 'Time Manager'},
         {'key': '/emergency-broadcast', 'title': 'Broadcast Master'},
-        // Admin view of every client, every employee's tasks (live), Content
-        // Calendar, Task Review, Live Tracking, Team Chat and the Pending list.
         {'key': '/admin-workspace', 'title': 'Employee Workspace'},
-                {'key': '/tech-projects', 'title': 'Tech Projects'},
+        {'key': '/tech-projects', 'title': 'Tech Projects'},
         {'key': '/task-deadline-rules', 'title': 'Task Deadline Rules'},
       ];
     } else if (accessType == 'employee') {
@@ -101,18 +99,10 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         {'key': 'Dashboard', 'title': 'Dashboard'},
         {'key': 'Employee Workspace', 'title': 'Employee Workspace'},
         {'key': 'Day Planner', 'title': 'Day Planner'},
-        {'key': 'Assigned Task', 'title': 'Assigned Task'},
         {'key': 'Client Credentials', 'title': 'Client Credentials'},
         {'key': 'Live Tracking Tasks', 'title': 'Live Tracking Tasks'},
-        {'key': 'Daily Reports', 'title': 'Daily Reports'},
-        {'key': 'Task Planner', 'title': 'Task Planner'},
-        {'key': 'Video Task Planner', 'title': 'Video Task Planner'},
-        {'key': 'Task Review', 'title': 'Task Review'},
-        {'key': 'Task Status', 'title': 'Task Status'},
-        {'key': 'Notifications', 'title': 'Notifications'},
-                {'key': 'Tech Workspace', 'title': 'Tech Workspace'},
+        {'key': 'Tech Workspace', 'title': 'Tech Workspace'},
         {'key': 'Chat', 'title': 'Chat'},
-        {'key': 'Feedback', 'title': 'Feedback'},
       ];
     }
     return [];

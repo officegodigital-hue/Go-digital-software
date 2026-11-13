@@ -23,13 +23,9 @@ import 'package:godigital_portal/hrms_employee/pages/permission_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/salary_page.dart';
 import 'package:godigital_portal/hrms_employee/pages/tracking_page.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_history_screen.dart';
-import 'package:godigital_portal/screens/admin_dashboard/client_onboarding_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/emergency_broadcast_page.dart';
 
-import 'package:godigital_portal/screens/admin_dashboard/client_details_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/client_credentials_screen.dart';
-
-import 'package:godigital_portal/screens/admin_dashboard/Package_Quotation_admin.dart';
 
 import 'package:godigital_portal/screens/admin_dashboard/packages.dart';
 import 'package:godigital_portal/screens/admin_dashboard/quotations.dart';
@@ -39,7 +35,6 @@ import 'package:godigital_portal/screens/admin_dashboard/invoice_admin_screen.da
 import 'package:godigital_portal/screens/admin_dashboard/add_invoice_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/tasks_assign_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/employee_status_screen.dart';
-import 'package:godigital_portal/screens/admin_dashboard/manager_review_screen.dart';
 import 'package:godigital_portal/screens/notifications_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/admin_panel_screen.dart';
 import 'package:godigital_portal/screens/admin_dashboard/access_master_screen.dart'; // 🟢 Added AccessMasterScreen import
@@ -130,11 +125,11 @@ class MyApp extends StatelessWidget {
           '/adsHandler': (context) => const EmployeeLayoutPage(),
           '/videographer': (context) => const EmployeeLayoutPage(),
 
-          '/client-details': (context) =>
-              const AdminGuard(child: ClientOnboardingScreen()),
+          // '/client-details': (context) =>
+          //     const AdminGuard(child: ClientOnboardingScreen()),
 
-          '/client': (context) =>
-              const AdminGuard(child: ClientDetailsScreen()),
+          // '/client': (context) =>
+          //     const AdminGuard(child: ClientDetailsScreen()),
           '/client-credentials': (context) {
             final clientId = ModalRoute.of(context)!.settings.arguments as int?;
             return AdminGuard(
@@ -143,8 +138,8 @@ class MyApp extends StatelessWidget {
           },
           '/client-history': (context) =>
               const AdminGuard(child: ClientHistoryScreen()),
-          '/quotation': (context) =>
-              const AdminGuard(child: PackageQuotationAdmin()),
+          // '/quotation': (context) =>
+          //     const AdminGuard(child: PackageQuotationAdmin()),
           '/packages': (context) =>
               const AdminGuard(child: PackagesAdminScreen()),
           '/quotations': (context) =>
@@ -160,8 +155,7 @@ class MyApp extends StatelessWidget {
               const AdminGuard(child: AdminDayPlannerScreen()),
           '/employee-status': (context) =>
               const AdminGuard(child: EmployeeStatusScreen()),
-          '/manager-review': (context) =>
-              const AdminGuard(child: ManagerReviewScreen()),
+          
           '/notifications': (context) =>
               const AdminGuard(child: NotificationsScreen()),
           '/admin-panel': (context) =>

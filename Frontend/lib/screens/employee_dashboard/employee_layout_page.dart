@@ -13,24 +13,12 @@ import 'package:godigital_portal/screens/employee_dashboard/ads_handler_dashboar
 import 'package:godigital_portal/screens/employee_dashboard/videographer_dashboard_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/page_handler_dashboard_page.dart';
 
-import 'package:godigital_portal/screens/employee_dashboard/assigned_tasks_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/day_planner_screen.dart';
 import 'package:godigital_portal/screens/employee_dashboard/notification_page.dart';
-import 'package:godigital_portal/screens/employee_dashboard/daily_reports_page.dart';
-import 'package:godigital_portal/screens/employee_dashboard/task_planner_page.dart';
-import 'package:godigital_portal/screens/employee_dashboard/TaskStatusScreen.dart';
-import 'package:godigital_portal/screens/employee_dashboard/task_review.dart';
-import 'package:godigital_portal/screens/employee_dashboard/feedback_page.dart';
-import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner.dart';
 import 'package:godigital_portal/screens/employee_dashboard/client_credentials_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:godigital_portal/screens/employee_dashboard/additional_tasks_page.dart';
-import 'package:godigital_portal/screens/employee_dashboard/task_planner_history.dart';
-import 'package:godigital_portal/screens/employee_dashboard/videographer_task_planner_history.dart';
 import 'package:godigital_portal/screens/employee_dashboard/live_tracking_tasks_page.dart';
-import 'package:godigital_portal/screens/employee_dashboard/employee_history_page.dart';
-import 'package:godigital_portal/screens/employee_dashboard/feedback_history_page.dart';
 
 import 'package:godigital_portal/screens/employee_dashboard/employee_settings_page.dart';
 import 'package:godigital_portal/screens/employee_dashboard/employee_workspace_page.dart';
@@ -61,14 +49,9 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
   static const List<String> _menuOrder = [
     'Dashboard',
     'Day Planner',
-    'Assigned Task',
     'Live Tracking Tasks',
     'Chat',
     'Client Credentials',
-    'Task Planner',
-    'Task Review',
-    'Daily Reports',
-    'Additional Task',
     'Employee Workspace',
     'Tech Workspace',
   ];
@@ -93,27 +76,11 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       return 'Tech Workspace';
     }
     if (p.contains('workspace')) return 'Employee Workspace';
-    if (p.contains('video') && p.contains('planner')) {
-      return p.contains('history') ? 'Video Task Planner History' : 'Video Task Planner';
-    }
-    if (p.contains('feedback')) return p.contains('history') ? 'Feedback History' : 'Feedback';
     if (p.contains('settings')) return 'Settings';
     if (p.contains('dashboard') || p == '/admin' || p == '/employee') return 'Dashboard';
     if (p.contains('day-planner') || p.contains('day planner') || p.contains('attendance')) return 'Day Planner';
-    if (p.contains('tracking')) return 'Live Tracking Tasks';
-    if (p.contains('task-planner') || p.contains('task planner') || p.contains('leave')) {
-      return p.contains('history') ? 'Task Planner History' : 'Task Planner';
-    }
-    if (p.contains('review')) return 'Task Review';
-    if (p.contains('reports')) return 'Daily Reports';
     if (p.contains('notifications') || p == 'chat' || p.endsWith('/chat')) return 'Chat';
     if (p.contains('credentials')) return 'Client Credentials';
-    if (p.contains('additional')) return 'Additional Task';
-    if (p == 'assigned task' || p.contains('assigned-task') || p.endsWith('/tasks') ||
-        p.contains('clock-log')) {
-      return 'Assigned Task';
-    }
-    // Any other unknown route path is not a sidebar title.
     if (value.startsWith('/')) return null;
     return value;
   }
@@ -135,11 +102,11 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       }
     }
     if (menu.isEmpty) {
-      menu.addAll(['Dashboard', 'Day Planner', 'Assigned Task', 'Chat']);
+      menu.addAll(['Dashboard', 'Day Planner', 'Employee Workspace', 'Chat']);
     }
     // Employee Workspace is always available to employees.
     // Tech Workspace is only shown when Access Master grants it.
-    if (!menu.contains('Employee Workspace')) menu.add('Employee Workspace');
+    // if (!menu.contains('Employee Workspace')) menu.add('Employee Workspace');
 
     int rank(String m) {
       final i = _menuOrder.indexOf(m);
@@ -228,25 +195,21 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
     switch (loggedInRole) {
       case EmployeeRole.designer:
         return DesignerDashboardPage(
-          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
           onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
           onOpenWorkspace: _openWorkspaceItem,
         );
       case EmployeeRole.pageHandler:
         return PageHandlerDashboardPage(
-          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
           onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
           onOpenWorkspace: _openWorkspaceItem,
         );
       case EmployeeRole.adsHandler:
         return AdsHandlerDashboardPage(
-          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
           onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
           onOpenWorkspace: _openWorkspaceItem,
         );
       case EmployeeRole.videographer:
         return VideographerDashboardPage(
-          onOpenAssignedTask: () => setState(() => selectedMenu = 'Assigned Task'),
           onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
           onOpenWorkspace: _openWorkspaceItem,
         );
@@ -262,42 +225,16 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
         return getDashboardByRole(loggedInRole);
       case 'Day Planner':
         return DayPlannerScreen(onOpenWorkspace: _openWorkspaceItem);
-      case 'Assigned Task':
-        return AssignedTasksContent(role: loggedInRole);
-      case 'History':
-        return EmployeeHistoryPage(role: loggedInRole);
-      case 'Additional Task':
-        return AdditionalTasksPage(role: loggedInRole);
       case 'Live Tracking Tasks':
         return LiveTrackingTasksPage(
           searchQuery: searchQuery,
           onOpenWorkspace: _openWorkspaceItem,
         );
-      case 'Daily Reports':
-        return const DailyReportsPage();
-      case 'Task Planner':
-        return const TaskPlannerPage();
-      case 'Task Planner History':
-        return const TaskPlannerHistoryWidget();
-      case 'Video Task Planner':
-        return const VideographerTaskPlannerPage();
-      case 'Video Task Planner History':
-        return const VideographerTaskPlannerHistoryPage();
-      case 'Task Review':
-        return ManagerReviewScreen(searchQuery: searchQuery);
-      case 'Task Status':
-        return const TaskStatusScreen();
       case 'Chat':
-      case 'Notifications':
-        return const NotificationsScreen();
       case 'Client Credentials':
         return const ClientCredentialsScreen();
       case 'Settings':
         return const EmployeeSettingsPage();
-      case 'Feedback':
-        return const FeedbackPage();
-      case 'Feedback History':
-        return const FeedbackHistoryWidget();
       case 'Employee Workspace':
         return EmployeeWorkspacePage(
           key: ValueKey('workspace-${_workspaceFocus?['client'] ?? ''}-${_workspaceFocus?['section'] ?? ''}'),

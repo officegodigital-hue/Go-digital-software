@@ -53,17 +53,9 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
       case 'Employee Workspace': return Icons.workspaces_rounded;
       case 'Day Planner': return Icons.task_alt_rounded;
       case 'Chat': return Icons.chat_bubble_rounded;
-      case 'Additional Task': return Icons.playlist_add_check_rounded;
       case 'Client Credentials': return Icons.vpn_key_rounded;
-      case 'Daily Reports': return Icons.checklist_outlined;
-      case 'Assigned Task': return Icons.assignment_rounded;
       case 'Live Tracking Tasks': return Icons.timer_rounded;
-      case 'Task Planner': return Icons.event_note_rounded;
-      case 'Task Review': return Icons.fact_check_rounded;
-      case 'Task Status': return Icons.assessment_rounded;
-      case 'Video Task Planner': return Icons.video_collection_rounded;
-            case 'Tech Workspace': return Icons.terminal_rounded;
-      case 'Feedback': return Icons.feedback_outlined;
+      case 'Tech Workspace': return Icons.terminal_rounded;
       case 'Settings': return Icons.settings_outlined;
       default: return Icons.circle_outlined;
     }
