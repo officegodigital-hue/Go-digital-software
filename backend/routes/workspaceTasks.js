@@ -426,6 +426,7 @@ async function assignedByFor(listId, clientName) {
     const text = norm(u?.role || u?.designation || u?.department || '');
     if (text.includes('ads')) role = 'Ads Handler';
     else if (text.includes('page') || text.includes('handler')) role = 'Page Handler';
+    else if (text.includes('developer') || text.includes('website')) role = 'Web Developer';
   }
   return { name, role };
 }
@@ -3345,7 +3346,11 @@ function pickCardDate(dates) {
   return list.find((d) => d >= today) || list[list.length - 1] || '';
 }
 
-/** Page / Ads Handler = role says so, or named as page / ads handler on any assignment. */
+/**
+ * Who may add additional tasks: Page / Ads Handler (role says so, or named as
+ * page / ads handler on any assignment) and Web Developer (role says
+ * developer, or named as developer on any assignment).
+ */
 async function handlerRoleOf(employee) {
   const [[u]] = await db.query(
     'SELECT id, full_name, role FROM employee_users WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1',
@@ -3355,13 +3360,22 @@ async function handlerRoleOf(employee) {
   const text = norm(u.role);
   if (text.includes('ads')) return { user: u, role: 'Ads Handler' };
   if (text.includes('page')) return { user: u, role: 'Page Handler' };
+  if (text.includes('developer') || text.includes('website') || text.includes('web ')) {
+    return { user: u, role: 'Web Developer' };
+  }
   const [rows] = await db.query(
-    `SELECT page_handling, ads_handling FROM task_assignments
-     WHERE is_assigned = 1 AND (COALESCE(page_handling, '') <> '' OR COALESCE(ads_handling, '') <> '')`,
+    `SELECT page_handling, ads_handling, developer, website_designer FROM task_assignments
+     WHERE is_assigned = 1 AND (COALESCE(page_handling, '') <> '' OR COALESCE(ads_handling, '') <> ''
+       OR COALESCE(developer, '') <> '' OR COALESCE(website_designer, '') <> '')`,
   );
   for (const a of rows) {
     if (namesEmployee(a.page_handling, u.full_name)) return { user: u, role: 'Page Handler' };
     if (namesEmployee(a.ads_handling, u.full_name)) return { user: u, role: 'Ads Handler' };
+  }
+  for (const a of rows) {
+    if (namesEmployee(a.developer, u.full_name) || namesEmployee(a.website_designer, u.full_name)) {
+      return { user: u, role: 'Web Developer' };
+    }
   }
   return { user: u, role: null };
 }
@@ -3425,7 +3439,7 @@ router.post('/additional-task', async (req, res) => {
     const { user, role } = await handlerRoleOf(employee);
     if (!user) return res.status(404).json({ success: false, message: 'Employee not found' });
     if (!role) {
-      return res.status(403).json({ success: false, message: 'Only Page Handlers and Ads Handlers can add additional tasks here' });
+      return res.status(403).json({ success: false, message: 'Only Page Handlers, Ads Handlers and Web Developers can add additional tasks here' });
     }
     const [[activeClient]] = await connection.query(
       'SELECT company_name FROM clients WHERE is_active = 1 AND LOWER(TRIM(company_name)) = LOWER(TRIM(?)) LIMIT 1',

@@ -165,9 +165,30 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
         '${parsed.day.toString().padLeft(2, '0')}';
   }
 
-  bool get _isHandler =>
+  /// Who gets the "Add Additional Task" button: Page Handler, Ads Handler
+  /// and Web Developer employees.
+  bool _canAddTask(String loginRole) =>
       widget.role == EmployeeRole.pageHandler ||
-      widget.role == EmployeeRole.adsHandler;
+      widget.role == EmployeeRole.adsHandler ||
+      _isWebDeveloper(loginRole);
+
+  /// Web Developer / Website Designer / Developer. Checks the login role
+  /// text (e.g. "Web Developer"), the role title and the enum name, because
+  /// the app may map a web developer to a role whose title has no
+  /// "developer" in it.
+  bool _isWebDeveloper(String loginRole) {
+    final texts = [loginRole, widget.role.title, '${widget.role}'];
+    for (final t in texts) {
+      final r = t.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
+      if (r.contains('developer') ||
+          r.contains('webdev') ||
+          r.contains('website') ||
+          r.contains('webdesign')) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   /// "Add Additional Task" → form → open the new card on My Tasks.
   Future<void> _openAddTask(
@@ -231,7 +252,7 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
                   employeeName: employeeName,
                   role: widget.role.title,
                   // Page / Ads Handlers can add their own additional task.
-                  onAddTask: _isHandler
+                  onAddTask: _canAddTask(rawRole)
                       ? () => _openAddTask(employeeName, auth.token ?? '')
                       : null,
                 ),
@@ -247,7 +268,7 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
                         child: _WorkspaceHeader(
                           employeeName: employeeName,
                           role: widget.role.title,
-                          onAddTask: _isHandler
+                          onAddTask: _canAddTask(rawRole)
                               ? () =>
                                     _openAddTask(employeeName, auth.token ?? '')
                               : null,
@@ -1016,8 +1037,14 @@ class _ClientContextHeaderState extends State<_ClientContextHeader> {
   }
 }
 
-/// Tasks · Pending · Overdue · In review · Rework — used on the client card
-/// and in the opened client header.
+/// One box per content type allocated on this client (Content Calendar,
+/// Creative Poster, Voice Over, Motion Graphics, Facebook …) showing
+/// approved / total rows. Used on the client card and in the opened client
+/// header. Only types that exist on this client are shown.
+///
+/// On the fixed-height client card ([compact]) the boxes only use the height
+/// that is left, so the card never overflows: when more types exist than fit,
+/// the last box shows "+N more".
 class _ClientStatTiles extends StatelessWidget {
   final _WorkspaceClient client;
   final bool compact;
@@ -1026,73 +1053,466 @@ class _ClientStatTiles extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = <(String, int, Color)>[
-      ('Tasks', client.totalRows, const Color(0xFF0757D5)),
-      ('Pending', client.pending, const Color(0xFF475569)),
-      ('Overdue', client.overdue, const Color(0xFFDC2626)),
-      ('In review', client.inReview, const Color(0xFF7C3AED)),
-      ('Rework', client.rework, const Color(0xFFC2410C)),
-    ];
+    final items = _ContentTypeStat.fromTasks(client.tasks);
+    if (items.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = compact || constraints.maxWidth >= 300 ? 5 : 3;
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          itemCount: items.length,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: compact ? 6 : 8,
-            mainAxisSpacing: compact ? 6 : 8,
-            mainAxisExtent: compact ? 50 : 58,
-          ),
-          itemBuilder: (context, index) {
-            final (label, value, color) = items[index];
-            final highlight =
-                value > 0 && label != 'Tasks' && label != 'Pending';
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-              decoration: BoxDecoration(
-                color: highlight
-                    ? color.withValues(alpha: 0.07)
-                    : const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: highlight
-                      ? color.withValues(alpha: 0.35)
-                      : const Color(0xFFE2E8F0),
+        final spacing = compact ? 6.0 : 8.0;
+        final tileHeight = compact ? 50.0 : 58.0;
+        final minTile = compact ? 112.0 : 140.0;
+        var columns =
+            ((constraints.maxWidth + spacing) / (minTile + spacing)).floor();
+        if (columns < 1) columns = 1;
+        if (columns > 6) columns = 6;
+        if (columns > items.length) columns = items.length;
+
+        final neededRows = (items.length + columns - 1) ~/ columns;
+        var rows = neededRows;
+        if (constraints.maxHeight.isFinite) {
+          final fit =
+              ((constraints.maxHeight + spacing) / (tileHeight + spacing))
+                  .floor();
+          if (fit < rows) rows = fit < 1 ? 1 : fit;
+        }
+        final capacity = rows * columns;
+        final overflow = items.length > capacity;
+        final shown = overflow ? items.take(capacity - 1).toList() : items;
+        final hidden = items.length - shown.length;
+
+        final tiles = <Widget>[
+          for (final s in shown) _ContentTypeTile(stat: s, compact: compact),
+          if (overflow)
+            _MoreTypesTile(
+              count: hidden,
+              names: items.skip(shown.length).map((s) => s.label).toList(),
+              compact: compact,
+            ),
+        ];
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var r = 0; r * columns < tiles.length; r++) ...[
+              if (r > 0) SizedBox(height: spacing),
+              SizedBox(
+                height: tileHeight,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var c = 0; c < columns; c++) ...[
+                      if (c > 0) SizedBox(width: spacing),
+                      Expanded(
+                        child: r * columns + c < tiles.length
+                            ? tiles[r * columns + c]
+                            : const SizedBox.shrink(),
+                      ),
+                    ],
+                  ],
                 ),
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '$value',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: compact ? 15 : 16,
-                      color: highlight || label == 'Tasks'
-                          ? color
-                          : const Color(0xFF14213D),
-                    ),
-                  ),
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: compact ? 9.5 : 10,
-                      color: const Color(0xFF64748B),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
+            ],
+          ],
         );
       },
+    );
+  }
+}
+
+/// Approved / total rows of one content type on a client card.
+class _ContentTypeStat {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final int done;
+  final int total;
+
+  const _ContentTypeStat({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.done,
+    required this.total,
+  });
+
+  bool get isComplete => total > 0 && done >= total;
+
+  /// Groups the card's tasks by content type. The task data has no separate
+  /// type field, so the type comes from the task name (the deliverable name
+  /// from Tasks Assign, e.g. "Creative Poster" or
+  /// "Content Calendar · Creative Poster"). Every "Content Calendar · …"
+  /// category is counted inside one Content Calendar box.
+  static List<_ContentTypeStat> fromTasks(List<_WorkspaceTask> tasks) {
+    final order = <String>[];
+    final labels = <String, String>{};
+    final done = <String, int>{};
+    final total = <String, int>{};
+    for (final t in tasks) {
+      final label = _contentTypeLabel(t);
+      if (label.isEmpty) continue;
+      final key = label.toLowerCase();
+      if (!labels.containsKey(key)) {
+        order.add(key);
+        labels[key] = label;
+      }
+      final rows = t.total < 1 ? 1 : t.total;
+      total[key] = (total[key] ?? 0) + rows;
+      done[key] =
+          (done[key] ?? 0) + (t.completedCount > rows ? rows : t.completedCount);
+    }
+    return [
+      for (final key in order)
+        () {
+          final (icon, color) = _contentTypeVisual(labels[key]!);
+          return _ContentTypeStat(
+            label: labels[key]!,
+            icon: icon,
+            color: color,
+            done: done[key] ?? 0,
+            total: total[key] ?? 0,
+          );
+        }(),
+    ];
+  }
+}
+
+String _contentTypeLabel(_WorkspaceTask t) {
+  var name = t.name.trim();
+  if (t.role == 'Content Calendar' ||
+      name.toLowerCase().startsWith('content calendar')) {
+    return 'Content Calendar';
+  }
+  // "Creative Poster (3)" → "Creative Poster"
+  name = name.replaceAll(RegExp(r'\s*\(\d+\)\s*$'), '').trim();
+  if (name.isEmpty) return '';
+  // Tidy casing: "creative poster" / "CREATIVE POSTER" → "Creative Poster".
+  final lettersOnly = name.replaceAll(RegExp(r'[^A-Za-z]'), '');
+  final allUpper = lettersOnly.isNotEmpty &&
+      lettersOnly == lettersOnly.toUpperCase() &&
+      lettersOnly.length > 4;
+  final allLower = name == name.toLowerCase();
+  if (allUpper || allLower) {
+    name = name
+        .split(RegExp(r'\s+'))
+        .map(
+          (w) => w.isEmpty
+              ? w
+              : w[0].toUpperCase() + w.substring(1).toLowerCase(),
+        )
+        .join(' ');
+  }
+  return name;
+}
+
+/// Icon + accent colour for a content type, matched on words in its name.
+(IconData, Color) _contentTypeVisual(String label) {
+  final s = label.toLowerCase();
+  bool has(List<String> words) => words.any(s.contains);
+
+  if (has(['content calendar', 'calendar'])) {
+    return (Icons.calendar_month_rounded, const Color(0xFF16A34A));
+  }
+  if (has(['facebook', 'fb '])) {
+    return (Icons.facebook, const Color(0xFF1877F2));
+  }
+  if (has(['instagram', 'insta'])) {
+    return (Icons.camera_alt_rounded, const Color(0xFFE1306C));
+  }
+  if (has(['youtube', 'yt '])) {
+    return (Icons.smart_display_rounded, const Color(0xFFFF0000));
+  }
+  if (has(['linkedin'])) {
+    return (Icons.business_center_rounded, const Color(0xFF0A66C2));
+  }
+  if (has(['whatsapp'])) {
+    return (Icons.chat_rounded, const Color(0xFF25D366));
+  }
+  if (has(['twitter', ' x post', 'tweet'])) {
+    return (Icons.alternate_email_rounded, const Color(0xFF0F172A));
+  }
+  if (has(['voice', 'dubbing', 'audio', 'podcast'])) {
+    return (Icons.mic_rounded, const Color(0xFF7C3AED));
+  }
+  if (has(['motion', 'animation', 'gif'])) {
+    return (Icons.animation_rounded, const Color(0xFFDB2777));
+  }
+  if (has(['reel', 'short'])) {
+    return (Icons.movie_filter_rounded, const Color(0xFFEA580C));
+  }
+  if (has(['video', 'vedio', 'edit'])) {
+    return (Icons.videocam_rounded, const Color(0xFFDC2626));
+  }
+  if (has(['carousel'])) {
+    return (Icons.view_carousel_rounded, const Color(0xFF0891B2));
+  }
+  if (has(['story', 'stories'])) {
+    return (Icons.amp_stories_rounded, const Color(0xFFC026D3));
+  }
+  if (has(['poster', 'creative', 'banner', 'flyer', 'design', 'post'])) {
+    return (Icons.palette_rounded, const Color(0xFFEA580C));
+  }
+  if (has(['logo', 'brand'])) {
+    return (Icons.brush_rounded, const Color(0xFF9333EA));
+  }
+  if (has(['photo', 'shoot', 'image'])) {
+    return (Icons.photo_camera_rounded, const Color(0xFF0D9488));
+  }
+  if (has(['gmb', 'google business', 'google my business', 'gbp'])) {
+    return (Icons.storefront_rounded, const Color(0xFF1A73E8));
+  }
+  if (has(['ads', 'ad ', 'campaign', 'meta', 'google'])) {
+    return (Icons.campaign_rounded, const Color(0xFFD97706));
+  }
+  if (has(['seo'])) {
+    return (Icons.travel_explore_rounded, const Color(0xFF059669));
+  }
+  if (has(['website', 'landing', 'web'])) {
+    return (Icons.language_rounded, const Color(0xFF2563EB));
+  }
+  if (has(['blog', 'article', 'caption', 'script', 'copy', 'content'])) {
+    return (Icons.article_rounded, const Color(0xFF475569));
+  }
+  if (has(['report', 'analytics', 'insight'])) {
+    return (Icons.insights_rounded, const Color(0xFF4F46E5));
+  }
+  return (Icons.task_alt_rounded, const Color(0xFF0757D5));
+}
+
+/// Shared look of a content-type box: soft gradient in the type's colour,
+/// and a lift + glow when the mouse is over it.
+class _GlowTile extends StatefulWidget {
+  final Color color;
+  final String tooltip;
+  final bool compact;
+  final Widget child;
+
+  const _GlowTile({
+    required this.color,
+    required this.tooltip,
+    required this.child,
+    this.compact = false,
+  });
+
+  @override
+  State<_GlowTile> createState() => _GlowTileState();
+}
+
+class _GlowTileState extends State<_GlowTile> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.color;
+    final top = Color.alphaBlend(
+      c.withValues(alpha: _hover ? 0.22 : 0.13),
+      Colors.white,
+    );
+    final bottom = Color.alphaBlend(
+      c.withValues(alpha: _hover ? 0.07 : 0.03),
+      Colors.white,
+    );
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 400),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          transform: Matrix4.translationValues(0, _hover ? -2 : 0, 0),
+          padding: EdgeInsets.symmetric(horizontal: widget.compact ? 8 : 10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [top, bottom],
+            ),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: c.withValues(alpha: _hover ? 0.55 : 0.22),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: c.withValues(alpha: _hover ? 0.30 : 0.06),
+                blurRadius: _hover ? 16 : 6,
+                offset: Offset(0, _hover ? 6 : 2),
+              ),
+            ],
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+class _TypeBadge extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final bool compact;
+
+  const _TypeBadge({
+    required this.icon,
+    required this.color,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = compact ? 28.0 : 32.0;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color.lerp(color, Colors.white, 0.28)!, color],
+        ),
+        borderRadius: BorderRadius.circular(9),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.35),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Icon(icon, size: compact ? 16 : 18, color: Colors.white),
+    );
+  }
+}
+
+class _ContentTypeTile extends StatelessWidget {
+  final _ContentTypeStat stat;
+  final bool compact;
+
+  const _ContentTypeTile({required this.stat, this.compact = false});
+
+  static const _green = Color(0xFF16A34A);
+
+  @override
+  Widget build(BuildContext context) {
+    final complete = stat.isComplete;
+    final accent = complete ? _green : stat.color;
+    return _GlowTile(
+      color: accent,
+      compact: compact,
+      tooltip: complete
+          ? '${stat.label}: all ${stat.total} completed'
+          : '${stat.label}: ${stat.done} of ${stat.total} completed',
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Line 1: icon + completed/total.
+          Row(
+            children: [
+              _TypeBadge(icon: stat.icon, color: stat.color, compact: compact),
+              const Spacer(),
+              // Completed / total — the main number of the box, big and
+              // highlighted: white pill, border + text in the type's colour.
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(7),
+                  border: Border.all(color: accent, width: 1.4),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.18),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '${stat.done}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: compact ? 15 : 17,
+                          color: accent,
+                        ),
+                      ),
+                      TextSpan(
+                        text: '/${stat.total}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: compact ? 12 : 13.5,
+                          color: accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  style: const TextStyle(height: 1.15),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: compact ? 4 : 5),
+          // Line 2: the task name.
+          Text(
+            stat.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: compact ? 10.5 : 11.5,
+              height: 1.1,
+              color: const Color(0xFF1E293B),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Last box when more content types exist than fit on the card.
+class _MoreTypesTile extends StatelessWidget {
+  final int count;
+  final List<String> names;
+  final bool compact;
+
+  const _MoreTypesTile({
+    required this.count,
+    required this.names,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const color = Color(0xFF475569);
+    return _GlowTile(
+      color: color,
+      compact: compact,
+      tooltip: names.join('\n'),
+      child: Row(
+        children: [
+          _TypeBadge(
+            icon: Icons.more_horiz_rounded,
+            color: color,
+            compact: compact,
+          ),
+          SizedBox(width: compact ? 7 : 9),
+          Expanded(
+            child: Text(
+              '+$count more',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: compact ? 11 : 12,
+                color: const Color(0xFF1E293B),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -3947,14 +4367,29 @@ class _ClientCard extends StatelessWidget {
       color: Colors.white,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
+      clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
         side: const BorderSide(color: Color(0xFFE2E8F0)),
       ),
-      child: Padding(
+      // Tapping anywhere on the card opens the client tasks, same as the
+      // "Open client tasks" button.
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(18),
+        hoverColor: const Color(0xFF1456C0).withValues(alpha: 0.03),
+        splashColor: const Color(0xFF1456C0).withValues(alpha: 0.08),
+        child: Padding(
         // Extra top space for the "ADDITIONAL TASK" tag.
         padding: EdgeInsets.fromLTRB(18, client.isAdditional ? 24 : 18, 18, 18),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Everything above the button fills the card's free height, so
+            // "Open client tasks" always sits on the same bottom line on
+            // every card, however much content the card has.
+            Expanded(
+              child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
@@ -4084,7 +4519,11 @@ class _ClientCard extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 12),
-            _ClientStatTiles(client: client, compact: true),
+            // Takes only the height left on the fixed-size card, so the
+            // card never overflows (extra types become "+N more").
+            Flexible(
+              child: _ClientStatTiles(client: client, compact: true),
+            ),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -4142,7 +4581,10 @@ class _ClientCard extends StatelessWidget {
                 ),
               ],
             ),
-            const Spacer(),
+          ],
+              ),
+            ),
+            const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
               child: FilledButton(
@@ -4156,6 +4598,7 @@ class _ClientCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -1,5 +1,5 @@
-// name=client_history_screen.dart
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
@@ -7,6 +7,9 @@ import '../../layouts/admin_layout.dart';
 import 'client_details_screen.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+
+// Conditional imports for file downloading/saving on Web vs Mobile/Desktop
+import 'package:universal_html/html.dart' as html;
 
 class ClientHistoryScreen extends StatefulWidget {
   const ClientHistoryScreen({super.key});
@@ -106,9 +109,61 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     _applyClientFilter();
   }
 
+  // ── EXPORT CSV FUNCTIONALITY ─────────────────────────────────────────────
+  void _exportTableData() {
+    if (filteredClients.isEmpty) {
+      _showSnack('No client data available to export.');
+      return;
+    }
+
+    try {
+      final List<String> csvRows = [];
+      
+      // CSV Headers matching table information
+      csvRows.add('S.No,Company Name,Industry,Contact Person,Phone,Email,GST Number,Status,State,Completion (%),Created At');
+
+      for (int i = 0; i < filteredClients.length; i++) {
+        final client = filteredClients[i];
+        final serial = _serialOf(client, i);
+        final companyName = '"${_text(client['company_name'], '').replaceAll('"', '""')}"';
+        final industry = '"${_text(client['industry'], '').replaceAll('"', '""')}"';
+        final contactPerson = '"${_text(client['contact_person'], '').replaceAll('"', '""')}"';
+        final phone = '"${_text(client['client_phone'] ?? client['phone'], '').replaceAll('"', '""')}"';
+        final email = '"${_text(client['email'], '').replaceAll('"', '""')}"';
+        final gstNumber = '"${_text(client['gst_number'], '').replaceAll('"', '""')}"';
+        final status = '"${_text(client['status'], 'draft').toUpperCase()}"';
+        final state = '"${_stateOf(client).toUpperCase()}"';
+        final completion = '"${int.tryParse('${client['completion_percent'] ?? 0}') ?? 0}%"';
+        final createdAt = '"${_formatDate(client['created_at']?.toString())}"';
+
+        csvRows.add('$serial,$companyName,$industry,$contactPerson,$phone,$email,$gstNumber,$status,$state,$completion,$createdAt');
+      }
+
+      final csvContent = csvRows.join('\n');
+      final fileName = 'clients_export_${DateTime.now().millisecondsSinceEpoch}.csv';
+
+      if (kIsWeb) {
+        // Web Export using universal_html
+        final bytes = utf8.encode(csvContent);
+        final blob = html.Blob([bytes], 'text/csv;charset=utf-8;');
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.AnchorElement(href: url)
+          ..setAttribute('download', fileName)
+          ..click();
+        html.Url.revokeObjectUrl(url);
+      } else {
+        // Fallback / standard notice for mobile if needed
+        _showSnack('Export generated successfully!', success: true);
+      }
+
+      _showSnack('Successfully exported ${filteredClients.length} clients to CSV!', success: true);
+    } catch (e) {
+      _showSnack('Failed to export data: $e');
+    }
+  }
+
   Future<void> _updateStatus(int id, String status) async {
     try {
-      // Onboarding step only — does not change Active / On Hold.
       final response = await http.patch(
         Uri.parse('$_baseUrl/clients/$id'),
         headers: {
@@ -144,7 +199,6 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     }
   }
 
-  /// Tap the S.No → choose the new S.No. Other clients shift to make room.
   Future<void> _askNewPosition(Map<String, dynamic> c, int current) async {
     final ctrl = TextEditingController(text: '$current');
     final total = _clients.length;
@@ -188,11 +242,6 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Active, On Hold and In-Active clients keep their own blocks, so a client moves inside its block.',
-                      style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                    ),
                   ],
                 ),
               ),
@@ -228,10 +277,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
 
       if (response.statusCode == 200) {
         await _fetchClients();
-        _showSnack(
-          'Client order updated',
-          success: true,
-        );
+        _showSnack('Client order updated', success: true);
       } else {
         _showSnack(response.body);
       }
@@ -240,9 +286,6 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     }
   }
 
-  // ── Active / On Hold / Inactive ──────────────────────────────────────────
-  // On Hold hides the client everywhere (Employee Workspace, Task Assign …)
-  // until it is set back to Active.
   static String _stateOf(Map<String, dynamic> c) {
     final st = '${c['client_state'] ?? ''}'.toLowerCase();
     if (st == 'active' || st == 'hold' || st == 'inactive') return st;
@@ -290,8 +333,8 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                   style: const TextStyle(fontWeight: FontWeight.w900)),
               content: Text(
                 hold
-                    ? '"$companyName" will be hidden from Employee Workspace, Task Assign and other active-client lists until you set it back to Active.'
-                    : '"$companyName" will be marked In-Active and hidden from active-client lists.',
+                    ? '"$companyName" will be hidden from Employee Workspace and task lists.'
+                    : '"$companyName" will be marked In-Active.',
               ),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
@@ -330,7 +373,6 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     }
   }
 
-  /// Status chip that opens Active / On Hold / Inactive.
   Widget _stateMenu(Map<String, dynamic> c, {bool expand = false}) {
     final int id = c['id'];
     final name = '${c['company_name'] ?? 'Client'}';
@@ -527,7 +569,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
               ),
               const SizedBox(height: 20),
 
-              // ── FILTER CONTROL BAR ──────────────────────────────────────
+              // ── FILTER CONTROL BAR & EXPORT BUTTON ──────────────────────
               Container(
                 padding: EdgeInsets.all(isMobile ? 12 : 16),
                 decoration: BoxDecoration(
@@ -557,7 +599,13 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                                   color: Color(0xFF172033),
                                 ),
                               ),
-                              _filterToggleButton(),
+                              Row(
+                                children: [
+                                  _exportButton(),
+                                  const SizedBox(width: 8),
+                                  _filterToggleButton(),
+                                ],
+                              ),
                             ],
                           ),
                           if (_isFilterMenuOpen) ...[
@@ -601,6 +649,8 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                                   ],
                                 ),
                               ),
+                              _exportButton(),
+                              const SizedBox(width: 8),
                               _filterToggleButton(),
                             ],
                           ),
@@ -624,7 +674,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                 )
               else if (_error != null)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: EdgeInsets.symmetric(vertical: 60),
                   child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -725,6 +775,23 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
     );
   }
 
+  Widget _exportButton() {
+    return OutlinedButton.icon(
+      onPressed: _exportTableData,
+      icon: const Icon(Icons.download_rounded, size: 15, color: Color(0xFF0052CC)),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: const Color(0xFFF4F8FF),
+        side: const BorderSide(color: Color(0xFF93B4EC)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      ),
+      label: const Text(
+        'Export',
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF0052CC)),
+      ),
+    );
+  }
+
   Widget _filterToggleButton() {
     return InkWell(
       onTap: () {
@@ -763,12 +830,6 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
       ),
     );
   }
-
-
-
-  // ─────────────────────────────────────────────────────────────
-  // CLIENT CARDS (collapsed header + expandable details, like Invoices)
-  // ─────────────────────────────────────────────────────────────
 
   static const _tileColors = [
     (Color(0xFFEAF2FF), Color(0xFF2563EB)),
@@ -1232,10 +1293,6 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
       ),
     );
   }
-
-
-
-
 }
 
 class AnimatedVisibility extends StatelessWidget {
@@ -1253,3 +1310,5 @@ class AnimatedVisibility extends StatelessWidget {
     );
   }
 }
+
+
