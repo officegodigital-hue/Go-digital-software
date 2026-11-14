@@ -216,6 +216,7 @@ class _ClockViewState extends State<_ClockView> {
             'latitude': pos.latitude,
             'longitude': pos.longitude,
             'accuracy': pos.accuracy,
+            'capturedAt': pos.timestamp.toUtc().toIso8601String(),
           };
         } catch (_) {
           payload = <String, dynamic>{};
