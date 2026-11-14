@@ -6,6 +6,9 @@
 // (the deadline set in Tasks Assign) and shows in that card's
 // "Additional Tasks" tab. Saves through POST /workspace-tasks/additional-task.
 //
+// Client "Other": type a client name that is not in the list, pick a date
+// (default today) and the task goes on a card for that name and date.
+//
 // Returns the created task ({client, due_date, deliverable, rows, section})
 // or null when cancelled.
 import 'dart:convert';
@@ -51,6 +54,13 @@ class AdditionalTaskDialog extends StatefulWidget {
 
 class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
   static const _other = '__other__';
+  static const _otherClient = '__other_client__';
+  // Fallback deliverables for an "Other" client when the server sends no
+  // Task Master list (older server).
+  static const _commonDeliverables = [
+    'Poster', 'Reel', 'Carousel', 'Story', 'Video', 'Meta Ads', 'Google Ads',
+    'Instagram Post', 'Facebook Post', 'YouTube Video', 'Landing Page', 'Blog', 'Report',
+  ];
   static const _blue = Color(0xFF0757D5);
   static const _ink = Color(0xFF0F172A);
   static const _muted = Color(0xFF64748B);
@@ -58,6 +68,7 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
 
   final _formKey = GlobalKey<FormState>();
   final _otherCtrl = TextEditingController();
+  final _clientNameCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
 
   bool _loading = true;
@@ -68,9 +79,13 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
   String _role = '';
 
   List<_ClientOption> _clients = [];
+  List<String> _taskMaster = const [];
   String? _client;
   String? _deliverable;
   int _count = 1;
+  DateTime _otherDate = DateUtils.dateOnly(DateTime.now());
+
+  bool get _isOtherClient => _client == _otherClient;
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
@@ -86,6 +101,7 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
   @override
   void dispose() {
     _otherCtrl.dispose();
+    _clientNameCtrl.dispose();
     _notesCtrl.dispose();
     super.dispose();
   }
@@ -123,6 +139,9 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
         _allowed = body['allowed'] == true;
         _role = '${body['role'] ?? ''}';
         _clients = clients;
+        _taskMaster = List<String>.from((body['task_master'] as List? ?? [])
+            .map((e) => '$e'.trim())
+            .where((e) => e.isNotEmpty));
         final wanted = (widget.initialClient ?? '').trim().toLowerCase();
         final match = clients.where((c) => c.name.toLowerCase() == wanted);
         _client = match.isEmpty ? null : match.first.name;
@@ -152,18 +171,24 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
     try {
       // The newer server ignores this date and uses the client's current card.
       // An older server needs one, so today is sent; the app still joins the
-      // task to the client's current card.
+      // task to the client's current card. An "Other" client sends the
+      // picked date, which becomes its card date.
       final card = _selectedClient;
-      final sendDate = (card != null && card.cardDate.isNotEmpty)
-          ? card.cardDate
-          : DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final other = _isOtherClient;
+      final clientName = other ? _clientNameCtrl.text.trim().replaceAll(RegExp(r'\s+'), ' ') : _client;
+      final sendDate = other
+          ? DateFormat('yyyy-MM-dd').format(_otherDate)
+          : (card != null && card.cardDate.isNotEmpty)
+              ? card.cardDate
+              : DateFormat('yyyy-MM-dd').format(DateTime.now());
       final res = await http
           .post(
             Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/additional-task'),
             headers: _headers,
             body: jsonEncode({
               'employee': widget.employeeName,
-              'client': _client,
+              'client': clientName,
+              if (other) 'other': true,
               'deliverable': deliverable,
               'date': sendDate,
               'count': _count,
@@ -289,6 +314,44 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
     return d == null ? raw : DateFormat('dd MMM yyyy').format(d);
   }
 
+  Future<void> _pickOtherDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _otherDate,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 2, 12, 31),
+      helpText: 'Task date',
+    );
+    if (picked != null && mounted) setState(() => _otherDate = DateUtils.dateOnly(picked));
+  }
+
+  Widget _otherClientInfo() {
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline_rounded, size: 17, color: _blue),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'For a client that is not in the list. The task goes on a card for this '
+              'client on the date you pick and shows in its Additional Tasks tab.',
+              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF1E3A8A)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _cardInfo(_ClientOption? client) {
     if (client == null) return const SizedBox.shrink();
     final has = client.cardDate.isNotEmpty || !client.hasCardInfo;
@@ -360,7 +423,13 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
     }
 
     final client = _selectedClient;
-    final deliverables = client?.deliverables ?? const <String>[];
+    final otherClient = _isOtherClient;
+    final hasClient = client != null || otherClient;
+    // Task names come from Task Master (sent by the server); the client's own
+    // package tasks are listed first and tagged "client package".
+    final deliverables = otherClient
+        ? (_taskMaster.isNotEmpty ? _taskMaster : _commonDeliverables)
+        : (client?.deliverables ?? const <String>[]);
     final assigned = client?.assigned.map((e) => e.toLowerCase()).toSet() ?? <String>{};
 
     return Form(
@@ -381,6 +450,10 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
                   value: c.name,
                   child: Text(c.name, overflow: TextOverflow.ellipsis),
                 ),
+              const DropdownMenuItem(
+                value: _otherClient,
+                child: Text('Other (type client name)', style: TextStyle(fontWeight: FontWeight.w800, color: _blue)),
+              ),
             ],
             onChanged: _saving
                 ? null
@@ -390,17 +463,49 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
                     }),
             validator: (v) => v == null || v.isEmpty ? 'Choose a client' : null,
           ),
-          _cardInfo(client),
+          if (otherClient) ...[
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _clientNameCtrl,
+              autofocus: true,
+              enabled: !_saving,
+              maxLength: 120,
+              textCapitalization: TextCapitalization.words,
+              decoration: _deco('Client name *', Icons.business_rounded, hint: 'e.g. Sri Balaji Textiles'),
+              validator: (v) => (v ?? '').trim().isEmpty ? 'Enter the client name' : null,
+            ),
+            const SizedBox(height: 4),
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: _saving ? null : _pickOtherDate,
+              child: InputDecorator(
+                decoration: _deco('Task date *', Icons.event_rounded),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        DateFormat('dd MMM yyyy').format(_otherDate),
+                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: _ink),
+                      ),
+                    ),
+                    const Icon(Icons.arrow_drop_down_rounded, color: _muted),
+                  ],
+                ),
+              ),
+            ),
+            _otherClientInfo(),
+          ] else
+            _cardInfo(client),
           const SizedBox(height: 14),
 
-          // 2. Deliverable (client's own first, then common ones, then Other)
+          // 2. Deliverable (client's own first, then Task Master names, then Other)
           DropdownButtonFormField<String>(
             key: ValueKey('deliverable-$_client'),
             initialValue: _deliverable,
             isExpanded: true,
             menuMaxHeight: 360,
             decoration: _deco('Deliverable *', Icons.layers_rounded,
-                hint: client == null ? 'Choose a client first' : null),
+                hint: !hasClient ? 'Choose a client first' : null),
             items: [
               for (final d in deliverables)
                 DropdownMenuItem(
@@ -419,7 +524,7 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
                 child: Text('Other (type a name)', style: TextStyle(fontWeight: FontWeight.w800, color: _blue)),
               ),
             ],
-            onChanged: client == null || _saving ? null : (v) => setState(() => _deliverable = v),
+            onChanged: !hasClient || _saving ? null : (v) => setState(() => _deliverable = v),
             validator: (v) => v == null || v.isEmpty ? 'Choose a deliverable' : null,
           ),
           if (_deliverable == _other) ...[

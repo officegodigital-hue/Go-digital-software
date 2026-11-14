@@ -152,6 +152,23 @@ async function activeClientSet() {
   const set = new Set(rows
     .filter((r) => clientStatusCols.every((c) => !inactive.test(String(r[c] ?? '').trim())))
     .map((r) => norm(r.company_name)));
+  // "Other" clients: typed in "Add Additional Task" and not in the clients
+  // table at all. They only have additional tasks, and count as active so
+  // those tasks show. A client that IS in the table but inactive stays hidden.
+  try {
+    const [known] = await db.query('SELECT company_name FROM clients');
+    const inTable = new Set(known.map((r) => norm(r.company_name)));
+    const [others] = await db.query(
+      `SELECT DISTINCT client_name FROM task_list
+       WHERE additional_task_id IS NOT NULL AND client_name IS NOT NULL`,
+    );
+    for (const r of others) {
+      const k = norm(r.client_name);
+      if (k && !inTable.has(k)) set.add(k);
+    }
+  } catch (err) {
+    console.warn('activeClientSet other clients skipped:', err.message);
+  }
   activeClientCache = { at: Date.now(), set };
   return set;
 }
@@ -3326,8 +3343,16 @@ router.get('/performance/detail', async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 // Page / Ads Handler — "Add Additional Task" from Employee Workspace
 //
-//   GET  /additional-task/options?employee=   → { allowed, clients: [{ name, deliverables, card_date }] }
-//   POST /additional-task  { employee, client, deliverable, count, description }
+//   GET  /additional-task/options?employee=   → { allowed, task_master: [names],
+//                                                  clients: [{ name, deliverables, card_date }] }
+//   deliverables = the client's own package tasks first, then Task Master names.
+//   POST /additional-task  { employee, client, deliverable, count, description,
+//                            other?, date? }
+//
+// other = true → "Other" client typed by hand (not in the client list). It has
+// no Tasks Assign card, so the typed date (default today) is the card date.
+// A typed name that matches an active client is treated as that client; one
+// that matches an inactive client is refused.
 //
 // No date is typed. The task joins the client's CURRENT card — the deadline
 // from Tasks Assign (nearest today or later, otherwise the latest one) — and
@@ -3337,6 +3362,28 @@ const COMMON_DELIVERABLES = [
   'Poster', 'Reel', 'Carousel', 'Story', 'Video', 'Meta Ads', 'Google Ads',
   'Instagram Post', 'Facebook Post', 'YouTube Video', 'Landing Page', 'Blog', 'Report',
 ];
+
+// Deliverable names for "Add Additional Task" come from Task Master
+// (task_master.task_name, every role, no duplicates). COMMON_DELIVERABLES is
+// only the fallback when Task Master is empty or cannot be read.
+async function taskMasterNames() {
+  try {
+    const [rows] = await db.query(
+      `SELECT task_name FROM task_master
+       WHERE task_name IS NOT NULL AND TRIM(task_name) <> ''
+       ORDER BY task_name ASC`,
+    );
+    const out = [];
+    for (const r of rows) {
+      const name = String(r.task_name).trim().replace(/\s+/g, ' ');
+      if (!out.some((x) => norm(x) === norm(name))) out.push(name);
+    }
+    if (out.length) return out;
+  } catch (err) {
+    console.warn('additional-task task_master read failed:', err.message);
+  }
+  return [...COMMON_DELIVERABLES];
+}
 
 // The card an additional task joins = the client's CURRENT card:
 // nearest deadline today or later, otherwise the latest one (from Tasks Assign).
@@ -3399,6 +3446,7 @@ router.get('/additional-task/options', async (req, res) => {
       for (const r of ROLES) for (const t of parseTasks(a[r.tasks])) if (t.name) byClient.get(k).add(t.name);
     }
     const active = await activeClientSet();
+    const master = await taskMasterNames();
     const seen = new Set();
     const list = [];
     for (const c of clients) {
@@ -3407,7 +3455,7 @@ router.get('/additional-task/options', async (req, res) => {
       seen.add(norm(name));
       const own = [...(byClient.get(norm(name)) || [])];
       const all = [...own];
-      for (const d of COMMON_DELIVERABLES) if (!all.some((x) => norm(x) === norm(d))) all.push(d);
+      for (const d of master) if (!all.some((x) => norm(x) === norm(d))) all.push(d);
       list.push({
         name,
         deliverables: all,
@@ -3415,7 +3463,7 @@ router.get('/additional-task/options', async (req, res) => {
         card_date: pickCardDate(cardDates.get(norm(name)) || []),
       });
     }
-    return res.json({ success: true, allowed: Boolean(role), role, clients: list });
+    return res.json({ success: true, allowed: Boolean(role), role, allow_other: true, task_master: master, clients: list });
   } catch (err) {
     console.error('GET /workspace-tasks/additional-task/options ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
@@ -3428,9 +3476,15 @@ router.post('/additional-task', async (req, res) => {
   const deliverable = String(req.body?.deliverable || '').trim().replace(/\s+/g, ' ');
   const count = Math.min(Math.max(parseInt(req.body?.count, 10) || 1, 1), 50);
   const description = String(req.body?.description || '').trim();
+  const isOther = req.body?.other === true || req.body?.other === 'true' || req.body?.other === 1;
+  const typedDate = String(req.body?.date || '').trim().slice(0, 10);
 
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
-  if (!client) return res.status(400).json({ success: false, message: 'Choose a client' });
+  if (!client) return res.status(400).json({ success: false, message: isOther ? 'Enter the client name' : 'Choose a client' });
+  if (client.length > 120) return res.status(400).json({ success: false, message: 'Client name is too long' });
+  if (isOther && typedDate && (!/^\d{4}-\d{2}-\d{2}$/.test(typedDate) || Number.isNaN(Date.parse(typedDate)))) {
+    return res.status(400).json({ success: false, message: 'Enter a valid date' });
+  }
   if (!deliverable) return res.status(400).json({ success: false, message: 'Enter the deliverable' });
   if (deliverable.length > 120) return res.status(400).json({ success: false, message: 'Deliverable name is too long' });
 
@@ -3445,18 +3499,34 @@ router.post('/additional-task', async (req, res) => {
       'SELECT company_name FROM clients WHERE is_active = 1 AND LOWER(TRIM(company_name)) = LOWER(TRIM(?)) LIMIT 1',
       [client],
     );
-    if (!activeClient || !(await activeClientSet()).has(norm(activeClient.company_name))) {
+    const isActive = activeClient && (await activeClientSet()).has(norm(activeClient.company_name));
+    let clientName;
+    let otherClient = false;
+    if (isActive) {
+      clientName = activeClient.company_name;
+    } else if (isOther) {
+      const [[known]] = await connection.query(
+        'SELECT company_name FROM clients WHERE LOWER(TRIM(company_name)) = LOWER(TRIM(?)) LIMIT 1',
+        [client],
+      );
+      if (known) {
+        return res.status(400).json({ success: false, message: `${known.company_name} is an inactive client` });
+      }
+      clientName = client.replace(/\s+/g, ' ');
+      otherClient = true;
+    } else {
       return res.status(400).json({ success: false, message: `${client} is not an active client` });
     }
-    const clientName = activeClient.company_name;
 
     // The card date comes from Tasks Assign (the client's current card).
-    const [asg] = await connection.query(
+    // An "Other" client has no card: the typed date (or today) is used. A typed
+    // name that is a real client with no card yet also falls back to it.
+    const [asg] = otherClient ? [[]] : await connection.query(
       `SELECT deadline, maintenance_date FROM task_assignments
        WHERE is_assigned = 1 AND LOWER(TRIM(client_name)) = LOWER(TRIM(?))`,
       [clientName],
     );
-    const date = pickCardDate(asg.map(deadlineOf));
+    const date = pickCardDate(asg.map(deadlineOf)) || (isOther ? (typedDate || appDay()) : '');
     if (!date) {
       return res.status(400).json({
         success: false,
@@ -3504,6 +3574,7 @@ router.post('/additional-task', async (req, res) => {
       );
     }
     await connection.commit();
+    if (otherClient) activeClientCache = { at: 0, set: null }; // show the new client now
 
     emit(req, { type: 'additional_task_added', employee: user.full_name, client: clientName });
     return res.status(201).json({
@@ -3516,6 +3587,7 @@ router.post('/additional-task', async (req, res) => {
         due_date: date,
         rows: count,
         role,
+        other_client: otherClient,
         section: 'Additional Tasks',
       },
     });
