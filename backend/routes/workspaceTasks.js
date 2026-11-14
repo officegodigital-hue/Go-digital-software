@@ -3802,4 +3802,94 @@ router.get('/admin/content-calendar/:client', async (req, res) => {
 });
 
 
+// ═════════════════════════════════════════════════════════════════════════════
+// Delete a row made with "Add content" in the Content Calendar — also after it
+// was assigned, as long as the employee has not completed it yet.
+//   DELETE /content-calendar/row/:id?employee=
+//   · not started / in progress / on hold / rework → deleted (calendar row,
+//     the employee's task row, its nested rows and review record)
+//   · completed (waiting for review), rejected or approved → refused
+// Allowed for the main admin, the client's Page / Ads Handler, or the person
+// who assigned the row.
+// ═════════════════════════════════════════════════════════════════════════════
+router.delete('/content-calendar/row/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return res.status(400).json({ success: false, message: 'Invalid row' });
+  }
+  const employee = employeeFrom(req);
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [[row]] = await connection.query(
+      `SELECT cc.id, cc.client_name, cc.source_assignment_id, cc.task_item_id,
+              cc.assigned_by_name, tti.status AS task_status,
+              tti.review_status, tti.parent_item_id
+       FROM content_calendar cc
+       LEFT JOIN time_tracking_task_items tti ON tti.id = cc.task_item_id
+       WHERE cc.id = ? FOR UPDATE`,
+      [id],
+    );
+    if (!row) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Row not found' });
+    }
+
+    const userType = String(req.user?.userType || req.user?.user_type || '').toLowerCase();
+    const allowed = userType === 'admin'
+      || (employee && await isAdminUser(employee))
+      || (employee && (await reviewerAssignmentIds(employee, row.client_name)).length > 0)
+      || (employee && norm(row.assigned_by_name) === norm(employee));
+    if (!allowed) {
+      await connection.rollback();
+      return res.status(403).json({
+        success: false,
+        message: 'Only the Page / Ads Handler of this client can delete this row',
+      });
+    }
+    if (Number(row.source_assignment_id) > 0) {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'Rows from the admin assignment cannot be deleted — only rows added with "Add content"',
+      });
+    }
+    const status = upper(row.task_status);
+    const review = upper(row.review_status);
+    if (review === 'APPROVED') {
+      await connection.rollback();
+      return res.status(409).json({ success: false, message: 'This row is approved and can no longer be deleted' });
+    }
+    if (status === 'COMPLETED') {
+      await connection.rollback();
+      return res.status(409).json({
+        success: false,
+        message: 'The employee has completed this row — it cannot be deleted',
+      });
+    }
+
+    const taskId = Number(row.task_item_id) || 0;
+    await connection.query('DELETE FROM content_calendar WHERE id = ?', [id]);
+    if (taskId && !row.parent_item_id) {
+      const [kids] = await connection.query(
+        'SELECT id FROM time_tracking_task_items WHERE parent_item_id = ?',
+        [taskId],
+      );
+      const ids = [taskId, ...kids.map((k) => k.id)];
+      await connection.query('DELETE FROM manager_review WHERE tracking_item_id IN (?)', [ids]);
+      await connection.query('DELETE FROM time_tracking_task_items WHERE id IN (?)', [ids]);
+    }
+    await connection.commit();
+    emit(req, { type: 'CONTENT_CALENDAR_ROW_DELETED', calendarRowId: id, trackingItemId: taskId || null });
+    return res.json({ success: true, message: 'Row removed' });
+  } catch (err) {
+    try { await connection.rollback(); } catch (_) { /* ignore */ }
+    console.error('DELETE /workspace-tasks/content-calendar/row ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+
 module.exports = router;

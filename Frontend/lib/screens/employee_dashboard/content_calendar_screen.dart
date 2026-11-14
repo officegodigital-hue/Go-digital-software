@@ -2672,8 +2672,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
                   _buildDateChip(row, 'submit_date'),
                   if (widget.myTasksMode &&
                       _asInt(row['source_assignment_id']) == 0 &&
-                      !_isAssigned(row) &&
-                      _ccStatusOf(row) == 'IDLE')
+                      _canDeleteRow(row))
                     IconButton(
                       tooltip: 'Remove this row',
                       onPressed: () => _deleteManualRow(row),
@@ -3107,8 +3106,9 @@ DataColumn _sheetColumn(
   );
 
   Widget _buildEmergencyCell(Map<String, dynamic> row) {
-    if (_isAssigned(row) && _asInt(row['source_assignment_id']) > 0 &&
-        _employeeState(row) != 'APPROVED') {
+    // Edit stays available on every assigned row (sheet rows and rows made
+    // with "Add content") until the employee's work is approved.
+    if (_isAssigned(row) && _canEditRow(row)) {
       final id = _asInt(row['id']);
       return SizedBox(
         width: 150,
@@ -3420,7 +3420,10 @@ DataColumn _sheetColumn(
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('Remove this row?'),
-        content: Text('${_str(row['deliverable'])} · S.No ${_str(row['s_no'])} will be deleted.'),
+        content: Text(
+          '${_str(row['deliverable'])} · S.No ${_str(row['s_no'])} will be deleted.'
+          '${_isAssigned(row) ? ' It will also be removed from ${_employeeOf(row)}\'s tasks.' : ''}',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Remove')),
@@ -3430,7 +3433,10 @@ DataColumn _sheetColumn(
     if (ok != true || !mounted) return;
     try {
       final res = await http.delete(
-        Uri.parse('$_baseUrl/tasks/content-calendar/row/${_asInt(row['id'])}'),
+        // Workspace route: also removes the employee's task when the row was
+        // already assigned (until the employee completes it).
+        Uri.parse('$_baseUrl/workspace-tasks/content-calendar/row/${_asInt(row['id'])}')
+            .replace(queryParameters: {'employee': widget.currentUserName.trim()}),
         headers: _headers,
       );
       if (!mounted) return;
@@ -3468,6 +3474,18 @@ DataColumn _sheetColumn(
       _onFieldChanged(row, 'description_points', plain);
     });
     await _flushSave(_asInt(row['id']));
+  }
+
+  /// Edit: allowed until the employee's work is approved.
+  bool _canEditRow(Map<String, dynamic> row) =>
+      !_isAssigned(row) || _employeeState(row) != 'APPROVED';
+
+  /// Delete: allowed until the employee completes the row. Once it is
+  /// completed (waiting for review), approved or rejected, it is hidden.
+  bool _canDeleteRow(Map<String, dynamic> row) {
+    if (!_isAssigned(row)) return _ccStatusOf(row) == 'IDLE';
+    const locked = {'IN REVIEW', 'APPROVED', 'REJECTED'};
+    return !locked.contains(_employeeState(row));
   }
 
   /// Status of the employee's work on an assigned row.
@@ -3624,7 +3642,7 @@ DataColumn _sheetColumn(
   /// completes it) or move it to another employee.
   Future<void> _handleEditAssigned(Map<String, dynamic> row) async {
     final state = _employeeState(row);
-    final canCorrect = state != 'IN REVIEW' && state != 'APPROVED';
+    final canCorrect = state != 'APPROVED';
     final choice = await showDialog<String>(
       context: context,
       builder: (dialogContext) => SimpleDialog(
@@ -3639,7 +3657,7 @@ DataColumn _sheetColumn(
               subtitle: Text(
                 canCorrect
                     ? 'Fix the headline, description, caption, CTA, dates or notes. The employee sees the change in My Tasks.'
-                    : 'The employee has completed this row — send it for rework in Task Review first.',
+                    : 'This row is approved — it can no longer be edited.',
                 style: const TextStyle(fontSize: 11.5),
               ),
             ),
