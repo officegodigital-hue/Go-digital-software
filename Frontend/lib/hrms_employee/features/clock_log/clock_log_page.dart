@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../services/api_config.dart';
+import '../../../services/attendance_client_identity.dart';
 import '../../../services/attendance_location.dart';
 import '../../../services/auth_service.dart';
 import '../../shared/employee_ui.dart';
@@ -190,12 +191,17 @@ class _ClockViewState extends State<_ClockView> {
     if (_actionLoading) return;
     if (token == null || token.isEmpty) return;
     if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Check In / Check Out is only available on the mobile app.'),
-        ),
-      );
-      return;
+      if (!await AttendanceClientIdentity.isIosWeb) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Check In / Check Out is available only in the Android app or an approved iPhone browser.',
+            ),
+          ),
+        );
+        return;
+      }
     }
     final clockOut = _isCheckedIn;
     setState(() => _actionLoading = true);
@@ -224,6 +230,7 @@ class _ClockViewState extends State<_ClockView> {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
+          ...await AttendanceClientIdentity.headers(),
         },
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 15));

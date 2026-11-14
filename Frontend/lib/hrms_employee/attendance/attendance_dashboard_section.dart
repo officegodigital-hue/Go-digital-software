@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/api_config.dart';
+import '../../services/attendance_client_identity.dart';
 import '../../services/attendance_location.dart';
 import '../../services/auth_service.dart';
 import '../../services/auth_storage.dart';
@@ -93,6 +94,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
       'Authorization': 'Bearer $token',
       'Accept': 'application/json',
       if (post) 'Content-Type': 'application/json',
+      if (post) ...await AttendanceClientIdentity.headers(),
     };
     final response =
         await (post
@@ -300,13 +302,18 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
 
   Future<void> _punch() async {
     if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Check In / Check Out is only available on the mobile app.'),
-          duration: Duration(seconds: 4),
-        ),
-      );
-      return;
+      if (!await AttendanceClientIdentity.isIosWeb) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Check In / Check Out is available only in the Android app or an approved iPhone browser.',
+            ),
+            duration: Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
     }
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
