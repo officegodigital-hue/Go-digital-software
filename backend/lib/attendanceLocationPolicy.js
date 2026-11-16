@@ -122,9 +122,9 @@ async function getCheckInPolicy(db, employeeId, lock = false) {
       workMode,
       requiresLocation: false,
       radiusMeters: null,
-      trackingRequired: false,
+      trackingRequired: true,
       trackingActive,
-      canClockIn: true,
+      canClockIn: trackingActive,
     };
   }
   const settings = await settingsFor(db, lock, workMode);

@@ -1199,20 +1199,14 @@ async function startFieldTracking(req, res) {
       return fail(res, 403, 'Live tracking is only available for Hybrid employees');
     }
 
-    // Hybrid attendance begins with Clock In. Tracking is available only for
-    // an active attendance session, so an employee cannot create location
-    // records before starting work.
-    const [attendanceRows] = await db.query(
+    const [completedRows] = await db.query(
       `SELECT id FROM attendance_records
-       WHERE employee_id = ?
-         AND attendance_date = ?
-         AND check_in_at IS NOT NULL
-         AND check_out_at IS NULL
+       WHERE employee_id = ? AND attendance_date = ? AND check_out_at IS NOT NULL
        LIMIT 1`,
       [employeeUserId, policy.todayIstDate()]
     );
-    if (!attendanceRows.length) {
-      return fail(res, 409, 'Clock in before starting Hybrid live tracking.');
+    if (completedRows.length) {
+      return fail(res, 409, 'Today\'s shift is already checked out.');
     }
 
     const [activeSessions] = await db.query(
