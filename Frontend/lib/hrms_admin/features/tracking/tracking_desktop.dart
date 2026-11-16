@@ -1118,6 +1118,7 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
   Map<String, dynamic>? data;
   GoogleMapController? controller;
   int _request = 0;
+  int _mapGeneration = 0;
   int? _selectedWaitingReasonId;
   Timer? _playbackTimer;
   bool _isPlayingRoute = false;
@@ -1143,13 +1144,16 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
   @override
   void dispose() {
     _request++;
+    _mapGeneration++;
     _playbackTimer?.cancel();
-    controller?.dispose();
+    controller = null;
     super.dispose();
   }
 
   Future<void> load() async {
     final request = ++_request;
+    _mapGeneration++;
+    controller = null;
     setState(() {
       loading = true;
       error = null;
@@ -1200,7 +1204,7 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
       },
     );
     if (latitude != null && longitude != null) {
-      await controller?.animateCamera(
+      await _animateActiveMap(
         CameraUpdate.newLatLngZoom(LatLng(latitude, longitude), 16),
       );
     }
@@ -1287,12 +1291,13 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
     final latitude = (point['latitude'] as num?)?.toDouble();
     final longitude = (point['longitude'] as num?)?.toDouble();
     if (latitude == null || longitude == null) return;
-    unawaited(
-      controller?.animateCamera(
-            CameraUpdate.newLatLng(LatLng(latitude, longitude)),
-          ) ??
-          Future<void>.value(),
-    );
+    unawaited(_animateActiveMap(CameraUpdate.newLatLng(LatLng(latitude, longitude))));
+  }
+
+  Future<void> _animateActiveMap(CameraUpdate update) async {
+    final activeController = controller;
+    if (!mounted || activeController == null) return;
+    try { await activeController.animateCamera(update); } catch (_) {}
   }
 
   double _playbackProgressFor(List<Map> routePoints) {
@@ -1354,6 +1359,7 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
     final durationSeconds = (data?['durationSeconds'] as num?)?.toInt() ?? 0;
     final duration = Duration(seconds: durationSeconds);
     final stops = _countStops(activities);
+    final mapGeneration = _mapGeneration;
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       child: Column(
@@ -1490,6 +1496,7 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
                                   ),
                                 )
                               : GoogleMap(
+                                  key: ValueKey('hybrid-route-map-$mapGeneration'),
                                   initialCameraPosition: CameraPosition(
                                     target: points.first,
                                     zoom: 13,
@@ -1567,7 +1574,10 @@ class _DesktopHybridDetailState extends State<_DesktopHybridDetail> {
                                   },
                                   mapToolbarEnabled: false,
                                   zoomControlsEnabled: true,
-                                  onMapCreated: (value) => controller = value,
+                                  onMapCreated: (value) {
+                                    if (!mounted || mapGeneration != _mapGeneration) return;
+                                    controller = value;
+                                  },
                                 ),
                         ),
                       ),

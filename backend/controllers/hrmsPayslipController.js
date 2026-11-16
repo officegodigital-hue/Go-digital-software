@@ -2,6 +2,8 @@ const db = require('../config/db');
 const { buildPayslipPdf } = require('../lib/payslipPdf');
 const { computeRows } = require('./hrmsPayrollController');
 const attendancePolicy = require('../lib/attendancePolicy');
+const { effectiveOverrides } = require('../lib/calendarOverrides');
+const { dateKey, employedOn } = require('../lib/employmentDates');
 const companyName = process.env.COMPANY_NAME || 'GO DIGITAL';
 
 const ok = (res, data, message) => res.json({ success: true, message: message || 'OK', data });
@@ -62,6 +64,147 @@ async function summary(req, res) {
     const rows = await computeRows(year, month, today);
     const live = rows.find((row) => Number(row.employeeUserId) === Number(req.user.id)) || null;
     return ok(res, { compensation: compensation || null, payroll: payroll || null, livePayroll: live, reviewRequired: Boolean(invalid) });
+  } catch (error) { return fail(res, 500, error.message); }
+}
+
+function historyDate(year, month, day) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function historyDaysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+async function history(req, res) {
+  try {
+    const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(req.query.month || ''));
+    if (!match) return fail(res, 400, 'A valid month (YYYY-MM) is required');
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const today = attendancePolicy.todayIstDate();
+    if (`${match[1]}-${match[2]}` > today.slice(0, 7)) {
+      return fail(res, 400, 'Future salary history is not available');
+    }
+
+    // The payroll engine remains the source of truth for all summary figures.
+    // This endpoint only presents the employee's existing monthly data.
+    const payrollRows = await computeRows(year, month, today, { employeeId: req.user.id });
+    const payroll = payrollRows.find((row) => Number(row.employeeUserId) === Number(req.user.id)) || null;
+    const start = historyDate(year, month, 1);
+    const end = historyDate(year, month, historyDaysInMonth(year, month));
+
+    const [[profile]] = await db.query(`
+      SELECT p.employee_user_id, p.department, p.salary_type, p.salary_cycle_start_day, p.salary_cycle_end_day,
+             u.is_active, u.created_at AS account_created_at, u.date_of_joining AS joining_date,
+             COALESCE(NULLIF(p.department, ''), u.role, '') AS calendar_department
+      FROM hrms_employee_profiles p
+      JOIN employee_users u ON u.id = p.employee_user_id
+      WHERE p.employee_user_id = ? LIMIT 1`, [req.user.id]);
+    if (!profile) return ok(res, { month: `${match[1]}-${match[2]}`, payroll, days: [] });
+
+    const [periods] = await db.query(
+      'SELECT started_on, ended_on FROM employee_employment_periods WHERE employee_user_id = ? ORDER BY started_on, id',
+      [req.user.id]
+    );
+    const employmentPeriods = periods.length
+      ? periods
+      : Number(profile.is_active)
+        ? [{ started_on: dateKey(profile.joining_date || profile.account_created_at), ended_on: null }]
+        : [];
+    const [[policyRow]] = await db.query(
+      'SELECT weekly_off_days, deduct_explicit_absence, missing_attendance_is_absent FROM hrms_payroll_policy WHERE id = 1'
+    );
+    let weeklyOffDays = [0];
+    try { weeklyOffDays = JSON.parse(policyRow?.weekly_off_days || '[0]').map(Number); } catch (_) {}
+    const weeklyOff = new Set(weeklyOffDays);
+    const deductAbsence = Boolean(Number(policyRow?.deduct_explicit_absence ?? 1));
+    const missingIsAbsent = Boolean(Number(policyRow?.missing_attendance_is_absent ?? 0));
+
+    const [records] = await db.query(`
+      SELECT DATE_FORMAT(attendance_date, '%Y-%m-%d') AS attendance_date,
+             check_in_at, check_out_at, is_late, attendance_status, admin_status_override
+      FROM attendance_records
+      WHERE employee_id = ? AND attendance_date BETWEEN ? AND ?`, [req.user.id, start, end]);
+    const recordMap = new Map(records.map((row) => [dateKey(row.attendance_date), row]));
+
+    const [leaves] = await db.query(`
+      SELECT DATE_FORMAT(el.from_date, '%Y-%m-%d') AS from_date,
+             DATE_FORMAT(el.to_date, '%Y-%m-%d') AS to_date, el.duration_type,
+             el.leave_type, lt.is_lop
+      FROM employee_leaves el
+      LEFT JOIN hrms_leave_types lt ON lt.id = el.leave_type_id
+      WHERE el.employee_id = ? AND el.status = 'APPROVED'
+        AND el.from_date <= ? AND el.to_date >= ?`, [req.user.id, end, start]);
+    const leaveMap = new Map();
+    for (const leave of leaves) {
+      let date = dateKey(leave.from_date);
+      const leaveEnd = dateKey(leave.to_date);
+      while (date && date <= leaveEnd) {
+        if (!leaveMap.has(date)) leaveMap.set(date, {
+          isLop: Number(leave.is_lop) === 1,
+          isHalf: leave.duration_type === 'Half Day',
+          name: leave.leave_type || 'Approved leave',
+        });
+        const next = new Date(`${date}T00:00:00Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        date = next.toISOString().slice(0, 10);
+      }
+    }
+    const overrides = await effectiveOverrides(start, end, [profile]);
+    const employeeOverrides = overrides.get(Number(req.user.id)) || new Map();
+    const dailyRate = Number(payroll?.dailyRate || 0);
+    const days = [];
+
+    for (let day = 1; day <= historyDaysInMonth(year, month); day += 1) {
+      const date = historyDate(year, month, day);
+      const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+      const override = employeeOverrides.get(date)?.status;
+      const workingDay = override === 'Working Day' || (!override && !weeklyOff.has(weekday));
+      const employed = employedOn(employmentPeriods, date);
+      const record = recordMap.get(date);
+      const leave = leaveMap.get(date);
+      const future = date > today;
+      let status = 'No attendance recorded';
+      let source = 'No payroll impact';
+      let amount = 0;
+      let direction = 'none';
+
+      if (!employed) {
+        status = 'Not employed';
+      } else if (future) {
+        status = 'Upcoming';
+      } else if (!workingDay) {
+        status = override === 'Holiday' ? 'Holiday' : 'Weekly Off';
+        source = 'No payroll impact';
+      } else {
+        const attendanceStatus = String(record?.attendance_status || '').toLowerCase().trim();
+        if (attendanceStatus === 'absent') {
+          status = 'Absent';
+          if (deductAbsence) {
+            source = 'Attendance deduction'; amount = dailyRate; direction = 'deduction';
+          } else source = 'No deduction by policy';
+        } else if (record && (record.check_in_at || attendanceStatus === 'present')) {
+          const late = !record.admin_status_override && (Number(record.is_late) || attendanceStatus === 'late');
+          status = late ? 'Late' : 'Present';
+          source = late ? 'Worked — late check-in' : 'Worked'; amount = dailyRate; direction = 'paid';
+        } else if (leave) {
+          const factor = leave.isHalf ? 0.5 : 1;
+          status = leave.isLop ? 'Unpaid Leave' : 'Paid Leave';
+          source = leave.name;
+          amount = dailyRate * factor;
+          direction = leave.isLop ? 'deduction' : 'paid';
+        } else if (missingIsAbsent) {
+          status = 'Absent'; source = 'Missing attendance policy';
+          if (deductAbsence) { amount = dailyRate; direction = 'deduction'; }
+        }
+      }
+      days.push({
+        date, status, source, direction, amount: Math.round(amount * 100) / 100,
+        checkIn: record?.check_in_at || null, checkOut: record?.check_out_at || null,
+      });
+    }
+    return ok(res, { month: `${match[1]}-${match[2]}`, payroll, days });
   } catch (error) { return fail(res, 500, error.message); }
 }
 
@@ -203,4 +346,4 @@ async function download(req, res) {
   } catch (error) { return fail(res, 500, error.message); }
 }
 
-module.exports = { ensureTable, ensureCompensationTable, requireAdmin, mine, summary, request, download, compensationList, saveCompensation };
+module.exports = { ensureTable, ensureCompensationTable, requireAdmin, mine, summary, history, request, download, compensationList, saveCompensation };
