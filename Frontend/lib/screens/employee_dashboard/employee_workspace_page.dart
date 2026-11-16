@@ -247,7 +247,7 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
             if (_selectedClient == null &&
                 MediaQuery.sizeOf(context).width >= 600)
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
                 child: _WorkspaceHeader(
                   employeeName: employeeName,
                   role: widget.role.title,
@@ -264,7 +264,7 @@ class _EmployeeWorkspacePageState extends State<EmployeeWorkspacePage> {
                       employeeName: employeeName,
                       role: widget.role,
                       mobileHeader: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                         child: _WorkspaceHeader(
                           employeeName: employeeName,
                           role: widget.role.title,
@@ -587,97 +587,98 @@ class _WorkspaceHeader extends StatelessWidget {
     return FilledButton.icon(
       onPressed: onAddTask,
       style: FilledButton.styleFrom(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF0B4CB0),
+        backgroundColor: const Color(0xFF1456C0),
+        foregroundColor: Colors.white,
         padding: EdgeInsets.symmetric(
           horizontal: compact ? 12 : 16,
-          vertical: 12,
+          vertical: 10,
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        minimumSize: const Size(0, 40),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         elevation: 0,
       ),
       icon: const Icon(Icons.add_task_rounded, size: 18),
-      label: const Text(
-        'Add Additional Task',
-        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
+      label: Text(
+        compact ? 'Add Task' : 'Add Additional Task',
+        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
       ),
     );
   }
 
+  // GODIGITAL_PORTRAIT_CARDS_V1
+  // Hero removed: only the actions remain, as the top half of one white
+  // toolbar panel whose bottom half is the filter bar.
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 620;
         return Container(
-          padding: EdgeInsets.all(compact ? 18 : 24),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF062B67), Color(0xFF1769D2)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF1769D2).withValues(alpha: 0.16),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-              ),
-            ],
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 12 : 16,
+                  compact ? 10 : 12,
+                  compact ? 12 : 16,
+                  compact ? 10 : 12,
+                ),
+                child: Row(
                   children: [
-                    Text(
-                      employeeName.isEmpty
-                          ? 'Employee Workspace'
-                          : 'Welcome, $employeeName',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: compact ? 20 : 24,
-                        fontWeight: FontWeight.w800,
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEAF2FF),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.grid_view_rounded,
+                        size: 19,
+                        color: Color(0xFF1456C0),
                       ),
                     ),
-                    const SizedBox(height: 5),
-                    const Text(
-                      'Your assigned clients, tasks, calendar and team workspace.',
-                      style: TextStyle(color: Color(0xFFDCEBFF), fontSize: 13),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'My clients',
+                            style: TextStyle(
+                              color: Color(0xFF14213D),
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Text(
+                            role,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF64748B),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    if (onAddTask != null && compact) ...[
-                      const SizedBox(height: 12),
-                      _addButton(true),
+                    if (onAddTask != null) ...[
+                      const SizedBox(width: 10),
+                      _addButton(compact),
                     ],
                   ],
                 ),
               ),
-              if (onAddTask != null && !compact) ...[
-                const SizedBox(width: 12),
-                _addButton(false),
-              ],
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Text(
-                  role,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
-                ),
-              ),
+              Container(height: 1, color: const Color(0xFFEEF2F7)),
             ],
           ),
         );
@@ -1057,14 +1058,15 @@ class _ClientStatTiles extends StatelessWidget {
     if (items.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(
       builder: (context, constraints) {
-        final spacing = compact ? 6.0 : 8.0;
-        final tileHeight = compact ? 50.0 : 58.0;
-        final minTile = compact ? 112.0 : 140.0;
+        // GODIGITAL_PORTRAIT_TILES_V1
+        // Every task box has the same fixed portrait size.
+        const spacing = 8.0;
+        const tileWidth = 82.0;
+        const tileHeight = 104.0;
         var columns =
-            ((constraints.maxWidth + spacing) / (minTile + spacing)).floor();
+            ((constraints.maxWidth + spacing) / (tileWidth + spacing)).floor();
         if (columns < 1) columns = 1;
-        if (columns > 6) columns = 6;
-        if (columns > items.length) columns = items.length;
+        if (columns > 8) columns = 8;
 
         final neededRows = (items.length + columns - 1) ~/ columns;
         var rows = neededRows;
@@ -1089,29 +1091,20 @@ class _ClientStatTiles extends StatelessWidget {
             ),
         ];
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var r = 0; r * columns < tiles.length; r++) ...[
-              if (r > 0) SizedBox(height: spacing),
-              SizedBox(
-                height: tileHeight,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    for (var c = 0; c < columns; c++) ...[
-                      if (c > 0) SizedBox(width: spacing),
-                      Expanded(
-                        child: r * columns + c < tiles.length
-                            ? tiles[r * columns + c]
-                            : const SizedBox.shrink(),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ],
+        final gridWidth = columns * tileWidth + (columns - 1) * spacing;
+        return Align(
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            width: gridWidth,
+            child: Wrap(
+              spacing: spacing,
+              runSpacing: spacing,
+              children: [
+                for (final t in tiles)
+                  SizedBox(width: tileWidth, height: tileHeight, child: t),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -1321,7 +1314,7 @@ class _GlowTileState extends State<_GlowTile> {
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
           transform: Matrix4.translationValues(0, _hover ? -2 : 0, 0),
-          padding: EdgeInsets.symmetric(horizontal: widget.compact ? 8 : 10),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -1347,43 +1340,6 @@ class _GlowTileState extends State<_GlowTile> {
   }
 }
 
-class _TypeBadge extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final bool compact;
-
-  const _TypeBadge({
-    required this.icon,
-    required this.color,
-    this.compact = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final size = compact ? 28.0 : 32.0;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color.lerp(color, Colors.white, 0.28)!, color],
-        ),
-        borderRadius: BorderRadius.circular(9),
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.35),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Icon(icon, size: compact ? 16 : 18, color: Colors.white),
-    );
-  }
-}
-
 class _ContentTypeTile extends StatelessWidget {
   final _ContentTypeStat stat;
   final bool compact;
@@ -1396,6 +1352,11 @@ class _ContentTypeTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final complete = stat.isComplete;
     final accent = complete ? _green : stat.color;
+    // "Creative Poster" → "Creative" / "Poster" on two lines.
+    final words = stat.label.trim().split(RegExp(r'\s+'));
+    final label = words.length <= 1
+        ? stat.label
+        : '${words.first}\n${words.skip(1).join(' ')}';
     return _GlowTile(
       color: accent,
       compact: compact,
@@ -1404,65 +1365,57 @@ class _ContentTypeTile extends StatelessWidget {
           : '${stat.label}: ${stat.done} of ${stat.total} completed',
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Line 1: icon + completed/total.
-          Row(
-            children: [
-              _TypeBadge(icon: stat.icon, color: stat.color, compact: compact),
-              const Spacer(),
-              // Completed / total — the main number of the box, big and
-              // highlighted: white pill, border + text in the type's colour.
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(7),
-                  border: Border.all(color: accent, width: 1.4),
-                  boxShadow: [
-                    BoxShadow(
-                      color: accent.withValues(alpha: 0.18),
-                      blurRadius: 4,
-                      offset: const Offset(0, 1),
+          // Line 1: completed / total — big, dark, bold, highlighted.
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: accent.withValues(alpha: 0.5)),
+            ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '${stat.done}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 20,
+                        color: Color(0xFF0B1220),
+                      ),
+                    ),
+                    TextSpan(
+                      text: '/${stat.total}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        color: Color(0xFF1E293B),
+                      ),
                     ),
                   ],
                 ),
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '${stat.done}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: compact ? 15 : 17,
-                          color: accent,
-                        ),
-                      ),
-                      TextSpan(
-                        text: '/${stat.total}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: compact ? 12 : 13.5,
-                          color: accent,
-                        ),
-                      ),
-                    ],
-                  ),
-                  style: const TextStyle(height: 1.15),
-                ),
+                style: const TextStyle(height: 1.2),
               ),
-            ],
+            ),
           ),
-          SizedBox(height: compact ? 4 : 5),
-          // Line 2: the task name.
+          const SizedBox(height: 8),
+          // Line 2: the type icon, plain (no highlight).
+          Icon(stat.icon, size: 22, color: stat.color),
+          const SizedBox(height: 6),
+          // Line 3: the task name, one word per line.
           Text(
-            stat.label,
-            maxLines: 1,
+            label,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: compact ? 10.5 : 11.5,
-              height: 1.1,
-              color: const Color(0xFF1E293B),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 10.5,
+              height: 1.15,
+              color: Color(0xFF1E293B),
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -1491,24 +1444,30 @@ class _MoreTypesTile extends StatelessWidget {
       color: color,
       compact: compact,
       tooltip: names.join('\n'),
-      child: Row(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _TypeBadge(
-            icon: Icons.more_horiz_rounded,
-            color: color,
-            compact: compact,
+          Text(
+            '+$count',
+            style: const TextStyle(
+              fontSize: 20,
+              color: Color(0xFF0B1220),
+              fontWeight: FontWeight.w900,
+              height: 1.2,
+            ),
           ),
-          SizedBox(width: compact ? 7 : 9),
-          Expanded(
-            child: Text(
-              '+$count more',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: compact ? 11 : 12,
-                color: const Color(0xFF1E293B),
-                fontWeight: FontWeight.w800,
-              ),
+          const SizedBox(height: 8),
+          const Icon(Icons.more_horiz_rounded, size: 22, color: color),
+          const SizedBox(height: 6),
+          const Text(
+            'More\ntypes',
+            maxLines: 2,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 10.5,
+              height: 1.15,
+              color: Color(0xFF1E293B),
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -3310,9 +3269,9 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
                   itemBuilder: (context, index) {
                     final client = visible[index];
                     return Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
                       child: SizedBox(
-                        height: 412,
+                        height: 500,
                         child: _RibbonedCard(
                           ribbon: client.ribbon,
                           additional: client.isAdditional,
@@ -3351,18 +3310,19 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
                   )
                 : LayoutBuilder(
                     builder: (context, constraints) {
-                      final columns = constraints.maxWidth >= 1200
-                          ? 3
-                          : constraints.maxWidth >= 760
-                          ? 2
-                          : 1;
+                      // Portrait cards: ~300px wide, 500px tall.
+                      var columns =
+                          ((constraints.maxWidth - 48 + 16) / (300 + 16))
+                              .floor();
+                      if (columns < 1) columns = 1;
+                      if (columns > 6) columns = 6;
                       return GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+                        padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: columns,
                           crossAxisSpacing: 16,
                           mainAxisSpacing: 16,
-                          mainAxisExtent: 352,
+                          mainAxisExtent: 500,
                         ),
                         itemCount: visible.length,
                         itemBuilder: (context, index) => _RibbonedCard(
@@ -3483,7 +3443,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
         const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, c) {
-            final w = c.maxWidth < 440 ? c.maxWidth : 420.0;
+            final w = c.maxWidth < 340 ? c.maxWidth : 320.0;
             return Wrap(
               spacing: 16,
               runSpacing: 18,
@@ -3515,7 +3475,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
                           ),
                         ),
                         SizedBox(
-                          height: 352,
+                          height: 500,
                           child: _RibbonedCard(
                             ribbon: entry.$2.ribbon,
                             additional: entry.$2.isAdditional,
@@ -3650,7 +3610,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
       labelText: label,
       isDense: true,
       filled: true,
-      fillColor: Colors.white,
+      fillColor: const Color(0xFFF8FAFD),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
     );
@@ -3767,7 +3727,15 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
         if (mobile) {
           return Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            child: Column(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(16),
+                ),
+              ),
+              child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
@@ -3783,13 +3751,20 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
                   child: statusChips,
                 ),
               ],
+              ),
             ),
           );
         }
 
         return Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-          child: SizedBox(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+            ),
+            child: SizedBox(
             height: 48,
             child: LayoutBuilder(
               builder: (context, desktopConstraints) {
@@ -3818,7 +3793,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
                               child: Material(
                                 color: _ribbonFilter == f
                                     ? const Color(0xFF1456CE)
-                                    : Colors.white,
+                                    : const Color(0xFFF8FAFD),
                                 borderRadius: BorderRadius.circular(10),
                                 child: InkWell(
                                   borderRadius: BorderRadius.circular(10),
@@ -3868,6 +3843,7 @@ class _ClientWorkspaceState extends State<_ClientWorkspace> {
                 );
               },
             ),
+          ),
           ),
         );
       },
@@ -4359,9 +4335,17 @@ class _ClientCard extends StatelessWidget {
     );
   }
 
+  // GODIGITAL_PORTRAIT_CARDS_V1
+  // Portrait client card: header, fixed-size task boxes, and one merged
+  // footer (progress + status counts + open button).
   @override
   Widget build(BuildContext context) {
     final teamCount = client.team.length;
+    // GODIGITAL_CARD_BORDER_V1: every card gets a coloured border in its
+    // status colour (blue when the card has no status ribbon).
+    final borderColor = client.ribbon == null
+        ? const Color(0xFF3B82F6)
+        : _ribbonColor(client.ribbon!);
     return Card(
       margin: EdgeInsets.zero,
       color: Colors.white,
@@ -4370,7 +4354,10 @@ class _ClientCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: const BorderSide(color: Color(0xFFE2E8F0)),
+        side: BorderSide(
+          color: borderColor.withValues(alpha: 0.65),
+          width: 1.8,
+        ),
       ),
       // Tapping anywhere on the card opens the client tasks, same as the
       // "Open client tasks" button.
@@ -4380,225 +4367,359 @@ class _ClientCard extends StatelessWidget {
         hoverColor: const Color(0xFF1456C0).withValues(alpha: 0.03),
         splashColor: const Color(0xFF1456C0).withValues(alpha: 0.08),
         child: Padding(
-        // Extra top space for the "ADDITIONAL TASK" tag.
-        padding: EdgeInsets.fromLTRB(18, client.isAdditional ? 24 : 18, 18, 18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Everything above the button fills the card's free height, so
-            // "Open client tasks" always sits on the same bottom line on
-            // every card, however much content the card has.
-            Expanded(
-              child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              // Leave room for the corner ribbon.
-              padding: const EdgeInsets.only(right: 34),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: const Color(0xFFEAF2FF),
-                    foregroundColor: const Color(0xFF1456C0),
-                    child: Text(_clientInitials(client.name)),
-                  ),
-                  const SizedBox(width: 12),
-                  Flexible(
-                    child: Text(
-                      client.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF14213D),
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Tooltip(
-                    message: 'Team · tasks',
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () => showTeam(context, client),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF5FF),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFBFDBFE)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.groups_2_rounded,
-                              size: 15,
-                              color: Color(0xFF0757D5),
-                            ),
-                            if (teamCount > 0) ...[
-                              const SizedBox(width: 4),
-                              Text(
-                                '$teamCount',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF0757D5),
-                                ),
+          // Extra top space for the "ADDITIONAL TASK" tag.
+          padding: EdgeInsets.fromLTRB(
+            14,
+            client.isAdditional ? 26 : 16,
+            14,
+            14,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Everything above the footer fills the card's free height, so
+              // the footer always sits on the same bottom line on every card.
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      // Leave room for the corner ribbon.
+                      padding: const EdgeInsets.only(right: 30),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: const Color(0xFFEAF2FF),
+                            foregroundColor: const Color(0xFF1456C0),
+                            child: Text(
+                              _clientInitials(client.name),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
                               ),
-                            ],
-                          ],
-                        ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  client.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Color(0xFF14213D),
+                                    fontSize: 15,
+                                    height: 1.2,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const SizedBox(height: 2),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE0E7FF),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: const Color(0xFFA5B4FC),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.event_rounded,
+                                        size: 12,
+                                        color: Color(0xFF4338CA),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          'Submit: ${_formatDate(client.submissionDate)}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Color(0xFF4338CA),
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: client.isAdditional ? 6 : 10),
-            Row(
-              children: [
-                Text(
-                  'Submit date: ${_formatDate(client.submissionDate)}',
-                  style: const TextStyle(
-                    color: Color(0xFF64748B),
-                    fontSize: 12,
-                  ),
-                ),
-                if (client.additionalBy.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Tooltip(
-                      message: 'Assigned by ${client.additionalBy.join(', ')}',
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF3E8FF),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFD8B4FE)),
-                        ),
-                        child: Text(
-                          'By ${client.additionalBy.join(', ')}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Color(0xFF6D28D9),
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800,
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Tooltip(
+                          message: 'Team · tasks',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () => showTeam(context, client),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF2563EB),
+                                    Color(0xFF0EA5E9),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x332563EB),
+                                    blurRadius: 5,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.groups_2_rounded,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    teamCount > 0 ? 'Team $teamCount' : 'Team',
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                        if (client.additionalBy.isNotEmpty)
+                          Tooltip(
+                            message:
+                                'Assigned by ${client.additionalBy.join(', ')}',
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 170),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Color(0xFF7C3AED),
+                                      Color(0xFFC026D3),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x337C3AED),
+                                      blurRadius: 5,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  'By ${client.additionalBy.join(', ')}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                  ),
-                ],
-              ],
-            ),
-            if (showMeta &&
-                (client.package.isNotEmpty ||
-                    client.maintenanceDay.isNotEmpty)) ...[
-              const SizedBox(height: 6),
-              Text(
-                [
-                  if (client.maintenanceDay.isNotEmpty)
-                    'Maintain date: ${client.maintenanceDay}',
-                  if (client.package.isNotEmpty) client.package,
-                ].join('  ·  '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF1456C0),
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
+                    if (showMeta &&
+                        (client.package.isNotEmpty ||
+                            client.maintenanceDay.isNotEmpty)) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final badge in [
+                            if (client.maintenanceDay.isNotEmpty)
+                              (
+                                Icons.build_circle_rounded,
+                                'Maintain: ${client.maintenanceDay}',
+                                const Color(0xFF0F766E),
+                                const Color(0xFFCCFBF1),
+                              ),
+                            if (client.package.isNotEmpty)
+                              (
+                                Icons.inventory_2_rounded,
+                                client.package,
+                                const Color(0xFFB45309),
+                                const Color(0xFFFEF3C7),
+                              ),
+                          ])
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 180),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: badge.$4,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: badge.$3.withValues(alpha: 0.45),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(badge.$1, size: 12, color: badge.$3),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        badge.$2,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: badge.$3,
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    // Fixed-size portrait task boxes. Takes only the height
+                    // left on the card (extra types become "+N more").
+                    Flexible(
+                      child: _ClientStatTiles(client: client, compact: true),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Merged footer: progress, status counts and the open button
+              // in one panel.
+              Container(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFD),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE6ECF5)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '${client.progress}% approved',
+                          style: const TextStyle(
+                            color: Color(0xFF1456C0),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: LinearProgressIndicator(
+                              value: client.progress / 100,
+                              minHeight: 6,
+                              backgroundColor: const Color(0xFFE2E8F0),
+                              color: const Color(0xFF1A68D1),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 5,
+                      children: [
+                        if (client.inProgress > 0)
+                          _CountChip(
+                            'In progress',
+                            client.inProgress,
+                            const Color(0xFF2563EB),
+                          ),
+                        if (client.onHold > 0)
+                          _CountChip(
+                            'Hold',
+                            client.onHold,
+                            const Color(0xFFD97706),
+                          ),
+                        if (client.toReview > 0)
+                          _CountChip(
+                            'To review',
+                            client.toReview,
+                            const Color(0xFFDC2626),
+                          ),
+                        if (client.additionalRows > 0)
+                          _CountChip(
+                            'Additional',
+                            client.additionalRows,
+                            const Color(0xFF7C3AED),
+                          ),
+                        _CountChip(
+                          'Complete',
+                          client.completed,
+                          const Color(0xFF15803D),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: onOpen,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF1456C0),
+                        minimumSize: const Size.fromHeight(38),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      icon: const Icon(Icons.arrow_forward_rounded, size: 17),
+                      label: const Text('Open client tasks'),
+                    ),
+                  ],
                 ),
               ),
             ],
-            const SizedBox(height: 12),
-            // Takes only the height left on the fixed-size card, so the
-            // card never overflows (extra types become "+N more").
-            Flexible(
-              child: _ClientStatTiles(client: client, compact: true),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Text(
-                  '${client.progress}% approved',
-                  style: const TextStyle(
-                    color: Color(0xFF1456C0),
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
-                  ),
-                ),
-
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: LinearProgressIndicator(
-                      value: client.progress / 100,
-                      minHeight: 7,
-                      backgroundColor: const Color(0xFFE8EEF8),
-                      color: const Color(0xFF1A68D1),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                if (client.inProgress > 0)
-                  _CountChip(
-                    'In progress',
-                    client.inProgress,
-                    const Color(0xFF2563EB),
-                  ),
-                if (client.onHold > 0)
-                  _CountChip('Hold', client.onHold, const Color(0xFFD97706)),
-                if (client.toReview > 0)
-                  _CountChip(
-                    'To review',
-                    client.toReview,
-                    const Color(0xFFDC2626),
-                  ),
-                if (client.additionalRows > 0)
-                  _CountChip(
-                    'Additional',
-                    client.additionalRows,
-                    const Color(0xFF7C3AED),
-                  ),
-                _CountChip(
-                  'Complete',
-                  client.completed,
-                  const Color(0xFF15803D),
-                ),
-              ],
-            ),
-          ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: onOpen,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF1456C0),
-                  minimumSize: const Size.fromHeight(38),
-                ),
-                child: const Text('Open client tasks'),
-              ),
-            ),
-          ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -4686,18 +4807,50 @@ class _CountChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      padding: const EdgeInsets.fromLTRB(8, 3, 3, 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        '$label: $count',
-        style: TextStyle(
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
+        gradient: LinearGradient(
+          colors: [color, Color.lerp(color, Colors.white, 0.22)!],
         ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.25),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Container(
+            constraints: const BoxConstraints(minWidth: 18),
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '$count',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4783,10 +4936,10 @@ class _WorkspacePinnedFilterDelegate extends SliverPersistentHeaderDelegate {
   _WorkspacePinnedFilterDelegate({required this.child});
 
   @override
-  double get minExtent => 164;
+  double get minExtent => 138;
 
   @override
-  double get maxExtent => 164;
+  double get maxExtent => 138;
 
   @override
   Widget build(

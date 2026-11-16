@@ -672,17 +672,19 @@ router.get('/cards', async (req, res) => {
     }
 
     // Ads / Page Handler: how much team work on this client+date waits for them.
+    // A Page / Ads Handler by role also reviews the additional tasks they added.
+    const roleHandler = await isPageAdsHandler(employee);
     const reviewerClients = new Set();
     for (const card of cards.values()) {
       if (!reviewerClients.has(norm(card.client_name))) {
-        const ids = await reviewerAssignmentIds(employee, card.client_name);
+        const ids = roleHandler ? [true] : await reviewerAssignmentIds(employee, card.client_name);
         if (ids.length) reviewerClients.add(norm(card.client_name));
       }
     }
     for (const card of cards.values()) {
       card.to_review = 0;
       if (!reviewerClients.has(norm(card.client_name))) continue;
-      const review = await buildReview(employee, card.client_name, card.submission_date);
+      const review = await buildReview(employee, card.client_name, card.submission_date, roleHandler);
       card.to_review = review.team.filter((r) => r.review_state === 'PENDING').length;
     }
 
@@ -945,8 +947,27 @@ async function reviewerClientNames(employee, client) {
   return rows.map((r) => norm(r.client_name)).filter(Boolean);
 }
 
+// Page / Ads Handler by job role (or named as one on any Tasks Assign card).
+// Such a person may approve / rework the ADDITIONAL tasks they added or
+// assigned, and their own additional work, even on a client where they are
+// not the named handler (e.g. an "Other" client that has no Tasks Assign card).
+async function isPageAdsHandler(employee) {
+  try {
+    const { role } = await handlerRoleOf(employee);
+    return role === 'Page Handler' || role === 'Ads Handler';
+  } catch (err) {
+    console.warn('isPageAdsHandler failed:', err.message);
+    return false;
+  }
+}
+
+function handlerOwnsAdditional(row, employee) {
+  const me = personKey(employee);
+  return Boolean(me) && (personKey(row.employee_name) === me || personKey(row.cc_assigned_by_name) === me);
+}
+
 // GET /review — { data: my own reviewed rows, team: rows I can review }
-async function buildReview(employee, client, date) {
+async function buildReview(employee, client, date, roleHandler = null) {
     const employeeId = await employeeIdFor(employee);
     const params = [employeeId ?? -1, employee];
     let clientSql = '';
@@ -968,18 +989,35 @@ async function buildReview(employee, client, date) {
 
     let team = [];
     const assignmentIds = await reviewerAssignmentIds(employee, client);
-    if (assignmentIds.length) {
-      const handlerClients = await reviewerClientNames(employee, client);
+    const handlerByRole = roleHandler ?? await isPageAdsHandler(employee);
+    if (assignmentIds.length || handlerByRole) {
+      const handlerClients = assignmentIds.length ? await reviewerClientNames(employee, client) : [];
       // Normal team work of my assignments + ADDITIONAL work (it has no assignment)
       // of the clients I handle, so additional tasks can be approved / sent to rework.
+      // A Page / Ads Handler also reviews the additional tasks they added /
+      // assigned (or were given), on any client.
+      const teamParams = [
+        assignmentIds.length ? assignmentIds : [-1],
+        handlerClients.length ? handlerClients : [''],
+      ];
+      let mineSql = '';
+      if (handlerByRole) {
+        mineSql = `OR (tl.additional_task_id IS NOT NULL
+                       AND (LOWER(TRIM(tl.employee_name)) = LOWER(TRIM(?))
+                            OR LOWER(TRIM(COALESCE(tti.cc_assigned_by_name, ''))) = LOWER(TRIM(?))))`;
+        teamParams.push(employee, employee);
+      }
+      if (client) teamParams.push(client);
       const [teamRows] = await db.query(
         `${ROW_SELECT}
          WHERE ${REVIEW_WHERE}
            AND (tl.task_assignment_id IN (?)
                 OR (tl.additional_task_id IS NOT NULL
-                    AND LOWER(TRIM(tl.client_name)) IN (?)))
+                    AND LOWER(TRIM(tl.client_name)) IN (?))
+                ${mineSql})
+           ${clientSql}
          ORDER BY COALESCE(tti.complete_time, tti.updated_at) DESC, tti.id DESC`,
-        [assignmentIds, handlerClients.length ? handlerClients : ['']],
+        teamParams,
       );
       // Page / Ads Handler: the whole team's work AND their own handler work
       // (a person who is both Page and Ads Handler reviews their own rows too).
@@ -991,7 +1029,7 @@ async function buildReview(employee, client, date) {
         own: personKey(r.employee_name) === me,
       }));
     }
-  return { data, team, is_reviewer: assignmentIds.length > 0 };
+  return { data, team, is_reviewer: assignmentIds.length > 0 || team.length > 0 };
 }
 
 // GET /review — { data: my own reviewed rows, team: rows I can review }
@@ -1046,8 +1084,8 @@ router.post('/review/:id/decision', async (req, res) => {
   }
   try {
     const [[item]] = await db.query(
-      `SELECT tti.id, tti.status, tti.review_status, tl.task_assignment_id, tl.client_name,
-              tl.additional_task_id
+      `SELECT tti.id, tti.status, tti.review_status, tti.cc_assigned_by_name,
+              tl.task_assignment_id, tl.client_name, tl.employee_name, tl.additional_task_id
        FROM time_tracking_task_items tti
        JOIN task_list tl ON tl.id = tti.task_list_id
        WHERE tti.id = ?`,
@@ -1057,9 +1095,12 @@ router.post('/review/:id/decision', async (req, res) => {
     const allowed = await reviewerAssignmentIds(employee, item.client_name);
     const userType = String(req.user?.userType || req.user?.user_type || '').toLowerCase();
     const admin = userType === 'admin' || req.body?.as_admin === true && await isAdminUser(employee);
-    // Additional work has no assignment: the Ads / Page Handler of that client may review it.
+    // Additional work has no assignment: the Ads / Page Handler of that client may
+    // review it, and so may a Page / Ads Handler who added / assigned it (or was
+    // given it), even when they are not named on that client's Tasks Assign card.
     const permitted = item.additional_task_id
       ? allowed.length > 0
+        || (handlerOwnsAdditional(item, employee) && await isPageAdsHandler(employee))
       : Boolean(item.task_assignment_id) && allowed.includes(item.task_assignment_id);
     if (!admin && !permitted) {
       return res.status(403).json({ success: false, message: 'Only the Ads / Page Handler of this client can review this task' });
@@ -1620,15 +1661,16 @@ async function employeeSheets(employee, client = null, { includeStartable = fals
   if (includeStartable) {
     const ids = await reviewerAssignmentIds(employee, client);
     if (ids.length) {
+      // A row emergency-assigned before the category was prepared / shared
+      // stays in the handler's category (count and card do not drop).
       startableSql = `OR (source_assignment_id IN (${ids.map(Number).join(',')})
-                          AND cc_prepared_by_id IS NULL AND cc_handoff_at IS NULL
-                          AND COALESCE(is_emergency, 0) <> 1)`;
+                          AND cc_prepared_by_id IS NULL AND cc_handoff_at IS NULL)`;
     }
   }
   const [cc] = await db.query(
     `SELECT id, client_name, deliverable, source_assignment_id, source_role, source_task_index,
             source_row_number, submit_date, cc_status, cc_duration_secs, cc_started_at,
-            cc_hold_reason, cc_last_activity_at, cc_handoff_at, assigned_to_name
+            cc_hold_reason, cc_last_activity_at, cc_handoff_at, assigned_to_name, is_emergency
      FROM content_calendar
      WHERE source_assignment_id IS NOT NULL AND source_active = 1
        AND ((cc_prepared_by_id = ? OR LOWER(TRIM(cc_prepared_by_name)) = LOWER(TRIM(?))) ${startableSql})
@@ -1640,6 +1682,9 @@ async function employeeSheets(employee, client = null, { includeStartable = fals
   return groupSheets(cc.filter((r) => active.has(norm(r.client_name))));
 }
 
+// A row that already belongs to another employee (shared, or emergency).
+const handedOffRow = (r) => Boolean(r.cc_handoff_at) || Number(r.is_emergency) === 1;
+
 // Rows of content_calendar → one item per category sheet (or manual row).
 function groupSheets(cc) {
   const sheets = new Map();
@@ -1649,7 +1694,9 @@ function groupSheets(cc) {
       : `row:${r.id}`;
     const sh = sheets.get(key) || { rows: [], banked: 0, runningFrom: null, statuses: new Set(), last: null };
     sh.rows.push(r);
-    sh.statuses.add(upper(r.cc_status || 'IDLE'));
+    // An emergency-assigned row is already with someone else, so it does not
+    // decide the category's preparation status (it still counts as a row).
+    if (!handedOffRow(r)) sh.statuses.add(upper(r.cc_status || 'IDLE'));
     sh.banked += Number(r.cc_duration_secs) || 0;
     if (r.cc_started_at && upper(r.cc_status) === 'IN PROGRESS') sh.runningFrom = new Date(r.cc_started_at);
     if (r.cc_last_activity_at && (!sh.last || r.cc_last_activity_at > sh.last)) sh.last = r.cc_last_activity_at;
@@ -1659,7 +1706,7 @@ function groupSheets(cc) {
   return [...sheets.entries()].map(([key, sh]) => {
     const first = sh.rows[0];
     const st = sh.statuses;
-    const status = sh.rows.every((r) => r.cc_handoff_at) ? 'ASSIGNED'
+    const status = sh.rows.every(handedOffRow) ? 'ASSIGNED'
       : st.size === 1 ? [...st][0]
         : st.has('IN PROGRESS') ? 'IN PROGRESS' : st.has('ON HOLD') ? 'ON HOLD' : 'IN PROGRESS';
     const runningSecs = sh.runningFrom ? Math.max(Math.floor((now - sh.runningFrom.getTime()) / 1000), 0) : 0;
@@ -3744,7 +3791,19 @@ router.get('/admin/content-calendar/:client', async (req, res) => {
     const emp = String(req.query.employee || '').trim();
     const userType = String(req.user?.userType || req.user?.user_type || '').toLowerCase();
     const isAdmin = userType === 'admin' || (emp && await isAdminUser(emp));
-    const isHandler = emp && (await reviewerAssignmentIds(emp, client)).length > 0;
+    let isHandler = emp && (await reviewerAssignmentIds(emp, client)).length > 0;
+    // Whoever prepared or shared rows of this client's calendar (e.g. the
+    // handler who emergency-assigned S.No 1) keeps seeing every row of it.
+    if (!isAdmin && !isHandler && emp) {
+      const [[own]] = await db.query(
+        `SELECT COUNT(*) AS n FROM content_calendar
+         WHERE LOWER(TRIM(client_name)) = LOWER(TRIM(?))
+           AND (LOWER(TRIM(COALESCE(assigned_by_name, ''))) = LOWER(TRIM(?))
+                OR LOWER(TRIM(COALESCE(cc_prepared_by_name, ''))) = LOWER(TRIM(?)))`,
+        [client, emp, emp],
+      );
+      isHandler = Number(own?.n) > 0;
+    }
     if (!isAdmin && !isHandler) {
       return res.status(403).json({
         success: false,
@@ -3891,5 +3950,123 @@ router.delete('/content-calendar/row/:id', async (req, res) => {
   }
 });
 
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Preparation timer for rows made with "Add content", also AFTER the row was
+// assigned (normal or emergency). Used by the Content Calendar when the
+// handler assigned a row before starting it.
+//   POST /content-calendar/prep/:id/start|hold|complete  { employee, reason? }
+// ═════════════════════════════════════════════════════════════════════════════
+router.post('/content-calendar/prep/:id/:action', async (req, res) => {
+  const id = Number(req.params.id);
+  const action = String(req.params.action || '').toLowerCase();
+  if (!Number.isSafeInteger(id) || id <= 0 || !['start', 'hold', 'complete'].includes(action)) {
+    return res.status(400).json({ success: false, message: 'Invalid request' });
+  }
+  const employee = employeeFrom(req);
+  try {
+    const [[row]] = await db.query(
+      `SELECT id, client_name, source_assignment_id, cc_status, assigned_by_name,
+              cc_prepared_by_name
+       FROM content_calendar WHERE id = ?`,
+      [id],
+    );
+    if (!row) return res.status(404).json({ success: false, message: 'Row not found' });
+    const userType = String(req.user?.userType || req.user?.user_type || '').toLowerCase();
+    const allowed = userType === 'admin'
+      || (employee && await isAdminUser(employee))
+      || (employee && (await reviewerAssignmentIds(employee, row.client_name)).length > 0)
+      || (employee && norm(row.assigned_by_name) === norm(employee))
+      || (employee && norm(row.cc_prepared_by_name) === norm(employee));
+    if (!allowed) {
+      return res.status(403).json({ success: false, message: 'Only the Page / Ads Handler of this client can work on this row' });
+    }
+    if (Number(row.source_assignment_id) > 0) {
+      return res.status(409).json({ success: false, message: 'Use the sheet controls for rows from the admin assignment' });
+    }
+    const status = upper(row.cc_status || 'IDLE');
+    const employeeId = employee ? await employeeIdFor(employee) : null;
+    // Seconds of the running stretch are added to the total on hold / complete.
+    const addRunning = `cc_duration_secs = COALESCE(cc_duration_secs, 0) +
+      CASE WHEN UPPER(COALESCE(cc_status, '')) = 'IN PROGRESS' AND cc_started_at IS NOT NULL
+           THEN GREATEST(TIMESTAMPDIFF(SECOND, cc_started_at, NOW()), 0) ELSE 0 END`;
+
+    if (action === 'start') {
+      if (!['IDLE', 'ON HOLD', ''].includes(status)) {
+        return res.status(409).json({ success: false, message: `This row is already ${status.toLowerCase()}` });
+      }
+      await db.query(
+        `UPDATE content_calendar
+         SET cc_status = 'IN PROGRESS', cc_started_at = NOW(), cc_last_activity_at = NOW(),
+             cc_prepared_by_id = COALESCE(cc_prepared_by_id, ?),
+             cc_prepared_by_name = COALESCE(NULLIF(cc_prepared_by_name, ''), ?)
+         WHERE id = ?`,
+        [employeeId ?? null, employee || null, id],
+      );
+    } else if (action === 'hold') {
+      if (status !== 'IN PROGRESS') {
+        return res.status(409).json({ success: false, message: 'Only a running row can be put on hold' });
+      }
+      const reason = String(req.body?.reason || '').trim().slice(0, 500);
+      await db.query(
+        `UPDATE content_calendar
+         SET ${addRunning}, cc_status = 'ON HOLD', cc_hold_reason = ?, cc_last_activity_at = NOW()
+         WHERE id = ?`,
+        [reason || null, id],
+      );
+    } else {
+      if (!['IN PROGRESS', 'ON HOLD'].includes(status)) {
+        return res.status(409).json({ success: false, message: 'Start this row before completing it' });
+      }
+      await db.query(
+        `UPDATE content_calendar
+         SET ${addRunning}, cc_status = 'COMPLETED', cc_last_activity_at = NOW()
+         WHERE id = ?`,
+        [id],
+      );
+    }
+    emit(req, { type: 'CONTENT_CALENDAR_PREP', calendarRowId: id, action });
+    return res.json({ success: true, message: `Row ${action === 'start' ? 'started' : action === 'hold' ? 'on hold' : 'completed'}` });
+  } catch (err) {
+    console.error('POST /workspace-tasks/content-calendar/prep ERROR:', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Content calendar "Add content" → Deliverable dropdown = every Task Master task.
+//   GET /content-calendar/task-master
+//   → { success, data: [{ id, name, group }] }  (group = the task's role, when
+//     task_master has a role column, otherwise "Task Master").
+// ═════════════════════════════════════════════════════════════════════════════
+const TM_ROLE_COLUMNS = ['role', 'role_name', 'department', 'team', 'task_role', 'assigned_role'];
+const prettyRole = (v) => String(v ?? '').trim().replace(/[_\s]+/g, ' ')
+  .replace(/\b\w/g, (c) => c.toUpperCase());
+
+router.get('/content-calendar/task-master', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM task_master');
+    const out = [];
+    const seen = new Set();
+    for (const r of rows) {
+      const name = String(r.task_name ?? '').trim().replace(/\s+/g, ' ');
+      if (!name || seen.has(norm(name))) continue;
+      if (r.is_active !== undefined && r.is_active !== null && Number(r.is_active) === 0) continue;
+      seen.add(norm(name));
+      const roleCol = TM_ROLE_COLUMNS.find((c) => r[c] !== undefined && r[c] !== null && String(r[c]).trim());
+      out.push({
+        id: r.id ?? r.task_master_id ?? null,
+        name,
+        group: roleCol ? prettyRole(r[roleCol]) : 'Task Master',
+      });
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    return res.json({ success: true, data: out });
+  } catch (err) {
+    console.error('GET /workspace-tasks/content-calendar/task-master ERROR:', err.message);
+    return res.status(500).json({ success: false, message: 'Unable to load Task Master tasks' });
+  }
+});
 
 module.exports = router;

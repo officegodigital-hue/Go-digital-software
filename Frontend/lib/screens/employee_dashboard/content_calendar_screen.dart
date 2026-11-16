@@ -215,6 +215,8 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
   List<Map<String, dynamic>> _clientCards = [];
   Map<String, dynamic>? _selectedClient;
   List<Map<String, dynamic>> _allCalendarRows = [];
+  /// Client whose rows are in _allCalendarRows (keeps handed-off rows).
+  String? _rowsClient;
   List<String> _categoryTabs = [];
   int _selectedTabIndex = 0;
 
@@ -359,15 +361,39 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
       );
       const ownRoute = 'tasks/client-tasks';
       const wideRoute = 'workspace-tasks/admin/content-calendar';
+      // Every non-admin view falls back to the wide route, so the handler
+      // still sees the card when all of its rows now belong to others.
       final routes = widget.readOnly
           ? [wideRoute, ownRoute]
-          : widget.viaAssignment
-          ? [ownRoute, wideRoute]
-          : [ownRoute];
+          : [ownRoute, wideRoute];
       var res = await loadFrom(routes.first);
+      var answeredBy = routes.first;
       for (final path in routes.skip(1)) {
         if (res.statusCode == 200) break;
         res = await loadFrom(path);
+        answeredBy = path;
+      }
+      // The handler of this client sees EVERY row of the card (S.No 1..n),
+      // including rows given to another employee (normal or emergency
+      // assign, or a single row shared before "Assign All"). The own route
+      // drops a row once it belongs to someone else, so rows missing from it
+      // are added from the wide one. This runs in the standalone Content
+      // Calendar too, not only when opened from a My Tasks card. The wide
+      // route answers 200 only for the admin and this client's Page / Ads
+      // Handler, so other employees never get extra rows.
+      List<Map<String, dynamic>>? extraRows;
+      var handlesThisClient = widget.viaAssignment ||
+          (res.statusCode == 200 && answeredBy == wideRoute);
+      if (!widget.readOnly && res.statusCode == 200 &&
+          answeredBy == ownRoute) {
+        try {
+          final wide = await loadFrom(wideRoute);
+          if (wide.statusCode == 200) {
+            handlesThisClient = true;
+            extraRows = List<Map<String, dynamic>>.from(
+                jsonDecode(wide.body)['data'] ?? []);
+          }
+        } catch (_) {/* keep the own rows */}
       }
       if (!mounted) return;
       if (_selectedClient == null ||
@@ -377,6 +403,22 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body);
         var list = List<Map<String, dynamic>>.from(body['data'] ?? []);
+        if (extraRows != null && extraRows.isNotEmpty) {
+          final have = list.map((r) => _asInt(r['id'])).toSet();
+          final missing =
+              extraRows.where((r) => have.add(_asInt(r['id']))).toList();
+          if (missing.isNotEmpty) {
+            list = [...list, ...missing]
+              ..sort((a, b) {
+                final d = _str(a['deliverable']).compareTo(_str(b['deliverable']));
+                if (d != 0) return d;
+                final sa = _asInt(a['s_no'] ?? a['source_row_number']);
+                final sb = _asInt(b['s_no'] ?? b['source_row_number']);
+                if (sa != sb) return sa.compareTo(sb);
+                return _asInt(a['id']).compareTo(_asInt(b['id']));
+              });
+          }
+        }
 
         // When the employee opens a Client + Submit Date card in My Tasks,
         // only load that deadline's deliverables into this calendar. The
@@ -406,7 +448,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
         // this employee (not every old/unassigned client calendar row).
         // The main admin (readOnly) sees every row of the card, whoever owns it.
         if (!widget.readOnly) {
-          if (!_isPageOrAdsHandler) {
+          if (!_isPageOrAdsHandler && !handlesThisClient) {
             list = list.where(_assignedToCurrentEmployee).toList();
           } else {
             list = list.where((row) {
@@ -419,6 +461,29 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
                   !sourceRole.contains('ads_handler') &&
                   !sourceRole.contains('adshandler');
             }).toList();
+          }
+        }
+
+        // A row that was assigned / emergency-assigned while this calendar
+        // was open stays in the list (same S.No, same count) even when the
+        // server no longer returns it to this employee after the hand-off.
+        if (_rowsClient == clientName && !widget.readOnly) {
+          final have = list.map((r) => _asInt(r['id'])).toSet();
+          final kept = _allCalendarRows
+              .where((r) =>
+                  (_isAssigned(r) || _isEmergency(r)) &&
+                  have.add(_asInt(r['id'])))
+              .toList();
+          if (kept.isNotEmpty) {
+            list = [...list, ...kept]
+              ..sort((a, b) {
+                final d = _str(a['deliverable']).compareTo(_str(b['deliverable']));
+                if (d != 0) return d;
+                final sa = _asInt(a['s_no'] ?? a['source_row_number']);
+                final sb = _asInt(b['s_no'] ?? b['source_row_number']);
+                if (sa != sb) return sa.compareTo(sb);
+                return _asInt(a['id']).compareTo(_asInt(b['id']));
+              });
           }
         }
 
@@ -445,6 +510,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
 
         setState(() {
           _allCalendarRows = list;
+          _rowsClient = clientName;
           _categoryTabs = categories;
           _selectedTabIndex = categories.isEmpty
               ? 0
@@ -757,6 +823,35 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     setState(() => _busyRows.add(id));
     await _flushSave(id);
     var ok = false;
+    // A row made with "Add content" that is already assigned is started /
+    // held / completed through the workspace route (the old route refuses
+    // assigned rows).
+    if (_usesWorkspacePrep(row)) {
+      try {
+        final action = path.split('/').last; // start | hold | complete
+        final res = await http.post(
+          Uri.parse('$_baseUrl/workspace-tasks/content-calendar/prep/$id/$action'),
+          headers: _headers,
+          body: jsonEncode({
+            'employee': widget.currentUserName.trim(),
+            if (extra['reason'] != null) 'reason': extra['reason'],
+          }),
+        );
+        if (!mounted) return false;
+        if (res.statusCode == 200) {
+          ok = true;
+          setState(() => row['cc_status'] = nextCcStatus);
+          await _reloadCurrentClient();
+        } else {
+          _showMessage(_errorFrom(res, errorMessage));
+        }
+      } catch (_) {
+        _showMessage(errorMessage);
+      } finally {
+        if (mounted) setState(() => _busyRows.remove(id));
+      }
+      return ok;
+    }
     try {
       var res = await http.post(
         Uri.parse('$_baseUrl$path'),
@@ -822,9 +917,13 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     return confirmed == true;
   }
 
+  bool _usesWorkspacePrep(Map<String, dynamic> row) =>
+      _isAssigned(row) && _asInt(row['source_assignment_id']) == 0;
+
   Future<void> _handleCalendarStart(Map<String, dynamic> row) async {
     if (_blockedReadOnly()) return;
-    if (!await _confirmAddToDayPlanner(row) || !mounted) return;
+    if (!_usesWorkspacePrep(row) &&
+        (!await _confirmAddToDayPlanner(row) || !mounted)) return;
     await _runAction(
       row,
       path: '/tasks/content-calendar/start',
@@ -1311,6 +1410,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     setState(() {
       _selectedClient = card;
       _allCalendarRows = [];
+      _rowsClient = null;
       _categoryTabs = [];
       _selectedTabIndex = 0;
       _loading = true;
@@ -2670,6 +2770,7 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
                     ),
                   ),
                   _buildDateChip(row, 'submit_date'),
+                  _viewRowButton(row),
                   if (widget.myTasksMode &&
                       _asInt(row['source_assignment_id']) == 0 &&
                       _canDeleteRow(row))
@@ -3174,7 +3275,8 @@ DataColumn _sheetColumn(
     );
   }
 
-  /// "Add content": choose a deliverable (from the client's assigned work),
+  /// "Add content": choose a deliverable (the client's assigned work first,
+  /// then every task in Task Master),
   /// how many rows, and the submit date → blank rows in the same card format.
   Future<void> _handleAddContent() async {
     if (_blockedReadOnly()) return;
@@ -3193,6 +3295,30 @@ DataColumn _sheetColumn(
       }
     } catch (_) {
       _showMessage('Unable to load deliverables. Check your connection.');
+    }
+    // Every task from Task Master (backend DB) is also offered, after the
+    // client's own assigned deliverables, without duplicates.
+    try {
+      final res = await http.get(
+        Uri.parse('$_baseUrl/workspace-tasks/content-calendar/task-master'),
+        headers: _headers,
+      );
+      if (res.statusCode == 200) {
+        final master = List<Map<String, dynamic>>.from(jsonDecode(res.body)['data'] ?? []);
+        final seen = options.map((o) => _str(o['name']).trim().toLowerCase()).toSet();
+        for (final m in master) {
+          final name = _str(m['name']).trim();
+          if (name.isEmpty || !seen.add(name.toLowerCase())) continue;
+          options.add({
+            'name': name,
+            'group': _str(m['group']).isEmpty ? 'Task Master' : _str(m['group']),
+          });
+        }
+      } else {
+        _showMessage(_errorFrom(res, 'Unable to load Task Master tasks'));
+      }
+    } catch (_) {
+      _showMessage('Unable to load Task Master tasks. Check your connection.');
     }
     if (!mounted) return;
 
@@ -3245,6 +3371,7 @@ DataColumn _sheetColumn(
                   DropdownButtonFormField<String>(
                     value: useOther ? '__other__' : deliverable,
                     isExpanded: true,
+                    menuMaxHeight: 360,
                     decoration: const InputDecoration(
                       labelText: 'Deliverable',
                       border: OutlineInputBorder(),
@@ -3441,6 +3568,10 @@ DataColumn _sheetColumn(
       );
       if (!mounted) return;
       _showMessage(res.statusCode == 200 ? 'Row removed' : _errorFrom(res, 'Unable to remove this row'));
+      if (res.statusCode == 200) {
+        final removedId = _asInt(row['id']);
+        _allCalendarRows.removeWhere((r) => _asInt(r['id']) == removedId);
+      }
       await _reloadCurrentClient();
     } catch (_) {
       _showMessage('Unable to remove this row. Check your connection.');
@@ -3487,6 +3618,360 @@ DataColumn _sheetColumn(
     const locked = {'IN REVIEW', 'APPROVED', 'REJECTED'};
     return !locked.contains(_employeeState(row));
   }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // VIEW: full details of one row in a large blue-and-white popup, so long
+  // descriptions are read in full instead of scrolling inside a small box.
+  // ───────────────────────────────────────────────────────────────────────
+  Widget _viewRowButton(Map<String, dynamic> row) => Container(
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [Color(0xFF004AAD), Color(0xFF2563EB)],
+      ),
+      borderRadius: BorderRadius.circular(8),
+      boxShadow: const [
+        BoxShadow(color: Color(0x332563EB), blurRadius: 6, offset: Offset(0, 2)),
+      ],
+    ),
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => _showRowDetails(row),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.visibility_outlined, size: 15, color: Colors.white),
+              SizedBox(width: 5),
+              Text(
+                'VIEW',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                  letterSpacing: 0.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  String _rowTitle(Map<String, dynamic> row) {
+    for (final k in const ['deliverable', 'deliverable_name', 'task_title', 'content_type']) {
+      final v = _str(row[k]);
+      if (v.isNotEmpty) return v;
+    }
+    return _currentCategory ?? 'Deliverable';
+  }
+
+  String _dateText(dynamic value) {
+    final d = _parseDate(value);
+    if (d != null) return _fmtSlash(d);
+    final s = _str(value);
+    return s.isEmpty ? '—' : s;
+  }
+
+  void _showRowDetails(Map<String, dynamic> row) {
+    final size = MediaQuery.of(context).size;
+    final wide = size.width >= 760;
+    final assigned = _isAssigned(row);
+    final website = _isWebsiteRow(row);
+    final state = assigned ? _employeeState(row) : _ccStatusOf(row);
+    final employee = _employeeOf(row);
+
+    Widget infoTile(IconData icon, String label, String value) => Container(
+      width: wide ? 200 : double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F9FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDBEAFE)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF004AAD), Color(0xFF3B82F6)],
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 15, color: Colors.white),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 10, fontWeight: FontWeight.w800,
+                        color: _kMuted, letterSpacing: 0.5)),
+                const SizedBox(height: 2),
+                Text(value.isEmpty ? '—' : value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w700, color: _kInk)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    Widget section(String label, String value, {IconData icon = Icons.notes_rounded}) =>
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFDBEAFE)),
+            boxShadow: const [
+              BoxShadow(color: Color(0x0F1D4ED8), blurRadius: 10, offset: Offset(0, 3)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFFEFF6FF), Color(0xFFFFFFFF)],
+                  ),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(icon, size: 16, color: _kPrimary),
+                    const SizedBox(width: 7),
+                    Text(label,
+                        style: const TextStyle(
+                            fontSize: 11.5, fontWeight: FontWeight.w800,
+                            color: _kPrimary, letterSpacing: 0.6)),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                child: SelectableText(
+                  value.trim().isEmpty ? '—' : value.trim(),
+                  style: const TextStyle(fontSize: 14, height: 1.55, color: _kBody),
+                ),
+              ),
+            ],
+          ),
+        );
+
+    showDialog<void>(
+      context: context,
+      barrierColor: const Color(0x99031B4E),
+      builder: (dialogContext) => Dialog(
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: wide ? 40 : 10,
+          vertical: wide ? 28 : 16,
+        ),
+        backgroundColor: Colors.white,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: SizedBox(
+          width: math.min(size.width - (wide ? 80 : 20), 1100),
+          height: size.height * 0.9,
+          child: Column(
+            children: [
+              // Header: radiant blue gradient.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(22, 18, 10, 18),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF002F7A), Color(0xFF004AAD), Color(0xFF3B82F6)],
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: [
+                              _popupPill('S.No ${_str(row['s_no']).isEmpty ? '—' : _str(row['s_no'])}'),
+                              _popupPill(state),
+                              if (_isEmergency(row)) _popupPill('⚡ EMERGENCY'),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            _rowTitle(row),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _str(row['client_name']).isNotEmpty
+                                ? _str(row['client_name'])
+                                : _str(_selectedClient?['client_name']),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFFDBEAFE),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+              // Body: white, scrolls as a whole page.
+              Expanded(
+                child: Container(
+                  color: const Color(0xFFF8FBFF),
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(wide ? 22 : 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            infoTile(Icons.event_rounded, 'SUBMIT DATE', _dateText(row['submit_date'])),
+                            if (!website)
+                              infoTile(Icons.campaign_outlined, 'POST DATE', _dateText(row['publish_date'])),
+                            infoTile(Icons.person_rounded, 'ASSIGNED EMPLOYEE',
+                                assigned ? employee : 'Not assigned'),
+                            infoTile(Icons.timer_outlined,
+                                assigned ? 'EMPLOYEE TIME' : 'PREPARATION TIME',
+                                _fmtTimer(assigned
+                                    ? _asInt(row['task_duration_secs'])
+                                    : _asInt(row['current_cc_secs'] ?? row['cc_duration_secs']))),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        if (!website) ...[
+                          section('HOOK / HEADLINE', _str(row['hook_headline']),
+                              icon: Icons.title_rounded),
+                        ],
+                        section('DESCRIPTION', _str(row['description_points']),
+                            icon: Icons.description_outlined),
+                        if (website && _str(row['description_rich']).isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: OutlinedButton.icon(
+                              onPressed: () => RichDescription.view(
+                                dialogContext,
+                                title: '${_rowTitle(row)} · S.No ${_str(row['s_no'])}',
+                                deltaJson: _str(row['description_rich']),
+                                fallbackPlain: _str(row['description_points']),
+                              ),
+                              icon: const Icon(Icons.article_outlined, size: 16),
+                              label: const Text('Open formatted website content'),
+                            ),
+                          ),
+                        if (!website) ...[
+                          section('CAPTION', _str(row['caption']),
+                              icon: Icons.short_text_rounded),
+                          section('CTA', _str(row['cta']),
+                              icon: Icons.touch_app_outlined),
+                        ],
+                        section('NOTES', _str(row['notes']),
+                            icon: Icons.sticky_note_2_outlined),
+                        if (_str(row['cc_emergency_reason']).isNotEmpty)
+                          section('EMERGENCY REASON', _str(row['cc_emergency_reason']),
+                              icon: Icons.bolt_rounded),
+                        if (_str(row['task_employee_notes']).isNotEmpty)
+                          section('EMPLOYEE NOTES', _str(row['task_employee_notes']),
+                              icon: Icons.edit_note_rounded),
+                        if (_str(row['task_review_comment']).isNotEmpty)
+                          section('REVIEW COMMENT', _str(row['task_review_comment']),
+                              icon: Icons.rate_review_outlined),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Footer.
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: Color(0xFFDBEAFE))),
+                ),
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    if (assigned)
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          _showWorkDetails(row, employee);
+                        },
+                        icon: const Icon(Icons.history_rounded, size: 16),
+                        label: const Text('Work details'),
+                      ),
+                    FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _kPrimary,
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _popupPill(String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(
+      color: const Color(0x26FFFFFF),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: const Color(0x55FFFFFF)),
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        color: Colors.white,
+        letterSpacing: 0.4,
+      ),
+    ),
+  );
 
   /// Status of the employee's work on an assigned row.
   String _employeeState(Map<String, dynamic> row) {
