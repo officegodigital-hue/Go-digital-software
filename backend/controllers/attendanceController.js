@@ -1213,6 +1213,9 @@ async function checkIn(req, res) {
     connection = await db.getConnection();
     await connection.beginTransaction();
     const rules = await locationPolicy.getCheckInPolicy(connection, employeeId, true);
+    if (rules.trackingRequired && !rules.trackingActive) {
+      throw new locationPolicy.LocationPolicyError(409, 'Start Hybrid tracking before checking in.');
+    }
     locationPolicy.validateCheckIn(rules, req.body || {});
     const existing = await getRecord(employeeId, date, connection, true);
     if (existing && existing.check_in_at) {
@@ -1286,6 +1289,10 @@ async function checkOut(req, res) {
     const record = await getRecord(employeeId, date);
     if (!record || !record.check_in_at) return fail(res, 409, 'Check in before checking out');
     if (record.check_out_at) return fail(res, 409, 'Already checked out today');
+    const locationRules = await locationPolicy.getCheckInPolicy(db, employeeId);
+    if (locationRules.workMode === 'Hybrid' && locationRules.trackingActive) {
+      return fail(res, 409, 'Stop Hybrid tracking before checking out.');
+    }
 
     const breaks = await breakMinutes(record.id);
     const rawMinutes = policy.minutesBetween(sqlDateTime(record.check_in_at), at);
@@ -1306,15 +1313,6 @@ async function checkOut(req, res) {
     await db.query(
       "INSERT INTO hrms_attendance_checkout_audit (attendance_id, employee_id, event_type, checkout_at, latitude, longitude, accuracy_meters, reason) VALUES (?, ?, 'manual_checkout', ?, ?, ?, ?, ?)",
       [record.id, employeeId, at, Number(req.body && req.body.latitude) || null, Number(req.body && req.body.longitude) || null, Number(req.body && req.body.accuracy) || null, 'Employee manual checkout']
-    );
-
-    await db.query(
-      `UPDATE hrms_field_tracking_sessions
-       SET is_active = 0,
-           stopped_at = ?
-       WHERE employee_user_id = ?
-         AND is_active = 1`,
-      [at, employeeId]
     );
 
     const updated = await getRecord(employeeId, date);

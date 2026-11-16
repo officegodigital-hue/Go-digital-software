@@ -13,6 +13,7 @@ import '../../services/attendance_location.dart';
 import '../../services/auth_service.dart';
 import '../../services/auth_storage.dart';
 import '../../services/hrms_attendance_tracker.dart';
+import '../../services/hrms_tracking_api.dart';
 import '../shared/employee_ui.dart';
 
 /// Attendance on the employee home screen. Other modules retain their own state.
@@ -318,7 +319,12 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
+    final isHybrid = '${(_data?['session'] as Map?)?['work_mode']}'.toLowerCase() == 'hybrid';
+    if (!clockOut && isHybrid && !await _startHybridTrackingBeforeCheckIn()) return;
     if (clockOut) {
+      if (isHybrid) {
+        if (!await _stopHybridTrackingBeforeCheckOut()) return;
+      } else {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -328,6 +334,7 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
         ),
       );
       if (confirmed != true) return;
+      }
     }
     setState(() => _punching = true);
     String message;
@@ -381,10 +388,59 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
-    if (punchSucceeded && !clockOut &&
-        (_data?['session'] as Map?)?['work_mode'] == 'Hybrid') {
-      await offerHybridFieldTracking(context);
+  }
+
+  Future<bool> _startHybridTrackingBeforeCheckIn() async {
+    try {
+      final session = await HrmsTrackingApi.hybridSession();
+      if (session['is_active'] == 1 || session['is_active'] == true || session['isActive'] == true) return true;
+    } catch (_) {}
+    if (!mounted) return false;
+    final start = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+      title: const Text('Start Tracking Required'),
+      content: const Text('Hybrid employees must start live tracking before checking in.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Start Tracking'))],
+    ));
+    if (start != true || !mounted) return false;
+    setState(() => _punching = true);
+    try {
+      final position = await AttendanceLocation.currentPosition();
+      await HrmsTrackingApi.startHybridSession(latitude: position.latitude, longitude: position.longitude, accuracy: position.accuracy, capturedAt: position.timestamp.toUtc().toIso8601String());
+      return true;
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_message(error))));
+      return false;
+    } finally { if (mounted) setState(() => _punching = false); }
+  }
+
+  Future<bool> _stopHybridTrackingBeforeCheckOut() async {
+    bool active;
+    try {
+      final session = await HrmsTrackingApi.hybridSession();
+      active = session['is_active'] == 1 || session['is_active'] == true || session['isActive'] == true;
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_message(error))));
+      return false;
     }
+    if (!active) return true;
+    if (!mounted) return false;
+    final stop = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+      title: const Text('Stop Tracking Required'),
+      content: const Text('Stop live tracking before checking out.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Stop Tracking'))],
+    ));
+    if (stop != true || !mounted) return false;
+    setState(() => _punching = true);
+    try {
+      try {
+        final position = await AttendanceLocation.currentPosition();
+        await HrmsTrackingApi.stopHybridSession(latitude: position.latitude, longitude: position.longitude, accuracy: position.accuracy);
+      } catch (_) { await HrmsTrackingApi.stopHybridSession(); }
+      return true;
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_message(error))));
+      return false;
+    } finally { if (mounted) setState(() => _punching = false); }
   }
 
   Future<void> _toggleBreak() async {

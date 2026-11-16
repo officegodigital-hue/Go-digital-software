@@ -49,6 +49,13 @@ class _EmployeeTrackingReportPageState
   bool _routeLoading = false;
   String? _routeError;
   GoogleMapController? _mapController;
+  int _routeRequest = 0;
+  int _mapGeneration = 0;
+
+  void _invalidateMap() { _mapGeneration++; _mapController = null; }
+
+  @override
+  void dispose() { _routeRequest++; _invalidateMap(); super.dispose(); }
 
   @override
   void initState() {
@@ -59,6 +66,8 @@ class _EmployeeTrackingReportPageState
   // ── Data loading ──────────────────────────────────────────────────────────
 
   Future<void> _loadMonth() async {
+    _routeRequest++;
+    _invalidateMap();
     setState(() {
       _loading = true;
       _error = null;
@@ -76,15 +85,17 @@ class _EmployeeTrackingReportPageState
           .whereType<Map>()
           .map((d) => Map<String, dynamic>.from(d))
           .toList();
+      Map<String, dynamic>? firstDay;
       setState(() {
         _data = data;
         _loading = false;
         // auto-select first day that has pings or attendance
         if (days.isNotEmpty) {
-          _selectedDay = days.first;
-          _loadRoute(days.first);
+          firstDay = days.first;
+          _selectedDay = firstDay;
         }
       });
+      if (firstDay != null) _loadRoute(firstDay!);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -95,6 +106,8 @@ class _EmployeeTrackingReportPageState
   }
 
   Future<void> _loadRoute(Map<String, dynamic> day) async {
+    final request = ++_routeRequest;
+    _invalidateMap();
     final date = '${day['date']}';
     setState(() {
       _routeLoading = true;
@@ -106,7 +119,7 @@ class _EmployeeTrackingReportPageState
         employeeUserId: widget.employeeUserId,
         date: date,
       );
-      if (!mounted) return;
+      if (!mounted || request != _routeRequest) return;
       final pts =
           (result['routePoints'] as List? ?? result['points'] as List? ?? [])
           .whereType<Map>()
@@ -116,9 +129,8 @@ class _EmployeeTrackingReportPageState
         _routePoints = pts;
         _routeLoading = false;
       });
-      _fitMapToPoints(pts);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _routeRequest) return;
       setState(() {
         _routeLoading = false;
         _routeError = e.toString().replaceFirst('Exception: ', '');
@@ -127,13 +139,12 @@ class _EmployeeTrackingReportPageState
   }
 
   void _fitMapToPoints(List<Map<String, dynamic>> pts) {
-    if (_mapController == null || pts.isEmpty) return;
+    final controller = _mapController;
+    if (!mounted || controller == null || pts.isEmpty) return;
     if (pts.length == 1) {
       final lat = double.tryParse('${pts.first['latitude']}') ?? 0;
       final lng = double.tryParse('${pts.first['longitude']}') ?? 0;
-      _mapController!.animateCamera(
-        CameraUpdate.newLatLngZoom(LatLng(lat, lng), 15),
-      );
+      _moveMapCamera(controller, CameraUpdate.newLatLngZoom(LatLng(lat, lng), 15));
       return;
     }
     double minLat = double.infinity, maxLat = -double.infinity;
@@ -146,15 +157,23 @@ class _EmployeeTrackingReportPageState
       if (lng < minLng) minLng = lng;
       if (lng > maxLng) maxLng = lng;
     }
-    _mapController!.animateCamera(
-      CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-          southwest: LatLng(minLat, minLng),
-          northeast: LatLng(maxLat, maxLng),
-        ),
-        56,
+    _moveMapCamera(controller, CameraUpdate.newLatLngBounds(
+      LatLngBounds(
+        southwest: LatLng(minLat, minLng),
+        northeast: LatLng(maxLat, maxLng),
       ),
-    );
+      56,
+    ));
+  }
+
+  Future<void> _moveMapCamera(GoogleMapController controller, CameraUpdate update) async {
+    try { await controller.animateCamera(update); } catch (_) {}
+  }
+
+  void _onMapCreated(GoogleMapController controller, int generation) {
+    if (!mounted || generation != _mapGeneration) return;
+    _mapController = controller;
+    _fitMapToPoints(_routePoints);
   }
 
   // ── Month navigation ──────────────────────────────────────────────────────
@@ -428,6 +447,7 @@ class _EmployeeTrackingReportPageState
     // Responsive: mobile = stacked tabs, desktop = side by side
     final w = MediaQuery.of(context).size.width;
     if (w >= 700) {
+      final mapGeneration = _mapGeneration;
       return _DesktopSplitLayout(
         days: _days,
         selectedDay: _selectedDay,
@@ -438,12 +458,11 @@ class _EmployeeTrackingReportPageState
           setState(() => _selectedDay = day);
           _loadRoute(day);
         },
-        onMapCreated: (ctrl) {
-          _mapController = ctrl;
-          _fitMapToPoints(_routePoints);
-        },
+        mapKey: ValueKey('employee-route-map-$mapGeneration'),
+        onMapCreated: (ctrl) => _onMapCreated(ctrl, mapGeneration),
       );
     }
+    final mapGeneration = _mapGeneration;
     return _MobileLayout(
       days: _days,
       selectedDay: _selectedDay,
@@ -454,10 +473,8 @@ class _EmployeeTrackingReportPageState
         setState(() => _selectedDay = day);
         _loadRoute(day);
       },
-      onMapCreated: (ctrl) {
-        _mapController = ctrl;
-        _fitMapToPoints(_routePoints);
-      },
+      mapKey: ValueKey('employee-route-map-$mapGeneration'),
+      onMapCreated: (ctrl) => _onMapCreated(ctrl, mapGeneration),
     );
   }
 }
@@ -472,6 +489,7 @@ class _DesktopSplitLayout extends StatelessWidget {
     required this.routeLoading,
     required this.routeError,
     required this.onDaySelected,
+    required this.mapKey,
     required this.onMapCreated,
   });
 
@@ -481,6 +499,7 @@ class _DesktopSplitLayout extends StatelessWidget {
   final bool routeLoading;
   final String? routeError;
   final ValueChanged<Map<String, dynamic>> onDaySelected;
+  final Key mapKey;
   final MapCreatedCallback onMapCreated;
 
   @override
@@ -504,6 +523,7 @@ class _DesktopSplitLayout extends StatelessWidget {
             routePoints: routePoints,
             routeLoading: routeLoading,
             routeError: routeError,
+            mapKey: mapKey,
             onMapCreated: onMapCreated,
           ),
         ),
@@ -522,6 +542,7 @@ class _MobileLayout extends StatefulWidget {
     required this.routeLoading,
     required this.routeError,
     required this.onDaySelected,
+    required this.mapKey,
     required this.onMapCreated,
   });
 
@@ -531,6 +552,7 @@ class _MobileLayout extends StatefulWidget {
   final bool routeLoading;
   final String? routeError;
   final ValueChanged<Map<String, dynamic>> onDaySelected;
+  final Key mapKey;
   final MapCreatedCallback onMapCreated;
 
   @override
@@ -569,6 +591,7 @@ class _MobileLayoutState extends State<_MobileLayout> {
                   routePoints: widget.routePoints,
                   routeLoading: widget.routeLoading,
                   routeError: widget.routeError,
+                  mapKey: widget.mapKey,
                   onMapCreated: widget.onMapCreated,
                 )
               : _DayList(
@@ -860,6 +883,7 @@ class _RoutePanel extends StatelessWidget {
     required this.routePoints,
     required this.routeLoading,
     required this.routeError,
+    required this.mapKey,
     required this.onMapCreated,
   });
 
@@ -867,6 +891,7 @@ class _RoutePanel extends StatelessWidget {
   final List<Map<String, dynamic>> routePoints;
   final bool routeLoading;
   final String? routeError;
+  final Key mapKey;
   final MapCreatedCallback onMapCreated;
 
   @override
@@ -1004,6 +1029,7 @@ class _RoutePanel extends StatelessWidget {
     final initialTarget = latLngs.isNotEmpty ? latLngs.first : const LatLng(0, 0);
 
     return GoogleMap(
+      key: mapKey,
       initialCameraPosition: CameraPosition(target: initialTarget, zoom: 14),
       onMapCreated: onMapCreated,
       polylines: polylines,
