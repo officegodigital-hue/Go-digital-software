@@ -231,6 +231,7 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
           onOpenWorkspace: _openWorkspaceItem,
         );
       case 'Chat':
+        return const NotificationsScreen();
       case 'Client Credentials':
         return const ClientCredentialsScreen();
       case 'Settings':
