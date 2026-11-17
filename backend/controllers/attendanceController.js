@@ -1,3 +1,4 @@
+const { attendanceUpdate } = require('../jobs/attendance-chat');
 const db = require('../config/db');
 const staff = require('../lib/staffDirectory');
 const policy = require('../lib/attendancePolicy');
@@ -1270,6 +1271,7 @@ async function checkIn(req, res) {
         console.error('Payroll refresh after real check-in failed', error);
       }
     }
+    void attendanceUpdate(req.app?.get('io'), employeeId, date, at, 'in', absent || late);
     return ok(res, serializeRecord(record, undefined, attendanceRules), 'Checked in');
   } catch (error) {
     if (connection) await connection.rollback();
@@ -1309,10 +1311,12 @@ async function checkOut(req, res) {
       attendance_status: record.attendance_status
     }, rules);
 
-    await db.query(
-      "UPDATE attendance_records SET check_out_at = ?, working_minutes = ?, attendance_status = ?, session_status = 'completed' WHERE id = ?",
+    const [checkout] = await db.query(
+      "UPDATE attendance_records SET check_out_at = ?, working_minutes = ?, attendance_status = ?, session_status = 'completed' WHERE id = ? AND check_out_at IS NULL",
       [at, workingMinutes, status, record.id]
     );
+    if (!checkout.affectedRows) return fail(res, 409, 'Already checked out today');
+    void attendanceUpdate(req.app?.get('io'), employeeId, date, at, 'out');
     await db.query(
       "INSERT INTO hrms_attendance_checkout_audit (attendance_id, employee_id, event_type, checkout_at, latitude, longitude, accuracy_meters, reason) VALUES (?, ?, 'manual_checkout', ?, ?, ?, ?, ?)",
       [record.id, employeeId, at, Number(req.body && req.body.latitude) || null, Number(req.body && req.body.longitude) || null, Number(req.body && req.body.accuracy) || null, 'Employee manual checkout']

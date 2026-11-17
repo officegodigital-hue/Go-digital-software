@@ -232,6 +232,8 @@ io.use(async (socket, next) => {
   } catch (_) { next(new Error('Sign in to connect')); }
 });
 app.set('io', io);
+const { runReminders } = require('./jobs/attendance-chat');
+cron.schedule('* * * * *', () => runReminders(io));
 push.attachIo(io); // chat + group socket messages also go to phones as push
 
 io.on('connection', (socket) => {

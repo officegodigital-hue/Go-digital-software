@@ -5517,12 +5517,9 @@ final String sizeText = sizeInKb > 1024
                 l['recipientName'] == nameB);
       });
 
-      // Chats with unread messages come first, then newest message first
-      final unreadA = _unreadFrom(msgsA) > 0;
-      final unreadB = _unreadFrom(msgsB) > 0;
-      if (unreadA && !unreadB) return -1;
-      if (!unreadA && unreadB) return 1;
-
+      // Pinned chats remain first. Every other conversation follows the
+      // timestamp of its latest message, so a new attendance message moves
+      // its employee into the Recent part of the chat list immediately.
       final byTime = _lastActivityMs(msgsB).compareTo(_lastActivityMs(msgsA));
       if (byTime != 0) return byTime;
       return nameA.toLowerCase().compareTo(nameB.toLowerCase());
@@ -5555,12 +5552,8 @@ final String sizeText = sizeInKb > 1024
             l['recipientName'] == nameB;
       });
 
-      // Chats with unread messages come first, then newest message first
-      final unreadA = _unreadFrom(msgsA) > 0;
-      final unreadB = _unreadFrom(msgsB) > 0;
-      if (unreadA && !unreadB) return -1;
-      if (!unreadA && unreadB) return 1;
-
+      // Pinned groups remain first. Every other group uses its most recent
+      // message time for the Recent ordering.
       final byTime = _lastActivityMs(msgsB).compareTo(_lastActivityMs(msgsA));
       if (byTime != 0) return byTime;
       return nameA.toLowerCase().compareTo(nameB.toLowerCase());
