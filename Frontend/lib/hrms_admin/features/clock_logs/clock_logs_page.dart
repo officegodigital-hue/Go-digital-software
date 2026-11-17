@@ -2056,10 +2056,40 @@ class _ClockLogsPageState extends State<ClockLogsPage> {
                   emphasized: true,
                 ),
               ),
+              _detailDivider(),
+              Expanded(flex: 2, child: _checkoutAuditDetail(item)),
             ],
           ),
         ),
       );
+
+  Widget _checkoutAuditDetail(Map<String, dynamic> item) {
+    final audit = item['checkoutAudit'] is Map
+        ? Map<String, dynamic>.from(item['checkoutAudit'] as Map)
+        : null;
+    if (audit == null) return _detailValue('Checkout', '-');
+    final type = switch (audit['eventType']?.toString()) {
+      'manual_checkout' => 'Manual checkout',
+      'outside_radius_auto_checkout' => 'Automatic checkout',
+      'no_gps_auto_checkout' => 'Automatic checkout',
+      'end_of_day_auto_close' => 'End-of-day close',
+      'undo_checkout' => 'Checkout undone',
+      _ => 'Checkout record',
+    };
+    final reason = audit['reason']?.toString().trim();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Checkout', style: TextStyle(color: Color(0xFF65759B), fontSize: 12)),
+        const SizedBox(height: 6),
+        Text(type, style: const TextStyle(color: Color(0xFF071540), fontSize: 13, fontWeight: FontWeight.w700)),
+        if (reason != null && reason.isNotEmpty)
+          Text(reason, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFF65759B), fontSize: 11, height: 1.3)),
+      ],
+    );
+  }
 
   Widget _breakDetail(Map<String, dynamic> item) {
     final breaks = (item['breaks'] as List? ?? const []).whereType<Map>();

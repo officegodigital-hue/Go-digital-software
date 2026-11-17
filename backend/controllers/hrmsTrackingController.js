@@ -584,23 +584,9 @@ async function ping(req, res) {
             );
 
             if (expired.length) {
-              await db.query(
-                `UPDATE attendance_records
-                 SET check_out_at = CURRENT_TIMESTAMP,
-                     working_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, check_in_at, CURRENT_TIMESTAMP)),
-                     outside_radius_since = NULL,
-                     session_status = 'completed'
-                 WHERE id = ? AND check_out_at IS NULL`,
-                [attendance.id]
-              );
-              await db.query(
-                `UPDATE attendance_breaks
-                 SET ended_at = CURRENT_TIMESTAMP,
-                     duration_minutes = GREATEST(0, TIMESTAMPDIFF(MINUTE, started_at, CURRENT_TIMESTAMP)),
-                     status = 'auto_closed'
-                 WHERE attendance_id = ? AND status = 'active'`,
-                [attendance.id]
-              );
+              // GPS pings only record location. The attendance heartbeat and
+              // server job are the single checkout authority; both preserve a
+              // checkout audit reason for Admin and employee history.
             }
           }
         }

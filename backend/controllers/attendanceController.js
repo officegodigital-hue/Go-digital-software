@@ -599,6 +599,31 @@ async function clockLogs(req, res) {
       });
     });
 
+    const [checkoutAuditRows] = recordIds.length
+      ? await db.query(
+          `SELECT attendance_id, event_type, checkout_at, latitude, longitude,
+                  accuracy_meters, reason, created_at
+           FROM hrms_attendance_checkout_audit
+           WHERE attendance_id IN (?)
+           ORDER BY attendance_id, created_at DESC, id DESC`,
+          [recordIds]
+        )
+      : [[]];
+    const checkoutAuditByAttendanceId = new Map();
+    checkoutAuditRows.forEach(function (audit) {
+      const key = Number(audit.attendance_id);
+      if (checkoutAuditByAttendanceId.has(key)) return;
+      checkoutAuditByAttendanceId.set(key, {
+        eventType: audit.event_type,
+        checkoutAt: sqlDateTime(audit.checkout_at),
+        latitude: audit.latitude == null ? null : Number(audit.latitude),
+        longitude: audit.longitude == null ? null : Number(audit.longitude),
+        accuracyMeters: audit.accuracy_meters == null ? null : Number(audit.accuracy_meters),
+        reason: audit.reason || null,
+        createdAt: sqlDateTime(audit.created_at)
+      });
+    });
+
     const items = records
       .map(function (row) {
         const person = scopedEmployees.find(function (p) { return p.id === row.employee_id; });
@@ -642,6 +667,7 @@ async function clockLogs(req, res) {
         }, rules);
         item.workMode = row.work_mode_snapshot || workModeByUserId.get(Number(row.employee_id)) || 'Not set';
         item.adminReason = row.admin_override_reason || null;
+        item.checkoutAudit = checkoutAuditByAttendanceId.get(Number(row.id)) || null;
         return item;
       });
     return ok(res, {
@@ -1495,7 +1521,9 @@ async function heartbeat(req, res) {
         await db.query("UPDATE hrms_attendance_radius_departures SET status='cancelled', last_seen_at=? WHERE attendance_id=? AND status='pending'", [policy.nowIstDateTime(), record.id]);
         radiusState = 'hybrid_tracking_active';
       }
-      if ((mode === 'Office' || mode === 'Home' || mode === 'Hybrid') && !activeHybrid) {
+      // Hybrid checkout is controlled by its stop-tracking and Dashboard
+      // checkout flow. It is never closed by a location heartbeat.
+      if ((mode === 'Office' || mode === 'Home') && !activeHybrid) {
         const rules = mode === 'Hybrid' ? await locationPolicy.settingsFor(db, false, 'Office') : await locationPolicy.getCheckInPolicy(db, employeeId);
         const center = mode === 'Hybrid' ? locationPolicy.coordinates(rules.office_latitude, rules.office_longitude) : rules.center;
         const radius = Number(mode === 'Hybrid'
@@ -1872,6 +1900,25 @@ async function dayDetail(req, res) {
     }
 
     const row = rows[0];
+    await ensureAttendanceSafetyTables();
+    const [checkoutAuditRows] = await db.query(
+      `SELECT event_type, checkout_at, latitude, longitude, accuracy_meters, reason, created_at
+       FROM hrms_attendance_checkout_audit
+       WHERE attendance_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [row.id]
+    );
+    const checkoutAuditRow = checkoutAuditRows[0];
+    const checkoutAudit = checkoutAuditRow ? {
+      eventType: checkoutAuditRow.event_type,
+      checkoutAt: sqlDateTime(checkoutAuditRow.checkout_at),
+      latitude: checkoutAuditRow.latitude == null ? null : Number(checkoutAuditRow.latitude),
+      longitude: checkoutAuditRow.longitude == null ? null : Number(checkoutAuditRow.longitude),
+      accuracyMeters: checkoutAuditRow.accuracy_meters == null ? null : Number(checkoutAuditRow.accuracy_meters),
+      reason: checkoutAuditRow.reason || null,
+      createdAt: sqlDateTime(checkoutAuditRow.created_at)
+    } : null;
     const totalBreak = await breakMinutes(row.id);
 
     const [breakRows] = await db.query(
@@ -1904,6 +1951,7 @@ async function dayDetail(req, res) {
       workingMinutes: worked,
       totalBreakMinutes: totalBreak,
       break: singleBreak,
+      checkoutAudit,
       remarks: row.remarks || row.notes || null,
       adminCorrection: row.admin_status_override ? {
         status: row.admin_status_override,

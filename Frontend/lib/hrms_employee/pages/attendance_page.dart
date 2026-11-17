@@ -1146,6 +1146,9 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
     final adminCorrection = _detail?['adminCorrection'] is Map
         ? Map<String, dynamic>.from(_detail!['adminCorrection'] as Map)
         : null;
+    final checkoutAudit = _detail?['checkoutAudit'] is Map
+        ? Map<String, dynamic>.from(_detail!['checkoutAudit'] as Map)
+        : null;
 
     Color statusColor;
     String statusLabel;
@@ -1265,6 +1268,11 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
                     ] else ...[
                       _popupSectionTitle('Leave Information'),
                       _DetailCard(label: 'Leave Type', value: statusLabel, valueColor: employeePurple, fullWidth: true),
+                      const SizedBox(height: 14),
+                    ],
+
+                    if (checkoutAudit != null) ...[
+                      _checkoutAuditCard(checkoutAudit),
                       const SizedBox(height: 14),
                     ],
 
@@ -1405,6 +1413,39 @@ class _AttendanceDayPopupState extends State<_AttendanceDayPopup> {
     child: Text(title.toUpperCase(),
         style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: employeeMuted, letterSpacing: .7)),
   );
+
+  Widget _checkoutAuditCard(Map<String, dynamic> audit) {
+    final type = switch (audit['eventType']?.toString()) {
+      'manual_checkout' => 'Manual checkout',
+      'outside_radius_auto_checkout' => 'Automatic checkout',
+      'no_gps_auto_checkout' => 'Automatic checkout',
+      'end_of_day_auto_close' => 'End-of-day close',
+      'undo_checkout' => 'Checkout undone',
+      _ => 'Checkout record',
+    };
+    final reason = audit['reason']?.toString().trim();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F7FF),
+        border: Border.all(color: employeeLine),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Checkout record', style: TextStyle(fontWeight: FontWeight.w700, color: employeeNavy)),
+          const SizedBox(height: 4),
+          Text(type, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: employeeBlue)),
+          if (reason != null && reason.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(reason, style: const TextStyle(fontSize: 12, color: employeeMuted, height: 1.4)),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _DetailCard extends StatelessWidget {
