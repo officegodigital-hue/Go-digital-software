@@ -1042,6 +1042,9 @@ async function employeeDashboard(req, res) {
     return ok(res, {
       employee: { id: person.id, name: person.full_name, staff_id: person.staff_id },
       date: date,
+      // A session does not exist before the first check-in, but the employee
+      // Dashboard needs the current mode to apply the Hybrid flow correctly.
+      work_mode: currentWorkMode,
       status: checkedIn ? 'checked_in' : (checkedOut ? 'checked_out' : 'not_checked_in'),
       session: record && record.check_in_at ? {
         id: record.id,

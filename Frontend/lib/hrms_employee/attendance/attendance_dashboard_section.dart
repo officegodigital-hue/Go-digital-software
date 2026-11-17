@@ -319,7 +319,11 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
     final token = _token;
     if (token == null || _loading || _punching || _error != null) return;
     final clockOut = _data?['status'] == 'checked_in';
-    final isHybrid = '${(_data?['session'] as Map?)?['work_mode']}'.toLowerCase() == 'hybrid';
+    // Before the first check-in there is no session, so read the current mode
+    // returned by the Dashboard API and otherwise retain the session fallback.
+    final isHybrid = '${_data?['work_mode'] ?? (_data?['session'] as Map?)?['work_mode']}'
+            .toLowerCase() ==
+        'hybrid';
     if (!clockOut && isHybrid && !await _startHybridTrackingBeforeCheckIn()) return;
     if (clockOut) {
       if (isHybrid) {

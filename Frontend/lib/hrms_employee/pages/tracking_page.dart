@@ -473,15 +473,8 @@ class _TrackingViewState extends State<_TrackingView> {
 
   Future<void> toggleTracking() async {
     try {
-      // Clock In is the first step of Hybrid work. Check it before requesting
-      // GPS or attempting to create a tracking session.
-      if (!trackingActive) {
-        final attendance = await AttendanceApi.dashboard(DateTime.now());
-        if (attendance['status'] != 'checked_in') {
-          await _requireClockIn();
-          return;
-        }
-      }
+      // Hybrid tracking starts before Dashboard Check In.  The attendance API
+      // requires the active session when the employee subsequently checks in.
       final position = await _getCurrentPosition();
 
       if (!trackingActive) {
@@ -516,7 +509,11 @@ class _TrackingViewState extends State<_TrackingView> {
         await _loadRoute(silent: true);
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Live tracking started.')));
+        ).showSnackBar(
+          const SnackBar(
+            content: Text('Live tracking started. Go to Dashboard to Check In.'),
+          ),
+        );
       } else {
         await HrmsTrackingApi.stopHybridSession(
           latitude: position.latitude,
@@ -551,42 +548,9 @@ class _TrackingViewState extends State<_TrackingView> {
       if (!mounted) return;
 
       final message = error.toString().replaceFirst('Exception: ', '');
-      if (message.contains('Clock in before starting Hybrid live tracking.')) {
-        await _requireClockIn();
-        return;
-      }
-
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
-    }
-  }
-
-  Future<void> _requireClockIn() async {
-    if (!mounted) return;
-    final goToClockIn = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Check In required'),
-        content: const Text(
-          'Check In first, then you can start Hybrid live tracking.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Go to Check In'),
-          ),
-        ],
-      ),
-    );
-    if (goToClockIn == true && mounted) {
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil('/employee/dashboard', (route) => false);
     }
   }
 
