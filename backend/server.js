@@ -325,6 +325,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/admin', adminEmployeeStatusRoutes);
 app.use('/api/manager-review', require('./routes/manager-review'));
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/contacts', require('./routes/contacts')); // phone lookup for chat call button
+app.use('/api', require('./routes/report.routes')); // full report, OCR, approvals
 app.use('/api/chat', chatRoutes);
 app.use('/api/workspace-tasks', workspaceTaskRoutes);
 app.use('/api/tech-projects', techProjectRoutes);   // Tech Projects / Tech Workspace

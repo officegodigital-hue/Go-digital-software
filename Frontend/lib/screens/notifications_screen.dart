@@ -4676,6 +4676,14 @@ final String sizeText = sizeInKb > 1024
               ),
             ),
           ),
+          if (!_isGroupChat && _selectedChatTarget.isNotEmpty) ...[
+            _buildHoverAction(
+              icon: Icons.call_rounded,
+              tooltip: 'Call',
+              onTap: _callChatTarget,
+            ),
+            const SizedBox(width: 5),
+          ],
           _buildHoverAction(
             icon: Icons.folder_shared_outlined,
             tooltip: 'Shared media & files',
@@ -4690,6 +4698,34 @@ final String sizeText = sizeInKb > 1024
         ],
       ),
     );
+  }
+
+  // Looks up the selected chat person's phone number and dials it.
+  Future<void> _callChatTarget() async {
+    if (_selectedChatTarget.isEmpty) return;
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/contacts/phone?name=${Uri.encodeComponent(_selectedChatTarget)}'),
+      );
+      final body = response.body.isEmpty ? const {} : jsonDecode(response.body);
+      final phone = (body is Map ? body['phone'] : null)?.toString() ?? '';
+      final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+      if (digits.replaceAll('+', '').length < 7) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('No phone number available for $_selectedChatTarget')),
+          );
+        }
+        return;
+      }
+      await launchUrl(Uri(scheme: 'tel', path: digits), mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to start the call')),
+        );
+      }
+    }
   }
 
   Widget _buildMessageBubble(

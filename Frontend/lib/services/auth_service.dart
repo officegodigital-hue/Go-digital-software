@@ -1,7 +1,9 @@
+// lib/services/auth_service.dart
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
+import 'package:godigital_portal/core/auth/auth_session.dart'; // 🟢 Added AuthSession import
 
 import 'api_config.dart';
 import 'auth_storage.dart';
@@ -55,6 +57,14 @@ class AuthService extends ChangeNotifier {
           _user = Map<String, dynamic>.from(
             decoded,
           );
+
+          // 🟢 CRITICAL: Initialize AuthSession when restoring stored token on app startup
+          final userType = _user?['userType']?.toString().toLowerCase() ?? '';
+          AuthSession.initialize(
+            token: _token,
+            isAdmin: userType == 'admin' || _user?['isMainAdmin'] == true,
+            isEmployee: userType == 'employee',
+          );
         }
       }
     } catch (error) {
@@ -64,6 +74,7 @@ class AuthService extends ChangeNotifier {
 
       _token = null;
       _user = null;
+      AuthSession.clear();
     } finally {
       _isInitialized = true;
       notifyListeners();
@@ -165,6 +176,14 @@ class AuthService extends ChangeNotifier {
               selectedUserType,
         );
 
+        // 🟢 CRITICAL: Initialize AuthSession right after successful login
+        final userType = _user?['userType']?.toString().toLowerCase() ?? '';
+        AuthSession.initialize(
+          token: _token,
+          isAdmin: userType == 'admin' || _user?['isMainAdmin'] == true,
+          isEmployee: userType == 'employee',
+        );
+
         _error = null;
         _isLoading = false;
         notifyListeners();
@@ -201,6 +220,8 @@ class AuthService extends ChangeNotifier {
       await AuthStorage.remove('role');
       await AuthStorage.remove('userType');
       await AuthStorage.remove('employeeMenu');
+
+      AuthSession.clear(); // 🟢 Clear session data on logout
     } catch (error) {
       debugPrint(
         'Error clearing authentication: $error',
@@ -214,9 +235,6 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Updates the signed-in session after a profile edit.  Widgets in the
-  /// attendance and task areas listen to this service, so they receive the
-  /// same identity immediately without another login.
   Future<void> updateProfileCache(Map<String, dynamic> profile) async {
     if (_user == null) return;
     final name = profile['name']?.toString().trim();

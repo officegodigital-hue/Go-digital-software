@@ -50,6 +50,7 @@ import 'package:godigital_portal/screens/employee_dashboard/employee_workspace_p
 import 'package:godigital_portal/screens/employee_dashboard/tech_workspace.dart'
     show TechProjectsAdminScreen;
 
+import 'package:godigital_portal/report/clients_full_report_screen.dart';
 /// Global navigator key — used by WaitingAlertService to show dialogs from
 /// outside the widget tree (e.g. background timers).
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -181,9 +182,11 @@ class MyApp extends StatelessWidget {
 
           // Admin → Tech Projects (create projects, build the team, pick the
           // in-charge, review the whole project).
-          '/tech-projects': (context) =>
-              const AdminGuard(child: TechProjectsAdminScreen()),
-
+         '/tech-projects': (context) =>
+    AdminGuard(child: TechProjectsAdminScreen()),
+'/reports': (context) => AdminGuard(
+  child: ClientsFullReportScreen(business: {'name': 'Client Report'}),
+),
           '/attendance': (context) => const HrmsAttendanceEntry(),
           '/employee/dashboard': (context) => const EmployeeDashboardPage(),
           '/employee/attendance': (context) => const EmployeeAttendancePage(),

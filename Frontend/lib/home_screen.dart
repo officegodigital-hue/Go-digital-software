@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/app_notification_center.dart';
 import 'package:godigital_portal/services/push_notification_service.dart';
+import 'package:godigital_portal/report/report_dashboard_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool? _hasRepoAccess;
   bool? _hasAttendanceAccess;
   bool? _hasTaskAccess;
+  bool? _hasReportAccess;
 
   @override
   void initState() {
@@ -88,6 +90,7 @@ class _HomeScreenState extends State<HomeScreen>
           _hasRepoAccess = true;
           _hasAttendanceAccess = true;
           _hasTaskAccess = true;
+          _hasReportAccess = true;
         });
       }
       return;
@@ -100,17 +103,20 @@ class _HomeScreenState extends State<HomeScreen>
       final attendanceAcc = appAccess['attendance']?['access_type']?.toString().toLowerCase() ?? 'none';
       final taskAcc = appAccess['task_manager']?['access_type']?.toString().toLowerCase() ?? 'none';
       final repoAcc = appAccess['client_repository']?['access_type']?.toString().toLowerCase() ?? 'none';
+      final reportAcc = appAccess['reports']?['access_type']?.toString().toLowerCase() ?? 'employee';
 
       setState(() {
         _hasAttendanceAccess = attendanceAcc != 'none';
         _hasTaskAccess = taskAcc != 'none';
         _hasRepoAccess = repoAcc != 'none';
+        _hasReportAccess = reportAcc != 'none';
       });
     } catch (_) {
       setState(() {
         _hasAttendanceAccess = false;
         _hasTaskAccess = false;
         _hasRepoAccess = false;
+        _hasReportAccess = false;
       });
     }
   }
@@ -128,7 +134,6 @@ class _HomeScreenState extends State<HomeScreen>
     final taskAccess = appAccess['task_manager'] as Map<String, dynamic>? ?? {};
     final taskAccessType = taskAccess['access_type']?.toString().toLowerCase() ?? 'none';
 
-    // 🟢 If user has Admin Access for Task Manager, open admin dashboard
     if (userType == 'admin' || isMainAdmin || taskAccessType == 'admin') {
       Navigator.pushNamed(context, '/admin');
       return;
@@ -187,8 +192,6 @@ class _HomeScreenState extends State<HomeScreen>
     if (!mounted) return;
     final authService = context.read<AuthService>();
 
-    // Notifications on every page (Home, Attendance, Task Manager, Repository)
-    // + links this phone for push when the app is closed.
     AppNotificationCenter.instance.start(
       context,
       authService.user?['fullName']?.toString(),
@@ -199,15 +202,21 @@ class _HomeScreenState extends State<HomeScreen>
     debugPrint('👤 User Role: ${authService.userRole}');
   }
 
-
   void _openClientRepository() {
     if (_hasRepoAccess == false) return;
     Navigator.pushNamed(context, '/client-work-repository');
   }
 
+  Future<void> _openReports() async {
+    if (_hasReportAccess == false) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ReportDashboardScreen()),
+    );
+  }
+
   Future<void> _logout() async {
     final auth = context.read<AuthService>();
-    // Stop alerts and unlink this phone before the session is cleared.
     AppNotificationCenter.instance.stop();
     await PushNotificationService.instance.unregister();
     await auth.logout();
@@ -245,7 +254,9 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                             child: Center(
                               child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 1040),
+                                // Wide enough for all four workspace cards to
+                                // sit on a single row on a 14" laptop.
+                                constraints: const BoxConstraints(maxWidth: 1240),
                                 child: _buildMainContent(width),
                               ),
                             ),
@@ -395,8 +406,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildMainContent(double width) {
+    // One column on phones, two on tablets, and all four cards on a single
+    // row once the viewport is laptop-sized (≈14").
     final mobile = width < 650;
-    final tablet = width >= 650 && width < 980;
+    final tablet = width >= 650 && width < 1080;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -520,11 +533,14 @@ class _HomeScreenState extends State<HomeScreen>
         LayoutBuilder(
           builder: (context, constraints) {
             final gap = mobile ? 10.0 : 14.0;
-            final cardWidth = mobile
-                ? constraints.maxWidth
+            // 1 column on phones, 2 on tablets, 4 side-by-side on laptops.
+            final columns = mobile
+                ? 1
                 : tablet
-                    ? (constraints.maxWidth - gap) / 2
-                    : (constraints.maxWidth - (gap * 2)) / 3;
+                    ? 2
+                    : 4;
+            final cardWidth =
+                (constraints.maxWidth - gap * (columns - 1)) / columns;
 
             return Wrap(
               alignment: WrapAlignment.center,
@@ -561,7 +577,22 @@ class _HomeScreenState extends State<HomeScreen>
                     accent: const Color(0xFF1769E0),
                   ),
                 ),
-                // 3. Client Work Repository
+                // 3. Reports
+                SizedBox(
+                  width: cardWidth,
+                  child: _MenuButton(
+                    icon: Icons.bar_chart_rounded,
+                    label: 'Reports',
+                    description: _hasReportAccess == false
+                        ? 'No Access — contact admin.'
+                        : 'Generate client monthly performance reports & exports.',
+                    onPressed: _openReports,
+                    locked: _hasReportAccess == false,
+                    loading: _hasReportAccess == null,
+                    accent: const Color(0xFF0F9D73),
+                  ),
+                ),
+                // 4. Client Work Repository
                 SizedBox(
                   width: cardWidth,
                   child: _MenuButton(

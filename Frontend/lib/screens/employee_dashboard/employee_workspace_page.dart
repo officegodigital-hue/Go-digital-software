@@ -4098,6 +4098,63 @@ class _ClientCard extends StatelessWidget {
     }
   }
 
+  // Dials the member's phone number if one is available.
+  static Future<void> _teamCall(
+    BuildContext context,
+    Map<String, dynamic> member,
+  ) async {
+    final name = '${member['employee'] ?? ''}'.trim();
+    String phone = '';
+    for (final key in ['phone_number', 'phone', 'mobile', 'mobile_number', 'employee_phone']) {
+      final value = '${member[key] ?? ''}'.trim();
+      if (value.isNotEmpty && value.toLowerCase() != 'null') {
+        phone = value;
+        break;
+      }
+    }
+    if (phone.isEmpty) {
+      try {
+        final token = context.read<AuthService>().token ?? '';
+        final response = await http.get(
+          Uri.parse('${ApiConfig.baseUrl}/employees'),
+          headers: {if (token.isNotEmpty) 'Authorization': 'Bearer $token'},
+        );
+        if (response.statusCode == 200) {
+          final decoded = jsonDecode(response.body);
+          final employees = (decoded is Map ? decoded['data'] : decoded) as List? ?? [];
+          for (final item in employees.whereType<Map>()) {
+            final foundName = '${item['full_name'] ?? item['name'] ?? ''}'.trim();
+            if (foundName.toLowerCase() == name.toLowerCase()) {
+              phone = '${item['phone_number'] ?? item['phone'] ?? item['mobile'] ?? ''}'.trim();
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Team call contact lookup error: $e');
+      }
+    }
+    if (!context.mounted) return;
+    final digits = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (digits.replaceAll('+', '').length < 7) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No phone number available for $name')),
+      );
+      return;
+    }
+    try {
+      final url = Uri(scheme: 'tel', path: digits);
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication) && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to start the call')));
+      }
+    } catch (e) {
+      debugPrint('Team call launch error: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to start the call')));
+      }
+    }
+  }
+
   static Future<void> _teamDirectChat(
     BuildContext context,
     _WorkspaceClient client,
@@ -4256,6 +4313,16 @@ class _ClientCard extends StatelessWidget {
                                   ),
                                 ),
                                 // TEAM_COMMUNICATION_ACTIONS_V2
+                                const SizedBox(width: 5),
+                                Tooltip(
+                                  message: 'Call',
+                                  child: IconButton(
+                                    onPressed: () => _teamCall(dialogContext, member),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                                    icon: const Icon(Icons.call_rounded, color: Color(0xFF2563EB), size: 22),
+                                  ),
+                                ),
                                 const SizedBox(width: 5),
                                 Tooltip(
                                   message: 'WhatsApp',

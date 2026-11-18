@@ -7,6 +7,7 @@ const locationPolicy = require('../lib/attendanceLocationPolicy');
 const payroll = require('./hrmsPayrollController');
 const { isWorkingDay } = require('../jobs/auto-absence');
 const { effectiveOverrides } = require('../lib/calendarOverrides');
+const attnNotify = require('../lib/attendanceNotify');
 const crypto = require('crypto');
 
 function ok(res, data, message) {
@@ -1298,6 +1299,10 @@ async function checkIn(req, res) {
       }
     }
     void attendanceUpdate(req.app?.get('io'), employeeId, date, at, 'in', absent || late);
+    void (async () => {
+      const who = (await attnNotify.employeeName(employeeId)) || 'An employee';
+      await attnNotify.notifyAdmins({ senderName: who, message: `${who} checked in${late ? ' late' : ''} at ${at}.` });
+    })();
     return ok(res, serializeRecord(record, undefined, attendanceRules), 'Checked in');
   } catch (error) {
     if (connection) await connection.rollback();
@@ -1349,6 +1354,10 @@ async function checkOut(req, res) {
     );
 
     const updated = await getRecord(employeeId, date);
+    void (async () => {
+      const who = (await attnNotify.employeeName(employeeId)) || 'An employee';
+      await attnNotify.notifyAdmins({ senderName: who, message: `${who} checked out at ${at}.` });
+    })();
     return ok(res, {
       ...serializeRecord(updated, undefined, rules),
       completed_break_minutes: breaks,
@@ -1436,6 +1445,10 @@ async function requestCheckoutCorrection(req, res) {
     const [[existing]] = await db.query("SELECT id FROM hrms_attendance_correction_requests WHERE attendance_id = ? AND request_type = 'checkout_correction' AND status = 'pending' LIMIT 1", [record.id]);
     if (existing) return fail(res, 409, 'A correction request is already pending. Wait for admin to review it before submitting another.');
     const [result] = await db.query("INSERT INTO hrms_attendance_correction_requests (attendance_id, employee_id, request_type, reason) VALUES (?, ?, 'checkout_correction', ?)", [record.id, req.user.id, reason.slice(0, 500)]);
+    void (async () => {
+      const who = (await attnNotify.employeeName(req.user.id)) || 'An employee';
+      await attnNotify.notifyAdmins({ senderName: who, message: `${who} requested a checkout correction. Reason: ${reason.slice(0, 200)}` });
+    })();
     return ok(res, { id: result.insertId }, 'Correction request sent to Admin.');
   } catch (error) { return fail(res, 500, error.message); }
 }
@@ -1475,6 +1488,10 @@ async function requestAttendanceCorrection(req, res) {
     const [result] = await db.query(`INSERT INTO hrms_attendance_correction_requests
       (attendance_id, employee_id, request_type, reason, requested_check_in_at, requested_check_out_at)
       VALUES (?, ?, ?, ?, ?, ?)`, [record.id, req.user.id, requestType, reason, requestedCheckIn, requestedCheckOut]);
+    void (async () => {
+      const who = (await attnNotify.employeeName(req.user.id)) || 'An employee';
+      await attnNotify.notifyAdmins({ senderName: who, message: `${who} requested an attendance regularization (${requestType.replace(/_/g, ' ')}) for ${date}.` });
+    })();
     return ok(res, { id: result.insertId }, 'Attendance correction request sent to Admin.');
   } catch (error) { return fail(res, 500, error.message); }
 }
@@ -1666,6 +1683,10 @@ async function createPermission(req, res) {
         homeFix ? new Date(req.body.capturedAt).toISOString().slice(0, 19).replace('T', ' ') : null,
         homeAddress]
     );
+    void (async () => {
+      const who = (await attnNotify.employeeName(req.user.id)) || 'An employee';
+      await attnNotify.notifyAdmins({ senderName: who, message: `${who} submitted a ${type.replace(/_/g, ' ')} request for ${date}${reason ? `. Reason: ${reason.slice(0, 200)}` : ''}.` });
+    })();
     return ok(res, { id: result.insertId, type, date, end_date: type === 'wfh' ? endDate : null,
       start_time: startTime || null, end_time: endTime || null, reason, status: 'Pending' },
       type === 'wfh' && homeFix ? 'WFH and Home Location request submitted for one admin approval' : 'Request submitted');
@@ -1717,6 +1738,10 @@ async function reviewPermission(req, res) {
       [status, req.user.id, at, id]
     );
     if (!result.affectedRows) return fail(res, 404, 'Pending request not found');
+    void (async () => {
+      const [[row]] = await db.query('SELECT employee_id, request_type, request_date FROM attendance_permission_requests WHERE id = ? LIMIT 1', [id]);
+      if (row) await attnNotify.notifyEmployeeById(row.employee_id, { senderName: 'Admin', message: `Your ${String(row.request_type).replace(/_/g, ' ')} request for ${sqlDate(row.request_date)} was ${status}.` });
+    })();
     return ok(res, { id: id, status: capitalize(status) }, 'Request updated');
   } catch (error) {
     console.error('PATCH /attendance/permissions/:id', error);
@@ -1869,6 +1894,7 @@ async function approveCorrectionRequest(req, res) {
       ]);
     }
     await db.query('UPDATE hrms_attendance_correction_requests SET status = ?, reviewed_by=?, reviewed_at = NOW() WHERE id = ?', ['approved', req.user.id, id]);
+    void attnNotify.notifyEmployeeById(req_row.employee_id, { senderName: 'Admin', message: 'Your attendance correction request was approved.' });
     return ok(res, {}, 'Attendance correction approved.');
   } catch (error) { return fail(res, 500, error.message); }
 }
@@ -1877,9 +1903,10 @@ async function rejectCorrectionRequest(req, res) {
   try {
     const { id } = req.params;
     const adminNote = String(req.body?.admin_note || '').trim().slice(0, 300);
-    const [[req_row]] = await db.query('SELECT id FROM hrms_attendance_correction_requests WHERE id = ?', [id]);
+    const [[req_row]] = await db.query('SELECT id, employee_id FROM hrms_attendance_correction_requests WHERE id = ?', [id]);
     if (!req_row) return fail(res, 404, 'Correction request not found');
     await db.query('UPDATE hrms_attendance_correction_requests SET status = ?, admin_note = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?', ['rejected', adminNote || null, req.user.id, id]);
+    void attnNotify.notifyEmployeeById(req_row.employee_id, { senderName: 'Admin', message: `Your attendance correction request was rejected.${adminNote ? ` Note: ${adminNote}` : ''}` });
     return ok(res, {}, 'Request rejected.');
   } catch (error) { return fail(res, 500, error.message); }
 }
