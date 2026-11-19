@@ -42,6 +42,32 @@ async function ensureAuthSchema(db) {
     UNIQUE KEY role_application (role_id, application),
     KEY role_id (role_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`);
+
+  await db.query(`CREATE TABLE IF NOT EXISTS employee_user_roles (
+    employee_id INT NOT NULL,
+    role_id INT NOT NULL,
+    PRIMARY KEY (employee_id, role_id),
+    KEY role_id (role_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`);
+  await db.query(`
+    INSERT IGNORE INTO employee_user_roles (employee_id, role_id)
+    SELECT eu.id, ur.id
+    FROM employee_users eu
+    INNER JOIN user_roles ur
+      ON UPPER(TRIM(ur.role_name)) = UPPER(TRIM(eu.role))
+  `);
+
+  await db.query(`CREATE TABLE IF NOT EXISTS role_sops (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    role_id INT NOT NULL,
+    title VARCHAR(180) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    storage_name VARCHAR(255) NOT NULL,
+    updated_by INT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY role_sop (role_id),
+    KEY role_id (role_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`);
 }
 
 module.exports = { ensureAuthSchema };

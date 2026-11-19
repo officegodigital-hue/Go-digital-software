@@ -2,6 +2,8 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
+const fs = require('fs');
+const path = require('path');
 const { authenticateToken } = require('./auth');
 const {
   passwordColumns,
@@ -18,6 +20,14 @@ const {
   readAttendanceDetails,
   saveAttendanceDetails,
 } = require('../lib/attendanceProfileSync');
+const {
+  normalizeRoleIds,
+  loadEmployeeRoles,
+  loadRoleApplicationAccess,
+  saveEmployeeRoleAssignments,
+  saveEmployeeApplicationAccess,
+  refreshEmployeeApplicationAccess,
+} = require('../lib/employeeRoles');
 
 // Admin Panel → "Attendance Details" section (work location, salary, cycle).
 function attendanceFromBody(body) {
@@ -141,6 +151,9 @@ router.get('/', async (req, res) => {
     `);
 
     for (const employee of rows) {
+      const roles = await loadEmployeeRoles(db, employee.id, employee.role);
+      employee.roles = roles;
+      employee.role_ids = roles.map((role) => Number(role.id));
       const [accessRows] = await db.query(`
         SELECT application, access_type, allowed_pages
         FROM employee_application_access
@@ -222,6 +235,9 @@ router.get('/:id', async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ success: false, message: 'Employee not found' });
 
     const employeeData = rows[0];
+    const roles = await loadEmployeeRoles(db, employeeData.id, employeeData.role);
+    employeeData.roles = roles;
+    employeeData.role_ids = roles.map((role) => Number(role.id));
     const [accessRows] = await db.query(`
       SELECT application, access_type, allowed_pages
       FROM employee_application_access
@@ -281,7 +297,7 @@ router.post('/user-roles', async (req, res) => {
       [trimmedRoleName, roleKey, userType]
     );
 
-    for (const app of ['attendance', 'task_manager', 'client_repository']) {
+    for (const app of ['attendance', 'task_manager', 'client_repository', 'role_sop']) {
       const item = applicationAccess[app] || {};
       const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
         ? (item.accessType || item.access_type) : 'none';
@@ -305,6 +321,9 @@ router.put('/user-roles/:id', async (req, res) => {
   const roleId = req.params.id;
   const roleName = req.body.roleName || req.body.role_name;
   const userType = req.body.userType || req.body.user_type || 'employee'; // 🟢 Capture userType
+  const hasApplicationAccess =
+    Object.prototype.hasOwnProperty.call(req.body, 'applicationAccess') ||
+    Object.prototype.hasOwnProperty.call(req.body, 'application_access');
   const applicationAccess = req.body.applicationAccess || req.body.application_access || {};
   if (!roleName) return res.status(400).json({ success: false, message: 'Role name is required' });
 
@@ -329,17 +348,19 @@ router.put('/user-roles/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Role not found' });
     }
 
-    for (const app of ['attendance', 'task_manager', 'client_repository']) {
-      const item = applicationAccess[app] || {};
-      const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
-        ? (item.accessType || item.access_type) : 'none';
-      const pages = Array.isArray(item.allowedPages) ? item.allowedPages : (Array.isArray(item.allowed_pages) ? item.allowed_pages : []);
-      await connection.query(
-        `INSERT INTO role_application_access (role_id, application, access_type, allowed_pages)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE access_type = VALUES(access_type), allowed_pages = VALUES(allowed_pages)`,
-        [roleId, app, accessType, JSON.stringify(pages)]
-      );
+    if (hasApplicationAccess) {
+      for (const app of ['attendance', 'task_manager', 'client_repository', 'role_sop']) {
+        const item = applicationAccess[app] || {};
+        const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
+          ? (item.accessType || item.access_type) : 'none';
+        const pages = Array.isArray(item.allowedPages) ? item.allowedPages : (Array.isArray(item.allowed_pages) ? item.allowed_pages : []);
+        await connection.query(
+          `INSERT INTO role_application_access (role_id, application, access_type, allowed_pages)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE access_type = VALUES(access_type), allowed_pages = VALUES(allowed_pages)`,
+          [roleId, app, accessType, JSON.stringify(pages)]
+        );
+      }
     }
 
     await connection.commit();
@@ -353,14 +374,62 @@ router.put('/user-roles/:id', async (req, res) => {
 
 // DELETE /api/employees/user-roles/:id
 router.delete('/user-roles/:id', async (req, res) => {
+  const connection = await db.getConnection();
+  let sopStorageName;
   try {
     const roleId = req.params.id;
-    await db.query(`DELETE FROM user_roles WHERE id = ?`, [roleId]);
+    await connection.beginTransaction();
+    const [[role]] = await connection.query(
+      'SELECT role_name FROM user_roles WHERE id = ?',
+      [roleId],
+    );
+    if (!role) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Role not found' });
+    }
+    const [employees] = await connection.query(`
+      SELECT employee_id AS id
+      FROM employee_user_roles
+      WHERE role_id = ?
+      UNION
+      SELECT id
+      FROM employee_users
+      WHERE UPPER(TRIM(role)) = UPPER(TRIM(?))
+    `, [roleId, role.role_name]);
+    const [[sop]] = await connection.query(
+      'SELECT storage_name FROM role_sops WHERE role_id = ?',
+      [roleId],
+    );
+    sopStorageName = sop?.storage_name;
+    await connection.query('DELETE FROM employee_user_roles WHERE role_id = ?', [roleId]);
+    await connection.query('DELETE FROM role_application_access WHERE role_id = ?', [roleId]);
+    await connection.query('DELETE FROM role_sops WHERE role_id = ?', [roleId]);
+    await connection.query('DELETE FROM user_roles WHERE id = ?', [roleId]);
+    await refreshEmployeeApplicationAccess(
+      connection,
+      employees.map((employee) => Number(employee.id)),
+    );
+    await connection.commit();
+    if (sopStorageName) {
+      const filePath = path.join(
+        __dirname,
+        '..',
+        'private_uploads',
+        'role-sops',
+        path.basename(sopStorageName),
+      );
+      fs.promises.unlink(filePath).catch((error) => {
+        if (error.code !== 'ENOENT') {
+          console.error('Unable to remove deleted role SOP:', error.message);
+        }
+      });
+    }
     return res.status(200).json({ success: true, message: 'Role deleted successfully' });
   } catch (err) {
+    await connection.rollback();
     console.error('DELETE /employees/user-roles/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
-  }
+  } finally { connection.release(); }
 });
 
 // POST /api/employees
@@ -377,6 +446,12 @@ router.post('/', async (req, res) => {
     monthlySalary = null, officeLocation = '', branch = '', additionalDetails = ''
   } = req.body;
 
+  const roleIds = req.body.roleIds === undefined
+    ? null
+    : normalizeRoleIds(req.body.roleIds);
+  if ((req.body.roleIds !== undefined && roleIds === null) || (roleIds && !roleIds.length)) {
+    return res.status(400).json({ success: false, message: 'Select at least one valid access role.' });
+  }
   if (!firstName || !lastName || !email || !username || !password || !role) {
     return res.status(400).json({ success: false, message: 'Required fields are missing' });
   }
@@ -414,6 +489,9 @@ router.post('/', async (req, res) => {
     ]);
 
     const newEmpId = result.insertId;
+    const assignedRoles = await saveEmployeeRoleAssignments(
+      connection, newEmpId, roleIds, role, userType,
+    );
     await connection.query('INSERT INTO employee_employment_periods (employee_user_id,started_on,created_by) VALUES (?,?,?)', [newEmpId,dateOfJoining || require('../lib/attendancePolicy').todayIstDate(),req.user.id]);
     await connection.query('UPDATE employee_users SET password_enc = ? WHERE id = ?', [pw.enc, newEmpId]);
     // The employee is added ONCE here — the Attendance app uses this profile
@@ -433,7 +511,12 @@ router.post('/', async (req, res) => {
     );
 
     let finalAppAccess = applicationAccess;
-    if (!finalAppAccess || Object.keys(finalAppAccess).length === 0) {
+    if (roleIds !== null) {
+      finalAppAccess = await loadRoleApplicationAccess(
+        connection,
+        assignedRoles.map((assignedRole) => Number(assignedRole.id)),
+      );
+    } else if (!finalAppAccess || Object.keys(finalAppAccess).length === 0) {
       const [roleAccessRows] = await connection.query(`
         SELECT ra.application, ra.access_type, ra.allowed_pages 
         FROM role_application_access ra
@@ -452,16 +535,20 @@ router.post('/', async (req, res) => {
       }
     }
 
-    for (const app of ['attendance', 'task_manager', 'client_repository']) {
-      const item = finalAppAccess[app] || {};
-      const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
-        ? (item.accessType || item.access_type) : 'none';
-      const pages = Array.isArray(item.allowedPages) ? item.allowedPages : (Array.isArray(item.allowed_pages) ? item.allowed_pages : []);
-      await connection.query(
-        `INSERT INTO employee_application_access (employee_id, application, access_type, allowed_pages) VALUES (?, ?, ?, ?)`,
-        [newEmpId, app, accessType, JSON.stringify(pages)]
+    if (roleIds === null) {
+      finalAppAccess = Object.fromEntries(
+        ['attendance', 'task_manager', 'client_repository', 'role_sop'].map((application) => {
+          const item = finalAppAccess[application] || {};
+          const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
+            ? (item.accessType || item.access_type) : 'none';
+          const pages = Array.isArray(item.allowedPages)
+            ? item.allowedPages
+            : (Array.isArray(item.allowed_pages) ? item.allowed_pages : []);
+          return [application, { accessType, allowedPages: pages }];
+        }),
       );
     }
+    await saveEmployeeApplicationAccess(connection, newEmpId, finalAppAccess);
 
     await connection.commit();
     try {
@@ -474,8 +561,8 @@ router.post('/', async (req, res) => {
     return res.status(201).json({ success: true, message: 'User created successfully', staffId });
   } catch (err) {
     await connection.rollback();
-    console.error('POST /employees ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    if (!err.status) console.error('POST /employees ERROR:', err.message);
+    return res.status(err.status || 500).json({ success: false, message: err.message });
   } finally { connection.release(); }
 });
 
@@ -494,6 +581,12 @@ router.put('/:id', async (req, res) => {
     monthlySalary = null, officeLocation = '', branch = '', additionalDetails = ''
   } = req.body;
 
+  const roleIds = req.body.roleIds === undefined
+    ? null
+    : normalizeRoleIds(req.body.roleIds);
+  if ((req.body.roleIds !== undefined && roleIds === null) || (roleIds && !roleIds.length)) {
+    return res.status(400).json({ success: false, message: 'Select at least one valid access role.' });
+  }
   const fullName = [firstName, middleName, lastName].filter(v => v && v.trim()).join(' ');
   const initials = (firstName[0] + (lastName[0] || '')).toUpperCase();
 
@@ -538,6 +631,9 @@ router.put('/:id', async (req, res) => {
     }
 
     await connection.query(`UPDATE hrms_employee_profiles SET full_name=?, employee_code=?, email=?, department=? WHERE employee_user_id=?`, [fullName, staffId, email, role, empId]);
+    const assignedRoles = await saveEmployeeRoleAssignments(
+      connection, empId, roleIds, role, userType,
+    );
 
     if (oldFullName && oldFullName.trim().toUpperCase() !== fullName.trim().toUpperCase()) {
       const targetOldName = oldFullName.trim();
@@ -563,7 +659,12 @@ router.put('/:id', async (req, res) => {
     else await connection.query(`INSERT INTO role_page_access (employee_id, allowed_pages) VALUES (?, ?)`, [empId, pagesJson]);
 
     let finalAppAccess = applicationAccess;
-    if (!finalAppAccess || Object.keys(finalAppAccess).length === 0) {
+    if (roleIds !== null) {
+      finalAppAccess = await loadRoleApplicationAccess(
+        connection,
+        assignedRoles.map((assignedRole) => Number(assignedRole.id)),
+      );
+    } else if (!finalAppAccess || Object.keys(finalAppAccess).length === 0) {
       const [roleAccessRows] = await connection.query(`
         SELECT ra.application, ra.access_type, ra.allowed_pages 
         FROM role_application_access ra
@@ -582,17 +683,20 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    // 🟢 Clear existing effective access or update via ON DUPLICATE KEY
-    for (const app of ['attendance','task_manager','client_repository']) {
-      const item = finalAppAccess[app] || {};
-      const accessType = ['none','employee','admin'].includes(item.accessType || item.access_type) ? (item.accessType || item.access_type) : 'none';
-      const pages = Array.isArray(item.allowedPages) ? item.allowedPages : (Array.isArray(item.allowed_pages) ? item.allowed_pages : []);
-      await connection.query(`
-        INSERT INTO employee_application_access (employee_id, application, access_type, allowed_pages)
-        VALUES (?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE access_type=VALUES(access_type), allowed_pages=VALUES(allowed_pages)
-      `, [empId, app, accessType, JSON.stringify(pages)]);
+    if (roleIds === null) {
+      finalAppAccess = Object.fromEntries(
+        ['attendance', 'task_manager', 'client_repository', 'role_sop'].map((application) => {
+          const item = finalAppAccess[application] || {};
+          const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
+            ? (item.accessType || item.access_type) : 'none';
+          const pages = Array.isArray(item.allowedPages)
+            ? item.allowedPages
+            : (Array.isArray(item.allowed_pages) ? item.allowed_pages : []);
+          return [application, { accessType, allowedPages: pages }];
+        }),
+      );
     }
+    await saveEmployeeApplicationAccess(connection, empId, finalAppAccess);
 
     await connection.commit();
     try {
@@ -606,8 +710,8 @@ router.put('/:id', async (req, res) => {
     return res.json({ success: true, message: 'User updated successfully' });
   } catch (err) {
     await connection.rollback();
-    console.error('PUT /employees/:id ERROR:', err.message);
-    return res.status(500).json({ success: false, message: err.message });
+    if (!err.status) console.error('PUT /employees/:id ERROR:', err.message);
+    return res.status(err.status || 500).json({ success: false, message: err.message });
   } finally {
     connection.release();
   }
@@ -798,26 +902,23 @@ router.put('/role-access/:id', async (req, res) => {
       `, [roleId, appName, accessType, JSON.stringify(pages)]);
     }
 
-    // 2. 🟢 AUTO-SYNC: Fetch role name and update all employees belonging to this role instantly!
+    // Rebuild merged access for all employees assigned to this role.
     const [roleRows] = await connection.query('SELECT role_name FROM user_roles WHERE id = ?', [roleId]);
     if (roleRows.length > 0) {
       const roleName = roleRows[0].role_name;
-      const [employees] = await connection.query('SELECT id FROM employee_users WHERE UPPER(TRIM(role)) = UPPER(TRIM(?))', [roleName]);
-
-      for (const emp of employees) {
-        for (const appItem of applications) {
-          const appName = appItem.application;
-          const accessType = ['none', 'employee', 'admin'].includes(appItem.accessType || appItem.access_type)
-            ? (appItem.accessType || appItem.access_type) : 'none';
-          const pages = Array.isArray(appItem.allowedPages) ? appItem.allowedPages : (Array.isArray(appItem.allowed_pages) ? appItem.allowed_pages : []);
-
-          await connection.query(`
-            INSERT INTO employee_application_access (employee_id, application, access_type, allowed_pages)
-            VALUES (?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE access_type = VALUES(access_type), allowed_pages = VALUES(allowed_pages)
-          `, [emp.id, appName, accessType, JSON.stringify(pages)]);
-        }
-      }
+      const [employees] = await connection.query(`
+        SELECT employee_id AS id
+        FROM employee_user_roles
+        WHERE role_id = ?
+        UNION
+        SELECT id
+        FROM employee_users
+        WHERE UPPER(TRIM(role)) = UPPER(TRIM(?))
+      `, [roleId, roleName]);
+      await refreshEmployeeApplicationAccess(
+        connection,
+        employees.map((employee) => Number(employee.id)),
+      );
     }
 
     await connection.commit();

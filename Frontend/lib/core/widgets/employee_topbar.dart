@@ -2,10 +2,11 @@ import 'package:godigital_portal/services/auth_storage.dart';
 // lib/core/widgets/employee_topbar.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:shared_preferences/shared_preferences.dart'; // 🟢 Added for saving agreed state
 import '../constants/app_colors.dart';
@@ -14,6 +15,1221 @@ import '../../services/auth_service.dart';
 import '../../services/api_config.dart';
 import '../../services/app_notification_center.dart';
 import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
+
+// ============================================================
+// NOTIFICATION EVENTS
+//
+// Every notification that reaches this top bar (Socket.IO
+// `new_notification` or the 5-second poll) is classified from its real
+// payload / message text. The robot's face, action and colour follow the
+// event. Nothing is shown for events that never produce a notification.
+// ============================================================
+
+enum _Face { neutral, focused, happy, sad, worried, attentive, confident }
+
+enum _Badge { none, pause, review, rework, warning, checklist }
+
+enum _RobotEvent {
+  generic(
+    Color(0xFF1976D2),
+    Icons.notifications_none_rounded,
+    5000,
+    _Face.neutral,
+    _Badge.none,
+  ),
+  taskStarted(
+    Color(0xFF2563EB),
+    Icons.play_arrow,
+    6000,
+    _Face.focused,
+    _Badge.none,
+  ),
+  taskHold(
+    Color(0xFFF97316),
+    Icons.pause_circle_outline,
+    6000,
+    _Face.neutral,
+    _Badge.pause,
+  ),
+  taskCompleted(
+    Color(0xFF16A34A),
+    Icons.check_circle_outline,
+    6000,
+    _Face.happy,
+    _Badge.none,
+    celebrates: true,
+  ),
+  taskRejected(
+    Color(0xFFDC2626),
+    Icons.cancel_outlined,
+    7000,
+    _Face.worried,
+    _Badge.warning,
+  ),
+  taskReview(
+    Color(0xFF7C3AED),
+    Icons.search,
+    6000,
+    _Face.attentive,
+    _Badge.review,
+  ),
+  taskRework(
+    Color(0xFFD97706),
+    Icons.refresh,
+    7000,
+    _Face.sad,
+    _Badge.rework,
+  ),
+  taskApproved(
+    Color(0xFF16A34A),
+    Icons.verified_outlined,
+    6000,
+    _Face.happy,
+    _Badge.none,
+    celebrates: true,
+  ),
+  plannerSubmitted(
+    Color(0xFF2563EB),
+    Icons.fact_check_outlined,
+    6000,
+    _Face.confident,
+    _Badge.checklist,
+  ),
+  plannerApproved(
+    Color(0xFF16A34A),
+    Icons.event_available_outlined,
+    6000,
+    _Face.happy,
+    _Badge.none,
+    celebrates: true,
+  ),
+  plannerRework(
+    Color(0xFFD97706),
+    Icons.refresh,
+    7000,
+    _Face.sad,
+    _Badge.rework,
+  );
+
+  final Color accent;
+  final IconData icon;
+
+  /// How long the panel stays open once fully revealed.
+  final int holdMs;
+  final _Face face;
+  final _Badge badge;
+  final bool celebrates;
+
+  const _RobotEvent(
+    this.accent,
+    this.icon,
+    this.holdMs,
+    this.face,
+    this.badge, {
+    this.celebrates = false,
+  });
+}
+
+class _ParsedNotification {
+  final String preview;
+  final Map? decoded;
+
+  const _ParsedNotification(this.preview, this.decoded);
+}
+
+/// Same preview rules the top bar already used, but also keeps the decoded
+/// JSON so the event can be classified from its fields.
+_ParsedNotification _parseNotificationMessage(String raw) {
+  String preview = raw;
+  Map? decodedMap;
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map) {
+      decodedMap = decoded;
+      preview = decoded['preview']?.toString() ??
+          decoded['text']?.toString() ??
+          (decoded['fileName'] != null ? '📎 ${decoded['fileName']}' : raw);
+    }
+  } catch (_) {}
+  return _ParsedNotification(preview, decodedMap);
+}
+
+String _eventToken(dynamic v) =>
+    v.toString().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim();
+
+/// Maps a real notification to a robot event.
+///
+/// 1. Explicit fields in the payload (event / action / category ...) are read
+///    first, when the backend sends them.
+/// 2. Otherwise the real message text is matched against phrases such as
+///    "on hold", "sent for review", "approved".
+/// Anything that does not clearly look like a task / Day Planner event stays
+/// `generic` (normal chat messages, file attachments, etc.).
+_RobotEvent _classifyNotificationEvent(
+  Map? source,
+  Map? decoded,
+  String message,
+) {
+  // Attachments are chat, never a task event.
+  if (decoded != null && decoded['fileName'] != null) {
+    return _RobotEvent.generic;
+  }
+
+  const hintKeys = [
+    'event',
+    'eventType',
+    'event_type',
+    'action',
+    'notificationType',
+    'notification_type',
+    'category',
+    'kind',
+  ];
+  const extraKeys = ['status', 'type'];
+
+  // Review / planner notifications carry their real event under a nested
+  // `payload` map ({type: "TASK_REVIEW", action: "APPROVED", ...}); scan it
+  // too so the event is read from the backend's own fields, not just text.
+  final Map? nested =
+      (decoded != null && decoded['payload'] is Map) ? decoded['payload'] as Map : null;
+
+  final buf = StringBuffer();
+  bool structuredHint = false;
+  for (final m in <Map?>[source, decoded, nested]) {
+    if (m == null) continue;
+    for (final k in hintKeys) {
+      final v = m[k];
+      if (v == null) continue;
+      structuredHint = true;
+      buf.write(' ${_eventToken(v)}');
+    }
+    for (final k in extraKeys) {
+      final v = m[k];
+      if (v is String) buf.write(' ${_eventToken(v)}');
+    }
+  }
+
+  final t = '${buf.toString()} | ${message.toLowerCase()}';
+  bool has(String pattern) => RegExp(pattern).hasMatch(t);
+
+  final bool isPlanner = has(r'planner');
+  if (!structuredHint && !isPlanner && !has(r'\btasks?\b')) {
+    return _RobotEvent.generic;
+  }
+
+  const rework = r'rework|re-work|sent back|send back|returned|return for|revision';
+
+  if (isPlanner) {
+    if (has(rework)) return _RobotEvent.plannerRework;
+    if (has(r'approv')) return _RobotEvent.plannerApproved;
+    if (has(r'submit')) return _RobotEvent.plannerSubmitted;
+    return _RobotEvent.generic;
+  }
+
+  if (has(rework)) return _RobotEvent.taskRework;
+  if (has(r'reject')) return _RobotEvent.taskRejected;
+  if (has(r'approv')) return _RobotEvent.taskApproved;
+  if (has(r'for review|to review|under review|in review|review request')) {
+    return _RobotEvent.taskReview;
+  }
+  if (has(r'complet|finished')) return _RobotEvent.taskCompleted;
+  if (has(r'on[ _-]?hold|\bheld\b|\bpaused\b')) return _RobotEvent.taskHold;
+  if (has(r'\bstarted\b|in[ _-]?progress')) return _RobotEvent.taskStarted;
+  return _RobotEvent.generic;
+}
+
+// ============================================================
+// NOTIFICATION ROBOT SCENE
+//
+// Timeline (one controller, value 0 -> 1 opening, 1 -> 0 closing):
+//   0.00-0.50  robot walks in from the right (slow, 4 stride cycles)
+//   0.50-0.62  robot extends its hand
+//   0.62-0.72  laser beam shoots from the hand
+//   0.70-1.00  beam "scans" the panel open (reveal)
+// Reversing the controller plays it backwards: panel closes, laser
+// retracts, hand lowers, robot walks away.
+//
+// A second controller (`action`) starts when the reveal starts and drives
+// the event-specific part: pause symbol, celebration, warning sway, etc.
+// ============================================================
+
+class _NotificationRobotScene extends StatelessWidget {
+  final AnimationController controller;
+  final Animation<double> pulse;
+  final Animation<double> action;
+  final _RobotEvent event;
+  final String message;
+  final double maxWidth;
+
+  const _NotificationRobotScene({
+    required this.controller,
+    required this.pulse,
+    required this.action,
+    required this.event,
+    required this.message,
+    required this.maxWidth,
+  });
+
+  static const double _robotW = 112;
+  static const double _robotH = 124;
+  static const double _handDX = 9; // hand tip x inside the robot canvas
+  static const double _handDY = 76; // hand tip y inside the robot canvas
+  static const double _sceneH = 150;
+  static const double _beamLen = 40;
+
+  static double _phase(double t, double a, double b, Curve curve) =>
+      curve.transform(((t - a) / (b - a)).clamp(0.0, 1.0));
+
+  @override
+  Widget build(BuildContext context) {
+    const double robotTail = _robotW - _handDX;
+    final double panelW =
+        (maxWidth - _beamLen - robotTail).clamp(180.0, 320.0).toDouble();
+    final double sceneW = panelW + _beamLen + robotTail;
+    const double handY = _sceneH / 2;
+
+    return SizedBox(
+      width: sceneW,
+      height: _sceneH,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([controller, pulse, action]),
+        builder: (context, _) {
+          final double t = controller.value;
+          final double loop = pulse.value;
+          final double act = action.value;
+
+          final double walkRaw = (t / 0.50).clamp(0.0, 1.0);
+          final double walk = Curves.easeOutSine.transform(walkRaw);
+          final double extend = _phase(t, 0.50, 0.62, Curves.easeOut);
+          final double beam = _phase(t, 0.62, 0.72, Curves.easeOut);
+          final double reveal = _phase(t, 0.70, 1.0, Curves.easeInOutCubic);
+
+          final bool walking = walkRaw > 0 && walkRaw < 1;
+          final double stride =
+              walking ? math.sin(walkRaw * math.pi * 8) : 0.0;
+          final double bob = walking ? -2.5 * stride.abs() : 0.0;
+
+          // ON HOLD: after the panel is up the hand lowers and the laser
+          // switches off, leaving the pause symbol.
+          final double handLower = event == _RobotEvent.taskHold
+              ? Curves.easeInOut.transform(((act - 0.55) / 0.45).clamp(0.0, 1.0))
+              : 0.0;
+          final double extendNow = extend * (1 - 0.8 * handLower);
+          final double beamNow = beam * (1 - handLower);
+
+          // Celebration hop / gentle warning sway.
+          final double hop = event.celebrates
+              ? -4.0 * Curves.easeInOut.transform(loop) * act
+              : 0.0;
+          final double sway =
+              event == _RobotEvent.taskRejected ? (loop - 0.5) * 0.09 * act : 0.0;
+
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // Panel (revealed by the light)
+              Positioned(
+                left: 0,
+                top: 0,
+                width: panelW,
+                height: _sceneH,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: _buildPanel(panelW, reveal),
+                ),
+              ),
+
+              // Laser beam
+              Positioned(
+                left: panelW,
+                top: 0,
+                width: _beamLen,
+                height: _sceneH,
+                child: CustomPaint(
+                  painter: _LaserBeamPainter(
+                    progress: beamNow,
+                    pulse: loop,
+                    y: handY,
+                    color: event.accent,
+                  ),
+                ),
+              ),
+
+              // Robot
+              Positioned(
+                left: panelW + _beamLen - _handDX,
+                top: handY - _handDY,
+                width: _robotW,
+                height: _robotH,
+                child: Transform.translate(
+                  offset: Offset(150 * (1 - walk), bob + hop),
+                  child: Transform.rotate(
+                    angle: sway,
+                    alignment: Alignment.bottomCenter,
+                    child: Transform.scale(
+                      // Grows slightly as it walks towards the viewer.
+                      scale: 0.85 + 0.15 * walk,
+                      alignment: Alignment.bottomCenter,
+                      child: Opacity(
+                        opacity: (walkRaw * 4).clamp(0.0, 1.0),
+                        child: _NotificationRobot(
+                          extend: extendNow,
+                          swing: stride,
+                          face: event.face,
+                          badge: event.badge,
+                          celebrate: event.celebrates,
+                          act: act,
+                          loop: loop,
+                          accent: event.accent,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPanel(double panelW, double reveal) {
+    final double shadowA = ((reveal - 0.75) / 0.25).clamp(0.0, 1.0);
+    final Color accent = event.accent;
+
+    return SizedBox(
+      width: panelW,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.10 * shadowA),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: ClipPath(
+              clipper: _RevealClipper(reveal),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: accent.withValues(alpha: 0.55),
+                    width: 1.2,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(event.icon, size: 16, color: accent),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          message,
+                          maxLines: 5,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            height: 1.4,
+                            color: Color(0xFF111827),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(painter: _ScanPainter(reveal, accent)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Wedge that opens from the beam's impact point (right edge, centre)
+/// to the full panel, so the panel looks projected by the light.
+class _RevealClipper extends CustomClipper<Path> {
+  final double r;
+
+  _RevealClipper(this.r);
+
+  @override
+  Path getClip(Size size) {
+    final w = size.width;
+    final h = size.height;
+    final cy = h / 2;
+    final xl = w * (1 - r);
+    final hr = (h / 2) * math.min(1.0, r * 2.2);
+
+    return Path()
+      ..moveTo(w, cy - hr)
+      ..lineTo(xl, 0)
+      ..lineTo(xl, h)
+      ..lineTo(w, cy + hr)
+      ..close();
+  }
+
+  @override
+  bool shouldReclip(covariant _RevealClipper oldClipper) => oldClipper.r != r;
+}
+
+/// Thin scanning line + cone edges, only visible while the panel opens.
+class _ScanPainter extends CustomPainter {
+  final double r;
+  final Color color;
+
+  _ScanPainter(this.r, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (r <= 0 || r >= 1) return;
+
+    final w = size.width;
+    final h = size.height;
+    final cy = h / 2;
+    final xl = w * (1 - r);
+    final hr = (h / 2) * math.min(1.0, r * 2.2);
+    final fade = (1 - r).clamp(0.0, 1.0);
+
+    final glow = Paint()
+      ..color = color.withValues(alpha: 0.35 * fade)
+      ..strokeWidth = 5
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    final core = Paint()
+      ..color = Color.lerp(color, Colors.white, 0.4)!.withValues(alpha: 0.9 * fade)
+      ..strokeWidth = 1.4;
+    final edge = Paint()
+      ..color = color.withValues(alpha: 0.35 * fade)
+      ..strokeWidth = 1;
+
+    canvas.drawLine(Offset(xl, 0), Offset(xl, h), glow);
+    canvas.drawLine(Offset(xl, 0), Offset(xl, h), core);
+    canvas.drawLine(Offset(w, cy - hr), Offset(xl, 0), edge);
+    canvas.drawLine(Offset(w, cy + hr), Offset(xl, h), edge);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScanPainter oldDelegate) =>
+      oldDelegate.r != r || oldDelegate.color != color;
+}
+
+/// Thin glowing beam in the event colour. It starts at the robot's hand
+/// (right end) and grows to the left towards the panel.
+class _LaserBeamPainter extends CustomPainter {
+  final double progress;
+  final double pulse;
+  final double y;
+  final Color color;
+
+  _LaserBeamPainter({
+    required this.progress,
+    required this.pulse,
+    required this.y,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0) return;
+
+    final x1 = size.width;
+    final x0 = size.width - size.width * progress;
+    final a = 0.30 + 0.15 * pulse;
+    final rect = Rect.fromLTRB(x0, y - 4, x1, y + 4);
+    final light = Color.lerp(color, Colors.white, 0.4)!;
+    final lighter = Color.lerp(color, Colors.white, 0.85)!;
+
+    final glow = Paint()
+      ..strokeWidth = 7
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4)
+      ..shader = LinearGradient(
+        colors: [
+          color.withValues(alpha: a * 0.5),
+          color.withValues(alpha: a),
+        ],
+      ).createShader(rect);
+
+    final core = Paint()
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round
+      ..shader = LinearGradient(colors: [light, lighter]).createShader(rect);
+
+    canvas.drawLine(Offset(x0, y), Offset(x1, y), glow);
+    canvas.drawLine(Offset(x0, y), Offset(x1, y), core);
+
+    // Emitter glow at the hand and a small spot where the beam lands.
+    canvas.drawCircle(
+      Offset(x1, y),
+      7,
+      Paint()
+        ..color = color.withValues(alpha: 0.35 * progress)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    canvas.drawCircle(
+      Offset(x0, y),
+      3,
+      Paint()
+        ..color = light.withValues(alpha: 0.55)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+    canvas.drawCircle(Offset(x0, y), 1.4, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LaserBeamPainter oldDelegate) =>
+      oldDelegate.progress != progress ||
+      oldDelegate.pulse != pulse ||
+      oldDelegate.color != color;
+}
+
+class _NotificationRobot extends StatelessWidget {
+  /// 0 = arm lowered, 1 = hand fully extended towards the panel.
+  final double extend;
+
+  /// -1..1 leg swing while walking.
+  final double swing;
+
+  final _Face face;
+  final _Badge badge;
+  final bool celebrate;
+
+  /// 0..1 progress of the event-specific action.
+  final double act;
+
+  /// 0..1 repeating pulse used for waving / twinkling.
+  final double loop;
+  final Color accent;
+
+  const _NotificationRobot({
+    required this.extend,
+    required this.swing,
+    required this.face,
+    required this.badge,
+    required this.celebrate,
+    required this.act,
+    required this.loop,
+    required this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 112,
+      height: 124,
+      child: CustomPaint(
+        painter: _NotificationRobotPainter(
+          extend: extend,
+          swing: swing,
+          face: face,
+          badge: badge,
+          celebrate: celebrate,
+          act: act,
+          loop: loop,
+          accent: accent,
+        ),
+      ),
+    );
+  }
+}
+
+/// The white helmet robot with the black visor, glowing cyan eyes,
+/// headphones and antennas (from the reference image), drawn in code.
+class _NotificationRobotPainter extends CustomPainter {
+  final double extend;
+  final double swing;
+  final _Face face;
+  final _Badge badge;
+  final bool celebrate;
+  final double act;
+  final double loop;
+  final Color accent;
+
+  _NotificationRobotPainter({
+    required this.extend,
+    required this.swing,
+    required this.face,
+    required this.badge,
+    required this.celebrate,
+    required this.act,
+    required this.loop,
+    required this.accent,
+  });
+
+  static const Color _ink = Color(0xFF0B1020);
+  static const Color _rim = Color(0xFFB4BED0);
+  static const Color _cyan = Color(0xFF22D3EE);
+  static const Color _mouthGrey = Color(0xFF94A3B8);
+
+  Paint _pearl(Rect r) => Paint()
+    ..shader = const RadialGradient(
+      center: Alignment(-0.45, -0.55),
+      radius: 1.0,
+      colors: [Colors.white, Color(0xFFF1F5F9), Color(0xFFCBD5E1)],
+      stops: [0.0, 0.55, 1.0],
+    ).createShader(r);
+
+  Paint _rimLine() => Paint()
+    ..color = _rim
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 0.9;
+
+  void _pearlRRect(Canvas c, Rect r, double radius) {
+    final rr = RRect.fromRectAndRadius(r, Radius.circular(radius));
+    c.drawRRect(rr, _pearl(r));
+    c.drawRRect(rr, _rimLine());
+  }
+
+  void _pearlCircle(Canvas c, Offset o, double radius) {
+    final r = Rect.fromCircle(center: o, radius: radius);
+    c.drawCircle(o, radius, _pearl(r));
+    c.drawCircle(o, radius, _rimLine());
+  }
+
+  // White limb with a thin rim, from a to b.
+  void _limb(Canvas c, Offset a, Offset b) {
+    c.drawLine(
+      a,
+      b,
+      Paint()
+        ..color = _rim
+        ..strokeWidth = 10.5
+        ..strokeCap = StrokeCap.round,
+    );
+    c.drawLine(
+      a,
+      b,
+      Paint()
+        ..color = const Color(0xFFF1F5F9)
+        ..strokeWidth = 9
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  // Black claw hand drawn at the origin, fingers pointing down (+y).
+  void _hand(Canvas c) {
+    final ink = Paint()..color = _ink;
+    final finger = Paint()
+      ..color = _ink
+      ..strokeWidth = 1.7
+      ..strokeCap = StrokeCap.round;
+    c.drawCircle(Offset.zero, 4.2, ink);
+    c.drawLine(const Offset(-2, 2), const Offset(-3.6, 6.5), finger);
+    c.drawLine(const Offset(2, 2), const Offset(3.6, 6.5), finger);
+  }
+
+  // Eyes + mouth for the current expression.
+  void _drawFace(Canvas canvas, double cx) {
+    const Color highlight = Color(0xFFCFFAFE);
+
+    for (final s in const [-1.0, 1.0]) {
+      final e = Offset(cx + s * 10.5, 35);
+      canvas.drawCircle(
+        e,
+        9,
+        Paint()
+          ..color = _cyan.withValues(alpha: 0.35)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+      );
+
+      if (face == _Face.happy) {
+        // Smiling "^" eyes
+        canvas.drawArc(
+          Rect.fromCenter(center: Offset(e.dx, e.dy + 2.5), width: 10, height: 9),
+          math.pi,
+          math.pi,
+          false,
+          Paint()
+            ..color = _cyan
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.6
+            ..strokeCap = StrokeCap.round,
+        );
+        continue;
+      }
+
+      double lidInner = 0;
+      double lidOuter = 0;
+      double r = 5.4;
+      if (face == _Face.focused) {
+        lidInner = 0.5; // lowered inner brows: concentrating
+        lidOuter = 0.1;
+      } else if (face == _Face.sad) {
+        lidOuter = 0.55; // drooping outer lids
+      } else if (face == _Face.worried) {
+        lidOuter = 0.35;
+        r = 5.6;
+      } else if (face == _Face.attentive) {
+        r = 6.0; // wide, alert eyes
+      }
+
+      final double outerX = e.dx + s * (r + 1);
+      final double innerX = e.dx - s * (r + 1);
+      final double top = e.dy - r - 1;
+      final double span = 2 * r + 2;
+      final Path clip = Path()
+        ..moveTo(outerX, top + span * lidOuter)
+        ..lineTo(innerX, top + span * lidInner)
+        ..lineTo(innerX, e.dy + r + 1)
+        ..lineTo(outerX, e.dy + r + 1)
+        ..close();
+
+      canvas.save();
+      canvas.clipPath(clip);
+      canvas.drawCircle(e, r, Paint()..color = _cyan);
+      // Attentive: looks towards the panel (left).
+      final double look = face == _Face.attentive ? -1.4 : 0.0;
+      canvas.drawCircle(
+        Offset(e.dx + look, e.dy),
+        r * 0.45,
+        Paint()..color = highlight,
+      );
+      canvas.restore();
+    }
+
+    final Paint mouth = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    if (face == _Face.happy) {
+      canvas.drawArc(
+        Rect.fromCenter(center: Offset(cx, 42), width: 14, height: 8),
+        0.1,
+        math.pi - 0.2,
+        false,
+        mouth
+          ..color = _cyan
+          ..strokeWidth = 1.8,
+      );
+    } else if (face == _Face.confident) {
+      canvas.drawArc(
+        Rect.fromCenter(center: Offset(cx, 42.5), width: 11, height: 6),
+        0.15,
+        math.pi - 0.3,
+        false,
+        mouth
+          ..color = _cyan.withValues(alpha: 0.85)
+          ..strokeWidth = 1.5,
+      );
+    } else if (face == _Face.focused) {
+      canvas.drawLine(
+        Offset(cx - 3.5, 44),
+        Offset(cx + 3.5, 44),
+        mouth
+          ..color = _mouthGrey
+          ..strokeWidth = 1.4,
+      );
+    } else if (face == _Face.sad || face == _Face.worried) {
+      canvas.drawArc(
+        Rect.fromCenter(
+          center: Offset(cx, 46),
+          width: face == _Face.sad ? 10 : 8,
+          height: 6,
+        ),
+        math.pi + 0.25,
+        math.pi - 0.5,
+        false,
+        mouth
+          ..color = _mouthGrey
+          ..strokeWidth = 1.4,
+      );
+    } else if (face == _Face.attentive) {
+      canvas.drawCircle(
+        Offset(cx, 44),
+        2,
+        mouth
+          ..color = _mouthGrey
+          ..strokeWidth = 1.2,
+      );
+    } else {
+      canvas.drawArc(
+        Rect.fromCenter(center: Offset(cx, 43), width: 9, height: 5),
+        0.2,
+        2.74,
+        false,
+        mouth
+          ..color = const Color(0xFF475569)
+          ..strokeWidth = 1,
+      );
+    }
+  }
+
+  // Small sparkles above / around the head for a success celebration.
+  void _drawConfetti(Canvas canvas, double cx) {
+    final colors = <Color>[
+      accent,
+      const Color(0xFFFBBF24),
+      const Color(0xFF22D3EE),
+    ];
+    final double burst = Curves.easeOutCubic.transform(act);
+
+    for (int i = 0; i < 12; i++) {
+      final double ang = math.pi + (i / 11) * math.pi;
+      final double dist = 27 + burst * (12 + (i % 3) * 6);
+      final Offset p = Offset(
+        cx + math.cos(ang) * dist * 1.2,
+        34 + math.sin(ang) * dist,
+      );
+      final double twinkle = 0.55 + 0.45 * math.sin(loop * math.pi + i);
+      final double alpha = (burst * twinkle).clamp(0.0, 1.0);
+      final Paint paint = Paint()
+        ..color = colors[i % 3].withValues(alpha: alpha);
+      final double sz = 1.7 + (i % 3) * 0.7;
+      if (i.isEven) {
+        canvas.drawCircle(p, sz, paint);
+      } else {
+        canvas.drawRect(
+          Rect.fromCenter(center: p, width: sz * 2, height: sz * 1.2),
+          paint,
+        );
+      }
+    }
+  }
+
+  // Round symbol next to the head (pause, magnifier, refresh, "!", checklist).
+  void _drawBadge(Canvas c) {
+    final double pop = Curves.easeOutBack.transform(act.clamp(0.0, 1.0));
+    if (pop <= 0) return;
+
+    double sc = pop;
+    if (badge == _Badge.warning) sc *= 1 + 0.08 * loop;
+
+    final white = Paint()..color = Colors.white;
+    final stroke = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+    final thin = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    c.save();
+    c.translate(15, 22);
+    c.scale(sc);
+    c.drawCircle(Offset.zero, 11, Paint()..color = Colors.white);
+    c.drawCircle(Offset.zero, 9.5, Paint()..color = accent);
+
+    switch (badge) {
+      case _Badge.pause:
+        c.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(-4.4, -4.6, 3.2, 9.2),
+            const Radius.circular(1),
+          ),
+          white,
+        );
+        c.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(1.2, -4.6, 3.2, 9.2),
+            const Radius.circular(1),
+          ),
+          white,
+        );
+        break;
+      case _Badge.review:
+        c.drawCircle(const Offset(-1.2, -1.2), 3.9, stroke);
+        c.drawLine(
+          const Offset(1.8, 1.8),
+          const Offset(5, 5),
+          Paint()
+            ..color = Colors.white
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.2
+            ..strokeCap = StrokeCap.round,
+        );
+        break;
+      case _Badge.rework:
+        const double r = 4.6;
+        final double start = -math.pi / 2 + act * 2 * math.pi;
+        const double sweep = math.pi * 1.5;
+        c.drawArc(
+          Rect.fromCircle(center: Offset.zero, radius: r),
+          start,
+          sweep,
+          false,
+          stroke,
+        );
+        final double a = start + sweep;
+        final Offset p = Offset(r * math.cos(a), r * math.sin(a));
+        final Offset tangent = Offset(-math.sin(a), math.cos(a));
+        final Offset normal = Offset(math.cos(a), math.sin(a));
+        final Offset tip = p + tangent * 3.4;
+        final Path head = Path()
+          ..moveTo(tip.dx, tip.dy)
+          ..lineTo(p.dx + normal.dx * 2.6, p.dy + normal.dy * 2.6)
+          ..lineTo(p.dx - normal.dx * 2.6, p.dy - normal.dy * 2.6)
+          ..close();
+        c.drawPath(head, white);
+        break;
+      case _Badge.warning:
+        c.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(-1.2, -5.8, 2.4, 7),
+            const Radius.circular(1.2),
+          ),
+          white,
+        );
+        c.drawCircle(const Offset(0, 4.2), 1.5, white);
+        break;
+      case _Badge.checklist:
+        c.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(-5, -6.5, 10, 13),
+            const Radius.circular(2),
+          ),
+          thin,
+        );
+        c.drawLine(const Offset(-2.4, -3.4), const Offset(2.4, -3.4), thin);
+        c.drawLine(const Offset(-2.4, -1), const Offset(2.4, -1), thin);
+        final double prog =
+            Curves.easeOut.transform(((act - 0.3) / 0.7).clamp(0.0, 1.0));
+        final Path check = Path()
+          ..moveTo(-2.8, 3.0)
+          ..lineTo(-0.8, 4.8)
+          ..lineTo(2.8, 1.8);
+        for (final m in check.computeMetrics()) {
+          c.drawPath(m.extractPath(0, m.length * prog), thin);
+        }
+        break;
+      case _Badge.none:
+        break;
+    }
+    c.restore();
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double cx = 64;
+    final ink = Paint()..color = _ink;
+
+    // Soft floor shadow
+    canvas.drawOval(
+      Rect.fromCenter(center: const Offset(cx, 119), width: 58, height: 7),
+      Paint()
+        ..color = const Color(0x22000000)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+
+    // Antennas + top knob
+    final antenna = Paint()
+      ..color = _ink
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(const Offset(cx - 22, 17), const Offset(cx - 27, 7), antenna);
+    canvas.drawLine(const Offset(cx + 22, 17), const Offset(cx + 27, 7), antenna);
+    canvas.drawCircle(const Offset(cx - 27, 6), 2.6, ink);
+    canvas.drawCircle(const Offset(cx + 27, 6), 2.6, ink);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: const Offset(cx, 11), width: 8, height: 3.5),
+        const Radius.circular(1.7),
+      ),
+      ink,
+    );
+
+    // Headphone ear cups
+    for (final s in const [-1.0, 1.0]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(cx + s * 31, 35), width: 9, height: 21),
+          const Radius.circular(4.5),
+        ),
+        ink,
+      );
+    }
+
+    // Neck
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(cx - 4, 55, 8, 9),
+        const Radius.circular(2),
+      ),
+      ink,
+    );
+
+    // Arms (drawn first; shoulders and torso overlap their roots)
+    const Offset shoulderL = Offset(cx - 23, 68);
+    const Offset shoulderR = Offset(cx + 23, 68);
+
+    // Right arm (screen right): relaxed, or raised and waving when celebrating.
+    final double up = celebrate ? Curves.easeOutCubic.transform(act) : 0.0;
+    final double wave = (loop - 0.5) * 6 * up;
+    final Offset wristR = Offset.lerp(
+          const Offset(cx + 28, 92),
+          const Offset(cx + 31, 52),
+          up,
+        )! +
+        Offset(wave, 0);
+    _limb(canvas, const Offset(cx + 25, 72), wristR);
+    canvas.drawCircle(wristR, 3.2, ink);
+    canvas.save();
+    canvas.translate(wristR.dx, wristR.dy + 6 - 12 * up);
+    canvas.rotate(up * math.pi); // fingers swing from down to up
+    _hand(canvas);
+    canvas.restore();
+
+    // Left arm (screen left, towards the notification): lowered -> extended.
+    final Offset wristL = Offset.lerp(
+      const Offset(cx - 28, 92),
+      const Offset(17, 75),
+      extend,
+    )!;
+    final Offset handL = Offset.lerp(
+      const Offset(cx - 28, 98),
+      const Offset(9, 76),
+      extend,
+    )!;
+    _limb(canvas, const Offset(cx - 25, 72), wristL);
+    canvas.drawCircle(wristL, 3.2, ink);
+    canvas.save();
+    canvas.translate(handL.dx, handL.dy);
+    canvas.rotate(extend * math.pi / 2); // fingers swing from down to left
+    _hand(canvas);
+    canvas.restore();
+
+    // Light emitter in the palm once the hand is out (event colour).
+    if (extend > 0) {
+      canvas.drawCircle(
+        handL,
+        6 * extend,
+        Paint()
+          ..color = accent.withValues(alpha: 0.55 * extend)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+      );
+      canvas.drawCircle(handL, 1.8 * extend, Paint()..color = accent);
+    }
+
+    // Torso + belt line
+    _pearlRRect(
+      canvas,
+      Rect.fromCenter(center: const Offset(cx, 78), width: 38, height: 34),
+      17,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(cx - 15, 86)
+        ..quadraticBezierTo(cx, 95, cx + 15, 86),
+      Paint()
+        ..color = _ink
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Shoulder spheres
+    _pearlCircle(canvas, shoulderL, 7);
+    _pearlCircle(canvas, shoulderR, 7);
+
+    // Leg joints
+    for (final s in const [-1.0, 1.0]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(cx + s * 9, 99), width: 6, height: 10),
+          const Radius.circular(2),
+        ),
+        ink,
+      );
+    }
+
+    // Boots (swing and lift while walking)
+    for (final s in const [-1.0, 1.0]) {
+      final double dx = s < 0 ? swing * 3 : -swing * 3;
+      final double lift =
+          s < 0 ? math.max(0.0, swing) * 3 : math.max(0.0, -swing) * 3;
+      final double bx = cx + s * 9 + dx;
+      final double by = 108 - lift;
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: Offset(bx, by + 8), width: 22, height: 5),
+          const Radius.circular(2.5),
+        ),
+        ink,
+      );
+      _pearlRRect(
+        canvas,
+        Rect.fromCenter(center: Offset(bx, by), width: 21, height: 15),
+        7,
+      );
+    }
+
+    // Helmet
+    _pearlRRect(
+      canvas,
+      Rect.fromCenter(center: const Offset(cx, 34), width: 56, height: 46),
+      22,
+    );
+
+    // Visor
+    final visorRect =
+        Rect.fromCenter(center: const Offset(cx, 36), width: 44, height: 31);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(visorRect, const Radius.circular(14)),
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF1B2540), Color(0xFF050814)],
+        ).createShader(visorRect),
+    );
+
+    // Eyes + mouth (expression)
+    _drawFace(canvas, cx);
+
+    // Helmet glint
+    canvas.drawOval(
+      Rect.fromCenter(center: const Offset(cx - 14, 19), width: 12, height: 5),
+      Paint()..color = const Color(0xCCFFFFFF),
+    );
+
+    if (celebrate && act > 0) _drawConfetti(canvas, cx);
+    if (badge != _Badge.none) _drawBadge(canvas);
+  }
+
+  @override
+  bool shouldRepaint(covariant _NotificationRobotPainter oldDelegate) =>
+      oldDelegate.extend != extend ||
+      oldDelegate.swing != swing ||
+      oldDelegate.face != face ||
+      oldDelegate.badge != badge ||
+      oldDelegate.celebrate != celebrate ||
+      oldDelegate.act != act ||
+      oldDelegate.loop != loop ||
+      oldDelegate.accent != accent;
+}
 
 class EmployeeTopbar extends StatefulWidget {
   final EmployeeRole role;
@@ -48,7 +1264,6 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   String? _latestMessage;
   bool _showPopup = false;
   Timer? _popupTimer;
-  final AudioPlayer _audioPlayer = AudioPlayer();
   IO.Socket? _socket;
   Set<int> _knownNotificationIds = {};
   final TextEditingController _searchController = TextEditingController();
@@ -65,6 +1280,11 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   late AnimationController _rotateController;
   late AnimationController _glowController;
   late Animation<double> _glowAnimation;
+  late final AnimationController _robotController;
+late final AnimationController _actionController; // event-specific robot action
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  _RobotEvent _robotEvent = _RobotEvent.generic;
+  Timer? _actionTimer;
 
   bool _isPaused = false;
   bool _isBroadcastPopupShowing = false;
@@ -79,11 +1299,23 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
       vsync: this,
       duration: const Duration(seconds: 5),
     )..repeat();
+    // Drives the whole robot + laser + panel sequence (see _NotificationRobotScene).
+    _robotController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3200),
+      reverseDuration: const Duration(milliseconds: 2200),
+    );
 
     _glowController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
+
+    // Starts when the panel is being revealed; drives pause / celebrate / etc.
+    _actionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
 
     _glowAnimation = Tween<double>(begin: 4.0, end: 16.0).animate(
       CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
@@ -108,7 +1340,10 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
     _searchController.dispose();
     _socket?.dispose();
     _audioPlayer.dispose();
+    _actionTimer?.cancel();
+    _actionController.dispose();
     _rotateController.dispose();
+    _robotController.dispose();
     _glowController.dispose();
     super.dispose();
   }
@@ -117,7 +1352,13 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
     return ApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/api/?$'), '');
   }
 
-
+void _playNotificationSound() async {
+  try {
+    await _audioPlayer.play(AssetSource('sounds/notification.mp3'));
+  } catch (e) {
+    debugPrint("Audio play error: $e");
+  }
+}
 
 // Future<void> _checkActiveBroadcast() async {
 //     final authService = Provider.of<AuthService>(context, listen: false);
@@ -955,18 +2196,13 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         setState(() => _unreadCount += 1);
 
         final raw = payload['message']?.toString() ?? 'New message';
-        String preview = raw;
-        try {
-          final decoded = jsonDecode(raw);
-          if (decoded is Map) {
-            preview = decoded['preview']?.toString() ??
-                decoded['text']?.toString() ??
-                (decoded['fileName'] != null ? '📎 ${decoded['fileName']}' : raw);
-          }
-        } catch (_) {}
+        final parsed = _parseNotificationMessage(raw);
 
         _playNotificationSound();
-        _triggerTopRightPopup(preview);
+        _triggerTopRightPopup(
+          parsed.preview,
+          event: _classifyNotificationEvent(payload, parsed.decoded, parsed.preview),
+        );
       }
 
       _socket!.on('new_notification', handle);
@@ -1058,8 +2294,17 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     final running = _running;
     if (running == null) return;
     final token = Provider.of<AuthService>(context, listen: false).token ?? '';
-    await TaskActions.run(context, Map<String, dynamic>.from(running), 'hold', token: token);
+    final ok = await TaskActions.run(
+      context, Map<String, dynamic>.from(running), 'hold', token: token);
     await _fetchTodayWorkingHours();
+    // Hold is performed here and confirmed by the server; it produces no
+    // notification of its own, so show the ON HOLD robot on confirmed success.
+    if (ok && mounted) {
+      final client = '${running['client'] ?? ''}'.trim();
+      final task = '${running['task'] ?? 'Task'}'.trim();
+      final label = client.isEmpty ? task : '$task · $client';
+      _triggerTopRightPopup('$label placed on hold.', event: _RobotEvent.taskHold);
+    }
   }
 
   // Compact "running task" chip shown next to Today Working Hours.
@@ -1151,6 +2396,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         Set<int> currentIds = {};
         bool hasNewNotification = false;
         String? latestMsgText;
+        _RobotEvent latestEvent = _RobotEvent.generic;
 
         for (var row in rows) {
           int id = int.tryParse(row["id"]?.toString() ?? '0') ?? 0;
@@ -1165,12 +2411,14 @@ List<TextSpan> _buildHighlightedMessage(String message) {
 
           if (_knownNotificationIds.isNotEmpty && !_knownNotificationIds.contains(id) && !isSentByMe && !isSeen) {
             hasNewNotification = true;
-            try {
-              final decoded = jsonDecode(row["message"]);
-              final preview = decoded["preview"] ?? "New Notification";
-              latestMsgText = preview;
-            } catch (e) {
-              latestMsgText = row["message"] ?? "New Notification";
+            final parsed = _parseNotificationMessage(row["message"]?.toString() ?? '');
+            if (parsed.preview.trim().isNotEmpty) {
+              latestMsgText = parsed.preview;
+              latestEvent = _classifyNotificationEvent(
+                row is Map ? row : null,
+                parsed.decoded,
+                parsed.preview,
+              );
             }
           }
         }
@@ -1186,7 +2434,10 @@ List<TextSpan> _buildHighlightedMessage(String message) {
 
          if (hasNewNotification) {
           _playNotificationSound();
-          _triggerTopRightPopup(latestMsgText ?? "You have a new notification");
+          _triggerTopRightPopup(
+            latestMsgText ?? "You have a new notification",
+            event: latestEvent,
+          );
         }
       }
     } catch (e) {
@@ -1194,29 +2445,66 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     }
   }
 
-  void _playNotificationSound() async {
-    try {
-      await _audioPlayer.play(AssetSource('sounds/notification.mp3'));
-    } catch (e) {
-      debugPrint("Audio play error: $e");
+void _triggerTopRightPopup(String message, {_RobotEvent event = _RobotEvent.generic}) {
+  if (!mounted) return;
+
+  _popupTimer?.cancel();
+
+  final bool wasVisible = _showPopup;
+
+  setState(() {
+    _latestMessage = message;
+    _robotEvent = event;
+    _showPopup = true;
+  });
+
+  // Robot walks in, extends its hand, fires the laser, panel is revealed.
+  if (wasVisible) {
+    _robotController.forward();
+  } else {
+    _robotController.forward(from: 0);
+  }
+
+  // The event-specific action (pause symbol, celebration, ...) plays once
+  // the panel starts to reveal (70% of the opening animation).
+  _actionController.stop();
+  _actionController.value = 0;
+  final int actionDelayMs = wasVisible
+      ? 0
+      : ((0.70 - _robotController.value).clamp(0.0, 1.0) *
+              _robotController.duration!.inMilliseconds)
+          .round();
+  _actionTimer?.cancel();
+  _actionTimer = Timer(Duration(milliseconds: actionDelayMs), () {
+    if (!mounted || !_showPopup) return;
+    _actionController.forward(from: 0);
+  });
+
+  // Panel stays open for the event's hold time (5-7 s) once fully revealed.
+  final int remainingOpenMs = ((1 - _robotController.value) *
+          _robotController.duration!.inMilliseconds)
+      .round();
+  _popupTimer = Timer(
+    Duration(milliseconds: remainingOpenMs + event.holdMs),
+    _dismissPopup,
+  );
+}
+
+// Panel closes, laser retracts, hand lowers, robot walks away.
+void _dismissPopup() {
+  if (!mounted) return;
+
+  _robotController.reverse().whenComplete(() {
+    if (!mounted) return;
+    if (_robotController.status == AnimationStatus.dismissed) {
+      _actionController.stop();
+      _actionController.value = 0;
+      setState(() {
+        _showPopup = false;
+      });
     }
-  }
-
-   void _triggerTopRightPopup(String message) {
-    setState(() {
-      _latestMessage = message;
-      _showPopup = true;
-    });
-
-    _popupTimer?.cancel();
-    _popupTimer = Timer(const Duration(seconds: 10), () {
-      if (mounted) {
-        setState(() {
-          _showPopup = false;
-        });
-      }
-    });
-  }
+  });
+}
 
  @override
   Widget build(BuildContext context) {
@@ -1563,50 +2851,23 @@ List<TextSpan> _buildHighlightedMessage(String message) {
             ),
           ),
 
-          if (_showPopup)
-            Positioned(
-              top: 68,
-              right: 20,
-              child: Material(
-                color: Colors.transparent,
-                elevation: 8,
-                child: Container(
-                  width: 300,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 10, offset: const Offset(0, 4)),
-                    ],
-                    border: Border.all(color: AppColors.primary, width: 1),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.notifications_active_rounded, color: AppColors.primary, size: 22),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text("New Notification", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textDark)),
-                            const SizedBox(height: 2),
-                            Text(
-                              _latestMessage ?? "",
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
+ if (_showPopup)
+  Positioned(
+    top: 68,
+    right: 12,
+    child: Material(
+      color: Colors.transparent,
+      child: _NotificationRobotScene(
+        controller: _robotController,
+        pulse: _glowController,
+        action: _actionController,
+        event: _robotEvent,
+        message: _latestMessage ?? 'You have a new notification.',
+        maxWidth: MediaQuery.of(context).size.width - 24,
+      ),
+    ),
+  ),
+  ],
       ),
     );
   }

@@ -9,6 +9,10 @@ const {
   setUserPassword,
   ensurePasswordSecurity,
 } = require('../lib/passwordSecurity');
+const {
+  loadEmployeeRoles,
+  loadRoleApplicationAccess,
+} = require('../lib/employeeRoles');
 
 // Hash + encrypt any old plain-text passwords once at startup.
 ensurePasswordSecurity();
@@ -109,6 +113,8 @@ router.post('/login', async (req, res) => {
     const allowedPages = accessRows.length > 0 
       ? JSON.parse(accessRows[0].allowed_pages || '[]') 
       : [];
+    const assignedRoles = await loadEmployeeRoles(db, user.id, user.role);
+    const roleIds = assignedRoles.map((role) => Number(role.id));
 
     // 🟢 3. Fetch application access (Attendance, Task Manager, Client Repository)
     const [appAccessRows] = await db.query(
@@ -127,20 +133,12 @@ router.post('/login', async (req, res) => {
     }
 
     // Fallback to role_application_access if employee-specific is empty
-    if (Object.keys(applicationAccess).length === 0 && user.role) {
-      const [roleAccessRows] = await db.query(`
-        SELECT ra.application, ra.access_type, ra.allowed_pages 
-        FROM role_application_access ra
-        JOIN user_roles ur ON ur.id = ra.role_id
-        WHERE UPPER(TRIM(ur.role_name)) = UPPER(TRIM(?))
-      `, [user.role]);
-      
-      for (const ra of roleAccessRows) {
-        let pages = [];
-        try { pages = JSON.parse(ra.allowed_pages || '[]'); } catch (_) { pages = []; }
-        applicationAccess[ra.application] = {
-          access_type: ra.access_type || 'none',
-          allowed_pages: pages,
+    if (Object.keys(applicationAccess).length === 0 && roleIds.length) {
+      const mergedAccess = await loadRoleApplicationAccess(db, roleIds);
+      for (const [application, item] of Object.entries(mergedAccess)) {
+        applicationAccess[application] = {
+          access_type: item.accessType,
+          allowed_pages: item.allowedPages,
         };
       }
     }
@@ -160,6 +158,8 @@ router.post('/login', async (req, res) => {
         email: user.email,
         username: user.username,
         role: user.role,
+        roles: assignedRoles,
+        roleIds,
         userType: user.user_type,
         isMainAdmin: user.is_main_admin == 1 || user.is_main_admin === true,
         staffId: user.staff_id,

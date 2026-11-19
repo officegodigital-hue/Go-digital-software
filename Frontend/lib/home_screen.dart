@@ -3,10 +3,13 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:godigital_portal/services/authenticated_http.dart' as http;
+import 'package:godigital_portal/services/api_config.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/app_notification_center.dart';
 import 'package:godigital_portal/services/push_notification_service.dart';
 import 'package:godigital_portal/report/report_dashboard_screen.dart';
+import 'screens/employee_dashboard/employee_sop_dashboard_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,8 +18,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   static const Color primaryColor = Color(0xFF0A5BFF);
   static const Color secondaryColor = Color(0xFF2D8CFF);
   static const Color darkColor = Color(0xFF101936);
@@ -33,6 +35,9 @@ class _HomeScreenState extends State<HomeScreen>
   bool? _hasAttendanceAccess;
   bool? _hasTaskAccess;
   bool? _hasReportAccess;
+  bool? _hasSopAccess;
+  List<Map<String, dynamic>> _roleSops = [];
+  bool _loadingRoleSops = true;
 
   @override
   void initState() {
@@ -51,13 +56,10 @@ class _HomeScreenState extends State<HomeScreen>
       parent: _pageController,
       curve: Curves.easeOutCubic,
     );
-    _pageSlide = Tween<Offset>(
-      begin: const Offset(0, 0.025),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _pageController,
-      curve: Curves.easeOutCubic,
-    ));
+    _pageSlide = Tween<Offset>(begin: const Offset(0, 0.025), end: Offset.zero)
+        .animate(
+          CurvedAnimation(parent: _pageController, curve: Curves.easeOutCubic),
+        );
     _pulse = Tween<double>(begin: 0.975, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
@@ -67,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _onAfterLogin();
       _checkAllAccess();
+      _loadRoleSops();
     });
   }
 
@@ -80,9 +83,10 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _checkAllAccess() async {
     final auth = context.read<AuthService>();
     final userType = auth.userType?.toLowerCase().trim() ?? '';
-    final isMainAdmin = auth.user?['is_main_admin'] == true || 
-                         auth.user?['is_main_admin'] == 1 || 
-                         auth.user?['is_main_admin'].toString() == '1';
+    final isMainAdmin =
+        auth.user?['is_main_admin'] == true ||
+        auth.user?['is_main_admin'] == 1 ||
+        auth.user?['is_main_admin'].toString() == '1';
 
     if (userType == 'admin' || isMainAdmin) {
       if (mounted) {
@@ -91,6 +95,7 @@ class _HomeScreenState extends State<HomeScreen>
           _hasAttendanceAccess = true;
           _hasTaskAccess = true;
           _hasReportAccess = true;
+          _hasSopAccess = true;
         });
       }
       return;
@@ -100,24 +105,71 @@ class _HomeScreenState extends State<HomeScreen>
     final appAccess = user['application_access'] as Map<String, dynamic>? ?? {};
 
     try {
-      final attendanceAcc = appAccess['attendance']?['access_type']?.toString().toLowerCase() ?? 'none';
-      final taskAcc = appAccess['task_manager']?['access_type']?.toString().toLowerCase() ?? 'none';
-      final repoAcc = appAccess['client_repository']?['access_type']?.toString().toLowerCase() ?? 'none';
-      final reportAcc = appAccess['reports']?['access_type']?.toString().toLowerCase() ?? 'employee';
+      final attendanceAcc =
+          appAccess['attendance']?['access_type']?.toString().toLowerCase() ??
+          'none';
+      final taskAcc =
+          appAccess['task_manager']?['access_type']?.toString().toLowerCase() ??
+          'none';
+      final repoAcc =
+          appAccess['client_repository']?['access_type']
+              ?.toString()
+              .toLowerCase() ??
+          'none';
+      final reportAcc =
+          appAccess['reports']?['access_type']?.toString().toLowerCase() ??
+          'employee';
+      final sopAcc =
+          appAccess['role_sop']?['access_type']?.toString().toLowerCase() ??
+          'none';
 
-      setState(() {
-        _hasAttendanceAccess = attendanceAcc != 'none';
-        _hasTaskAccess = taskAcc != 'none';
-        _hasRepoAccess = repoAcc != 'none';
-        _hasReportAccess = reportAcc != 'none';
-      });
-    } catch (_) {
-      setState(() {
-        _hasAttendanceAccess = false;
-        _hasTaskAccess = false;
-        _hasRepoAccess = false;
-        _hasReportAccess = false;
-      });
+      if (mounted) {
+        setState(() {
+          _hasAttendanceAccess = attendanceAcc != 'none';
+          _hasTaskAccess = taskAcc != 'none';
+          _hasRepoAccess = repoAcc != 'none';
+          _hasReportAccess = reportAcc != 'none';
+          _hasSopAccess = sopAcc != 'none';
+        });
+      }
+    } catch (error) {
+      debugPrint('Unable to load workspace access: $error');
+      if (mounted) {
+        setState(() {
+          _hasAttendanceAccess = false;
+          _hasTaskAccess = false;
+          _hasRepoAccess = false;
+          _hasReportAccess = false;
+          _hasSopAccess = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadRoleSops() async {
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/role-sops'),
+        headers: const {'Accept': 'application/json'},
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Server returned ${response.statusCode}.');
+      }
+      final decoded = jsonDecode(response.body);
+      final raw = decoded is Map ? decoded['data'] : decoded;
+      final documents = raw is List
+          ? raw.whereType<Map>().map(Map<String, dynamic>.from).toList()
+          : <Map<String, dynamic>>[];
+      if (mounted) setState(() => _roleSops = documents);
+    } catch (error) {
+      debugPrint('Unable to load role-based SOPs: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to load role-based SOPs.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingRoleSops = false);
     }
   }
 
@@ -125,14 +177,16 @@ class _HomeScreenState extends State<HomeScreen>
     if (_hasTaskAccess == false) return;
     final authService = context.read<AuthService>();
     final userType = authService.userType?.toLowerCase().trim() ?? '';
-    final isMainAdmin = authService.user?['is_main_admin'] == true || 
-                         authService.user?['is_main_admin'] == 1 || 
-                         authService.user?['is_main_admin'].toString() == '1';
+    final isMainAdmin =
+        authService.user?['is_main_admin'] == true ||
+        authService.user?['is_main_admin'] == 1 ||
+        authService.user?['is_main_admin'].toString() == '1';
 
     final user = authService.user ?? {};
     final appAccess = user['application_access'] as Map<String, dynamic>? ?? {};
     final taskAccess = appAccess['task_manager'] as Map<String, dynamic>? ?? {};
-    final taskAccessType = taskAccess['access_type']?.toString().toLowerCase() ?? 'none';
+    final taskAccessType =
+        taskAccess['access_type']?.toString().toLowerCase() ?? 'none';
 
     if (userType == 'admin' || isMainAdmin || taskAccessType == 'admin') {
       Navigator.pushNamed(context, '/admin');
@@ -173,18 +227,22 @@ class _HomeScreenState extends State<HomeScreen>
     if (_hasAttendanceAccess == false) return;
     final authService = context.read<AuthService>();
     final userType = authService.userType?.toLowerCase().trim() ?? '';
-    final isMainAdmin = authService.user?['is_main_admin'] == true || 
-                         authService.user?['is_main_admin'] == 1 || 
-                         authService.user?['is_main_admin'].toString() == '1';
+    final isMainAdmin =
+        authService.user?['is_main_admin'] == true ||
+        authService.user?['is_main_admin'] == 1 ||
+        authService.user?['is_main_admin'].toString() == '1';
 
     final user = authService.user ?? {};
     final appAccess = user['application_access'] as Map<String, dynamic>? ?? {};
     final attAccess = appAccess['attendance'] as Map<String, dynamic>? ?? {};
-    final attAccessType = attAccess['access_type']?.toString().toLowerCase() ?? 'none';
+    final attAccessType =
+        attAccess['access_type']?.toString().toLowerCase() ?? 'none';
 
     Navigator.pushNamed(
       context,
-      (userType == 'admin' || isMainAdmin || attAccessType == 'admin') ? '/attendance' : '/employee/dashboard',
+      (userType == 'admin' || isMainAdmin || attAccessType == 'admin')
+          ? '/attendance'
+          : '/employee/dashboard',
     );
   }
 
@@ -212,6 +270,14 @@ class _HomeScreenState extends State<HomeScreen>
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const ReportDashboardScreen()),
+    );
+  }
+
+  Future<void> _openRoleSops() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EmployeeSopDashboardScreen(documents: _roleSops),
+      ),
     );
   }
 
@@ -256,7 +322,9 @@ class _HomeScreenState extends State<HomeScreen>
                               child: ConstrainedBox(
                                 // Wide enough for all four workspace cards to
                                 // sit on a single row on a 14" laptop.
-                                constraints: const BoxConstraints(maxWidth: 1240),
+                                constraints: const BoxConstraints(
+                                  maxWidth: 1240,
+                                ),
                                 child: _buildMainContent(width),
                               ),
                             ),
@@ -278,12 +346,17 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildTopBar() {
     final compact = MediaQuery.sizeOf(context).width < 600;
     final authService = context.read<AuthService>();
-    
+
     final user = authService.user ?? {};
-    final firstName = (user['first_name'] ?? user['firstName'] ?? '').toString();
+    final firstName = (user['first_name'] ?? user['firstName'] ?? '')
+        .toString();
     final lastName = (user['last_name'] ?? user['lastName'] ?? '').toString();
-    final initials = ((firstName.isNotEmpty ? firstName[0] : '') + (lastName.isNotEmpty ? lastName[0] : '')).toUpperCase();
-    final avatarColor = user['avatar_color'] ?? user['avatarColor'] ?? '#4F46E5';
+    final initials =
+        ((firstName.isNotEmpty ? firstName[0] : '') +
+                (lastName.isNotEmpty ? lastName[0] : ''))
+            .toUpperCase();
+    final avatarColor =
+        user['avatar_color'] ?? user['avatarColor'] ?? '#4F46E5';
     final profilePhoto = user['profile_photo'] ?? user['profilePhoto'];
 
     return Container(
@@ -317,10 +390,8 @@ class _HomeScreenState extends State<HomeScreen>
             child: Image.asset(
               'assets/images/godigital_logo.png',
               fit: BoxFit.contain,
-              errorBuilder: (_, _, _) => const Icon(
-                Icons.grid_view_rounded,
-                color: primaryColor,
-              ),
+              errorBuilder: (_, _, _) =>
+                  const Icon(Icons.grid_view_rounded, color: primaryColor),
             ),
           ),
           const SizedBox(width: 12),
@@ -358,18 +429,28 @@ class _HomeScreenState extends State<HomeScreen>
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: primaryColor.withValues(alpha: 0.3), width: 2),
+                border: Border.all(
+                  color: primaryColor.withValues(alpha: 0.3),
+                  width: 2,
+                ),
               ),
               child: CircleAvatar(
                 radius: compact ? 16 : 19,
                 backgroundColor: _parseColor(avatarColor),
-                backgroundImage: profilePhoto != null && profilePhoto.toString().isNotEmpty
-                    ? MemoryImage(base64Decode(profilePhoto.toString().split(',').last))
+                backgroundImage:
+                    profilePhoto != null && profilePhoto.toString().isNotEmpty
+                    ? MemoryImage(
+                        base64Decode(profilePhoto.toString().split(',').last),
+                      )
                     : null,
                 child: profilePhoto == null || profilePhoto.toString().isEmpty
                     ? Text(
                         initials.isEmpty ? '?' : initials,
-                        style: TextStyle(color: Colors.white, fontSize: compact ? 12 : 14, fontWeight: FontWeight.w900),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: compact ? 12 : 14,
+                          fontWeight: FontWeight.w900,
+                        ),
                       )
                     : null,
               ),
@@ -415,15 +496,29 @@ class _HomeScreenState extends State<HomeScreen>
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildHero(mobile: mobile, tablet: tablet),
-        SizedBox(height: mobile ? 16 : tablet ? 20 : 18),
+        SizedBox(
+          height: mobile
+              ? 16
+              : tablet
+              ? 20
+              : 18,
+        ),
         _buildWorkspace(mobile: mobile, tablet: tablet),
       ],
     );
   }
 
   Widget _buildHero({required bool mobile, required bool tablet}) {
-    final logoSize = mobile ? 95.0 : tablet ? 115.0 : 130.0;
-    final titleSize = mobile ? 30.0 : tablet ? 38.0 : 42.0;
+    final logoSize = mobile
+        ? 95.0
+        : tablet
+        ? 115.0
+        : 130.0;
+    final titleSize = mobile
+        ? 30.0
+        : tablet
+        ? 38.0
+        : 42.0;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -437,10 +532,7 @@ class _HomeScreenState extends State<HomeScreen>
             decoration: BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
-              border: Border.all(
-                color: const Color(0xFFB8D4FF),
-                width: 1.5,
-              ),
+              border: Border.all(color: const Color(0xFFB8D4FF), width: 1.5),
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFF2D8CFF).withValues(alpha: 0.14),
@@ -533,12 +625,97 @@ class _HomeScreenState extends State<HomeScreen>
         LayoutBuilder(
           builder: (context, constraints) {
             final gap = mobile ? 10.0 : 14.0;
-            // 1 column on phones, 2 on tablets, 4 side-by-side on laptops.
+            final cards = <Widget>[];
+            if (_hasAttendanceAccess == true) {
+              cards.add(
+                _MenuButton(
+                  icon: Icons.people_alt_outlined,
+                  label: 'Attendance',
+                  description: 'Manage attendance and employee records.',
+                  onPressed: _openAttendance,
+                  accent: const Color(0xFF0A5BFF),
+                ),
+              );
+            }
+            if (_hasSopAccess == true &&
+                !_loadingRoleSops &&
+                _roleSops.isNotEmpty) {
+              cards.add(
+                _MenuButton(
+                  icon: Icons.menu_book_rounded,
+                  label: 'SOP & Rules',
+                  description: 'View the procedures for your assigned roles.',
+                  onPressed: _openRoleSops,
+                  accent: const Color(0xFF0F9D73),
+                ),
+              );
+            }
+            if (_hasTaskAccess == true) {
+              cards.add(
+                _MenuButton(
+                  icon: Icons.assignment_outlined,
+                  label: 'Task Manager',
+                  description: 'View and manage your assigned tasks.',
+                  onPressed: _openTaskManager,
+                  accent: const Color(0xFF1769E0),
+                ),
+              );
+            }
+            if (_hasReportAccess == true) {
+              cards.add(
+                _MenuButton(
+                  icon: Icons.bar_chart_rounded,
+                  label: 'Reports',
+                  description:
+                      'Generate client monthly performance reports & exports.',
+                  onPressed: _openReports,
+                  accent: const Color(0xFF0F9D73),
+                ),
+              );
+            }
+            if (_hasRepoAccess == true) {
+              cards.add(
+                _MenuButton(
+                  icon: Icons.folder_open_outlined,
+                  label: 'Client Work Repository',
+                  description: 'Access client projects and files.',
+                  onPressed: _openClientRepository,
+                  accent: const Color(0xFF2D8CFF),
+                ),
+              );
+            }
+
+            if (cards.isEmpty) {
+              if (_hasAttendanceAccess == null ||
+                  _hasTaskAccess == null ||
+                  _hasReportAccess == null ||
+                  _hasRepoAccess == null ||
+                  _hasSopAccess == null ||
+                  _loadingRoleSops) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Text(
+                    'No workspace modules are assigned to your account.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xFF7084A5)),
+                  ),
+                ),
+              );
+            }
+
             final columns = mobile
                 ? 1
                 : tablet
-                    ? 2
-                    : 4;
+                ? (cards.length < 2 ? cards.length : 2)
+                : (cards.length < 5 ? cards.length : 5);
             final cardWidth =
                 (constraints.maxWidth - gap * (columns - 1)) / columns;
 
@@ -546,68 +723,9 @@ class _HomeScreenState extends State<HomeScreen>
               alignment: WrapAlignment.center,
               spacing: gap,
               runSpacing: gap,
-              children: [
-                // 1. Attendance
-                SizedBox(
-                  width: cardWidth,
-                  child: _MenuButton(
-                    icon: Icons.people_alt_outlined,
-                    label: 'Attendance',
-                    description: _hasAttendanceAccess == false
-                        ? 'No Access — contact admin.'
-                        : 'Manage attendance and employee records.',
-                    onPressed: _openAttendance,
-                    locked: _hasAttendanceAccess == false,
-                    loading: _hasAttendanceAccess == null,
-                    accent: const Color(0xFF0A5BFF),
-                  ),
-                ),
-                // 2. Task Manager
-                SizedBox(
-                  width: cardWidth,
-                  child: _MenuButton(
-                    icon: Icons.assignment_outlined,
-                    label: 'Task Manager',
-                    description: _hasTaskAccess == false
-                        ? 'No Access — contact admin.'
-                        : 'View and manage your assigned tasks.',
-                    onPressed: _openTaskManager,
-                    locked: _hasTaskAccess == false,
-                    loading: _hasTaskAccess == null,
-                    accent: const Color(0xFF1769E0),
-                  ),
-                ),
-                // 3. Reports
-                SizedBox(
-                  width: cardWidth,
-                  child: _MenuButton(
-                    icon: Icons.bar_chart_rounded,
-                    label: 'Reports',
-                    description: _hasReportAccess == false
-                        ? 'No Access — contact admin.'
-                        : 'Generate client monthly performance reports & exports.',
-                    onPressed: _openReports,
-                    locked: _hasReportAccess == false,
-                    loading: _hasReportAccess == null,
-                    accent: const Color(0xFF0F9D73),
-                  ),
-                ),
-                // 4. Client Work Repository
-                SizedBox(
-                  width: cardWidth,
-                  child: _MenuButton(
-                    icon: Icons.folder_open_outlined,
-                    label: 'Client Work Repository',
-                    description: _hasRepoAccess == false
-                        ? 'You don\'t have access — contact admin.'
-                        : 'Access client projects and files.',
-                    onPressed: _openClientRepository,
-                    locked: _hasRepoAccess == false,
-                    loading: _hasRepoAccess == null,
-                    accent: const Color(0xFF2D8CFF),
-                  ),
-                ),
-              ],
+              children: cards
+                  .map((card) => SizedBox(width: cardWidth, child: card))
+                  .toList(),
             );
           },
         ),
@@ -650,8 +768,6 @@ class _MenuButton extends StatefulWidget {
   final String label;
   final String description;
   final VoidCallback onPressed;
-  final bool locked;
-  final bool loading;
   final Color accent;
 
   const _MenuButton({
@@ -659,8 +775,6 @@ class _MenuButton extends StatefulWidget {
     required this.label,
     required this.description,
     required this.onPressed,
-    this.locked = false,
-    this.loading = false,
     this.accent = const Color(0xFF0A5BFF),
   });
 
@@ -674,17 +788,9 @@ class _MenuButtonState extends State<_MenuButton> {
 
   @override
   Widget build(BuildContext context) {
-    final interactive = !widget.locked && !widget.loading;
-
     return MouseRegion(
-      cursor: widget.locked
-          ? SystemMouseCursors.forbidden
-          : widget.loading
-              ? SystemMouseCursors.wait
-              : SystemMouseCursors.click,
-      onEnter: (_) {
-        if (interactive) setState(() => isHovered = true);
-      },
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => isHovered = true),
       onExit: (_) {
         setState(() {
           isHovered = false;
@@ -692,18 +798,12 @@ class _MenuButtonState extends State<_MenuButton> {
         });
       },
       child: GestureDetector(
-        onTapDown: interactive
-            ? (_) => setState(() => isPressed = true)
-            : null,
-        onTapCancel: interactive
-            ? () => setState(() => isPressed = false)
-            : null,
-        onTap: interactive
-            ? () {
-                setState(() => isPressed = false);
-                widget.onPressed();
-              }
-            : null,
+        onTapDown: (_) => setState(() => isPressed = true),
+        onTapCancel: () => setState(() => isPressed = false),
+        onTap: () {
+          setState(() => isPressed = false);
+          widget.onPressed();
+        },
         child: AnimatedScale(
           scale: isPressed ? 0.975 : 1,
           duration: const Duration(milliseconds: 110),
@@ -713,23 +813,21 @@ class _MenuButtonState extends State<_MenuButton> {
             height: 165,
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: widget.locked ? 0.78 : 0.92),
+              color: Colors.white.withValues(alpha: 0.92),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: widget.locked
-                    ? const Color(0xFFE1E6EF)
-                    : isHovered
-                        ? widget.accent.withValues(alpha: 0.48)
-                        : const Color(0xFFD5E5FF),
-                width: isHovered && interactive ? 1.5 : 1,
+                color: isHovered
+                    ? widget.accent.withValues(alpha: 0.48)
+                    : const Color(0xFFD5E5FF),
+                width: isHovered ? 1.5 : 1,
               ),
               boxShadow: [
                 BoxShadow(
                   color: widget.accent.withValues(
-                    alpha: isHovered && interactive ? 0.12 : 0.05,
+                    alpha: isHovered ? 0.12 : 0.05,
                   ),
-                  blurRadius: isHovered && interactive ? 22 : 14,
-                  offset: Offset(0, isHovered && interactive ? 8 : 5),
+                  blurRadius: isHovered ? 22 : 14,
+                  offset: Offset(0, isHovered ? 8 : 5),
                 ),
               ],
             ),
@@ -742,22 +840,10 @@ class _MenuButtonState extends State<_MenuButton> {
                   width: 44,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: widget.locked
-                        ? const Color(0xFFF0F2F6)
-                        : const Color(0xFFE9F2FF),
-                    border: Border.all(
-                      color: widget.locked
-                          ? const Color(0xFFE0E5ED)
-                          : const Color(0xFFC9DDFF),
-                    ),
+                    color: const Color(0xFFE9F2FF),
+                    border: Border.all(color: const Color(0xFFC9DDFF)),
                   ),
-                  child: Icon(
-                    widget.locked ? Icons.lock_outline_rounded : widget.icon,
-                    size: 22,
-                    color: widget.locked
-                        ? const Color(0xFFAEB7C5)
-                        : widget.accent,
-                  ),
+                  child: Icon(widget.icon, size: 22, color: widget.accent),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -766,11 +852,7 @@ class _MenuButtonState extends State<_MenuButton> {
                   style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w800,
-                    color: widget.locked
-                        ? const Color(0xFFAAB2C0)
-                        : isHovered
-                            ? widget.accent
-                            : const Color(0xFF17213D),
+                    color: isHovered ? widget.accent : const Color(0xFF17213D),
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -784,53 +866,31 @@ class _MenuButtonState extends State<_MenuButton> {
                     style: TextStyle(
                       fontSize: 10.5,
                       height: 1.25,
-                      color: widget.locked
-                          ? const Color(0xFFB4BCC8)
-                          : const Color(0xFF7585A0),
+                      color: const Color(0xFF7585A0),
                     ),
                   ),
                 ),
                 const SizedBox(height: 6),
-                if (widget.loading)
-                  SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.0,
-                      color: widget.accent,
-                    ),
-                  )
-                else
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    height: 25,
-                    width: 25,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: widget.locked
-                          ? const LinearGradient(
-                              colors: [Color(0xFFE9EDF3), Color(0xFFDDE3EC)],
-                            )
-                          : isHovered
-                              ? LinearGradient(
-                                  colors: [widget.accent, const Color(0xFF2D8CFF)],
-                                )
-                              : const LinearGradient(
-                                  colors: [Color(0xFFF0F6FF), Color(0xFFE4EEFF)],
-                                ),
-                    ),
-                    child: Icon(
-                      widget.locked
-                          ? Icons.lock_rounded
-                          : Icons.arrow_forward_rounded,
-                      size: widget.locked ? 11 : 14,
-                      color: widget.locked
-                          ? const Color(0xFFAAB2C0)
-                          : isHovered
-                              ? Colors.white
-                              : widget.accent,
-                    ),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  height: 25,
+                  width: 25,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: isHovered
+                        ? LinearGradient(
+                            colors: [widget.accent, const Color(0xFF2D8CFF)],
+                          )
+                        : const LinearGradient(
+                            colors: [Color(0xFFF0F6FF), Color(0xFFE4EEFF)],
+                          ),
                   ),
+                  child: Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 14,
+                    color: isHovered ? Colors.white : widget.accent,
+                  ),
+                ),
               ],
             ),
           ),

@@ -290,6 +290,7 @@ app.use('/api', (req, res, next) => {
 app.use('/api', require('./lib/employeeEligibility').liveWriteGuard);
 app.use('/api/employees', require('./routes/employeeLifecycle'));
 app.use('/api/employees', employeeRoutes);
+app.use('/api/role-sops', require('./routes/roleSops'));
 app.use('/api/timings', timingRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/credentials', credentialRoutes);

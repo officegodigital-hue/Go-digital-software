@@ -11,6 +11,7 @@ import '../../layouts/admin_layout.dart';
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import 'access_master_screen.dart';
+import 'role_sop_master_screen.dart';
 
 class AdminPanelScreen extends StatefulWidget {
   const AdminPanelScreen({super.key});
@@ -83,13 +84,16 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   String _workMode = 'Office';
   String _salaryType = 'standard'; // standard | flexible
   final TextEditingController _attSalaryCtrl = TextEditingController();
-  final TextEditingController _cycleStartCtrl = TextEditingController(text: '26');
+  final TextEditingController _cycleStartCtrl = TextEditingController(
+    text: '26',
+  );
   final TextEditingController _cycleEndCtrl = TextEditingController(text: '25');
   bool _loadingAttendance = false;
 
   String _selectedUserType = 'employee';
   bool _isMainAdmin = false;
   String _selectedRole = '';
+  List<int> _selectedRoleIds = [];
   List<String> _selectedPermissions = [];
   Map<String, dynamic>? _editingEmployee;
 
@@ -214,7 +218,23 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     return [];
   }
 
-  Map<String, dynamic> _currentRoleApplicationAccess = {};
+  List<int> _parseRoleIds(dynamic value) {
+    if (value is String) {
+      try {
+        value = jsonDecode(value);
+      } catch (_) {
+        return [];
+      }
+    }
+    if (value is! List) return [];
+    return value
+        .map(_toInt)
+        .whereType<int>()
+        .where((id) => id > 0)
+        .toSet()
+        .toList();
+  }
+
   List<Map<String, dynamic>> _currentRoleAccessRows = [];
 
   // 🟢 Friendly Page Title Converter Method
@@ -283,13 +303,19 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     return mapping[key] ?? key;
   }
 
-  Future<void> _fetchRoleAccessForForm(int roleId) async {
+  Future<void> _fetchRoleAccessForForm(List<int> roleIds) async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/employees/role-access/$roleId'),
-        headers: const {'Accept': 'application/json'},
-      );
-      if (response.statusCode == 200) {
+      final merged = <String, Map<String, dynamic>>{};
+      for (final roleId in roleIds) {
+        final response = await http.get(
+          Uri.parse('$_baseUrl/employees/role-access/$roleId'),
+          headers: const {'Accept': 'application/json'},
+        );
+        if (response.statusCode != 200) {
+          throw Exception(
+            'Unable to load role access (${response.statusCode}).',
+          );
+        }
         final decoded = jsonDecode(response.body);
         List<dynamic> rows = [];
         if (decoded is List) {
@@ -298,27 +324,44 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           rows = decoded['data'] ?? decoded['access'] ?? [];
         }
 
-        final mapAccess = <String, dynamic>{};
         for (final row in rows) {
           if (row is Map) {
             final app = (row['application'] ?? '').toString();
-            mapAccess[app] = {
-              'accessType': row['access_type'] ?? row['accessType'] ?? 'none',
-              'allowedPages': row['allowed_pages'] ?? row['allowedPages'] ?? [],
-            };
+            if (app.isEmpty) continue;
+            final item = merged.putIfAbsent(
+              app,
+              () => {
+                'application': app,
+                'access_type': 'none',
+                'allowed_pages': <String>[],
+              },
+            );
+            final accessType =
+                (row['access_type'] ?? row['accessType'] ?? 'none')
+                    .toString()
+                    .toLowerCase();
+            final currentType = item['access_type'].toString();
+            final rank = {'none': 0, 'employee': 1, 'admin': 2};
+            if ((rank[accessType] ?? 0) > (rank[currentType] ?? 0)) {
+              item['access_type'] = accessType;
+            }
+            final pages = _parseAllowedPages(
+              row['allowed_pages'] ?? row['allowedPages'],
+            );
+            item['allowed_pages'] = <String>{
+              ...(item['allowed_pages'] as List<String>),
+              ...pages,
+            }.toList();
           }
         }
-        if (mounted) {
-          setState(() {
-            _currentRoleApplicationAccess = mapAccess;
-            _currentRoleAccessRows = rows
-                .whereType<Map>()
-                .map((e) => Map<String, dynamic>.from(e))
-                .toList();
-          });
-        }
       }
-    } catch (_) {}
+      if (mounted) {
+        setState(() => _currentRoleAccessRows = merged.values.toList());
+      }
+    } catch (error) {
+      debugPrint('Unable to load selected role access: $error');
+      if (mounted) _showSnack('Unable to load selected role access.');
+    }
   }
 
   void _showSnack(String msg, {bool success = false}) {
@@ -425,10 +468,46 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       _isMainAdmin = _isTrue(employee?['is_main_admin']);
 
       final activeRoles = _getActiveRoleOptions();
-      _selectedRole = employee?['role']?.toString() ?? '';
-      if (!activeRoles.contains(_selectedRole)) {
-        _selectedRole = activeRoles.isNotEmpty ? activeRoles.first : '';
+      final activeRoleItems = allUserRolesMaster.where(
+        (item) => _normalizeUserType(item['user_type']) == _selectedUserType,
+      );
+      final storedRoleIds = _parseRoleIds(employee?['role_ids']);
+      _selectedRoleIds = storedRoleIds
+          .where(
+            (id) => activeRoleItems.any((item) => _toInt(item['id']) == id),
+          )
+          .toList();
+      final legacyRole = employee?['role']?.toString() ?? '';
+      final legacyRoleItem = activeRoleItems.where(
+        (item) =>
+            item['role_name'].toString().toLowerCase() ==
+            legacyRole.toLowerCase(),
+      );
+      if (_selectedRoleIds.isEmpty && legacyRoleItem.isNotEmpty) {
+        final legacyId = _toInt(legacyRoleItem.first['id']);
+        if (legacyId != null) _selectedRoleIds = [legacyId];
       }
+      if (legacyRoleItem.isNotEmpty) {
+        final legacyId = _toInt(legacyRoleItem.first['id']);
+        if (legacyId != null && _selectedRoleIds.remove(legacyId)) {
+          _selectedRoleIds.insert(0, legacyId);
+        }
+      }
+      if (_selectedRoleIds.isEmpty && activeRoleItems.isNotEmpty) {
+        final firstId = _toInt(activeRoleItems.first['id']);
+        if (firstId != null) _selectedRoleIds = [firstId];
+      }
+      final selectedRoleItems = activeRoleItems
+          .where(
+            (item) =>
+                _selectedRoleIds.isNotEmpty &&
+                _toInt(item['id']) == _selectedRoleIds.first,
+          )
+          .toList();
+      _selectedRole = selectedRoleItems.isNotEmpty
+          ? selectedRoleItems.first['role_name'].toString()
+          : (activeRoles.isNotEmpty ? activeRoles.first : '');
+      _currentRoleAccessRows = [];
 
       _selectedPermissions = _parseAllowedPages(employee?['allowed_pages']);
       if (_isMainAdmin) {
@@ -452,17 +531,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       _loadOriginalPassword(editId);
     }
 
-    if (_selectedRole.isNotEmpty) {
-      final matchedRole = allUserRolesMaster.firstWhere(
-        (r) =>
-            r['role_name'].toString().toLowerCase() ==
-            _selectedRole.toLowerCase(),
-        orElse: () => {},
-      );
-      final rId = _toInt(matchedRole['id']);
-      if (rId != null) {
-        await _fetchRoleAccessForForm(rId);
-      }
+    if (_selectedRoleIds.isNotEmpty) {
+      await _fetchRoleAccessForForm(_selectedRoleIds);
     }
   }
 
@@ -484,7 +554,8 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           _passwordCtrl.text = _loadedPassword;
           _passwordNote = null;
         } else if (res.statusCode == 403) {
-          _passwordNote = 'Only the Main Admin can view passwords. Type a new one to change it.';
+          _passwordNote =
+              'Only the Main Admin can view passwords. Type a new one to change it.';
         } else {
           _passwordNote = body is Map && body['message'] != null
               ? '${body['message']}'
@@ -510,8 +581,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       if (att is Map) {
         final mode = '${att['work_mode'] ?? 'Office'}';
         _workMode = _workModes.contains(mode) ? mode : 'Office';
-        _attSalaryCtrl.text = '${att['monthly_salary'] ?? ''}' == 'null' ? '' : '${att['monthly_salary'] ?? ''}';
-        _salaryType = '${att['salary_type'] ?? 'standard'}' == 'flexible' ? 'flexible' : 'standard';
+        _attSalaryCtrl.text = '${att['monthly_salary'] ?? ''}' == 'null'
+            ? ''
+            : '${att['monthly_salary'] ?? ''}';
+        _salaryType = '${att['salary_type'] ?? 'standard'}' == 'flexible'
+            ? 'flexible'
+            : 'standard';
         final start = int.tryParse('${att['salary_start_day'] ?? ''}');
         final end = int.tryParse('${att['salary_end_day'] ?? ''}');
         _cycleStartCtrl.text = '${start ?? 26}';
@@ -1107,7 +1182,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     });
 
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/employees?includeInactive=true'));
+      final response = await http.get(
+        Uri.parse('$_baseUrl/employees?includeInactive=true'),
+      );
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         setState(() {
@@ -1139,13 +1216,28 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       return;
     }
 
-    if (_selectedRole.trim().isEmpty) {
+    if (_selectedRoleIds.isEmpty) {
       setState(() {
-        _modalError =
-            'Please select a role. Add a role in User Role Master first.';
+        _modalError = 'Select at least one role from User Role Master.';
       });
       return;
     }
+    final selectedRoleItems = allUserRolesMaster.where(
+      (item) =>
+          _selectedRoleIds.contains(_toInt(item['id'])) &&
+          _normalizeUserType(item['user_type']) == _selectedUserType,
+    );
+    if (selectedRoleItems.isEmpty) {
+      setState(
+        () => _modalError = 'The selected access roles are unavailable.',
+      );
+      return;
+    }
+    final primaryRole = selectedRoleItems
+        .firstWhere(
+          (item) => _toInt(item['id']) == _selectedRoleIds.first,
+        )['role_name']
+        .toString();
 
     final isEditMode = _editingEmployee != null;
 
@@ -1166,9 +1258,15 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     if (_salaryType == 'flexible') {
       final start = int.tryParse(_cycleStartCtrl.text.trim());
       final end = int.tryParse(_cycleEndCtrl.text.trim());
-      if (start == null || start < 1 || start > 28 || end == null || end < 1 || end > 28) {
+      if (start == null ||
+          start < 1 ||
+          start > 28 ||
+          end == null ||
+          end < 1 ||
+          end > 28) {
         setState(() {
-          _modalError = 'Attendance Details: cycle start and end day must be 1–28';
+          _modalError =
+              'Attendance Details: cycle start and end day must be 1–28';
         });
         return;
       }
@@ -1190,15 +1288,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
       'staffId': _staffIdCtrl.text.trim(),
       'email': _emailCtrl.text.trim(),
       'username': _usernameCtrl.text.trim(),
-      'role': _selectedRole.trim(),
+      'role': primaryRole.trim(),
+      'roleIds': _selectedRoleIds,
       'userType': _selectedUserType,
       'isMainAdmin': _isMainAdmin ? 1 : 0,
-      'allowedPages': (_selectedUserType == 'admin' && _isMainAdmin)
-          ? availablePages.map((page) => page['route']!).toList()
-          : [],
-      'applicationAccess': _currentRoleApplicationAccess,
+      'allowedPages': finalPermissions,
       // Only when it is new / changed (the server hashes + encrypts it).
-      if (_passwordCtrl.text.trim().isNotEmpty && _passwordCtrl.text != _loadedPassword)
+      if (_passwordCtrl.text.trim().isNotEmpty &&
+          _passwordCtrl.text != _loadedPassword)
         'password': _passwordCtrl.text,
       'phoneNumber': _phoneCtrl.text.trim(),
       'aadharNumber': _aadharCtrl.text.trim(),
@@ -1214,8 +1311,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         'workMode': _workMode,
         'salary': _attSalaryCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
         'salaryType': _salaryType,
-        if (_salaryType == 'flexible') 'salaryStartDay': int.tryParse(_cycleStartCtrl.text.trim()) ?? 26,
-        if (_salaryType == 'flexible') 'salaryEndDay': int.tryParse(_cycleEndCtrl.text.trim()) ?? 25,
+        if (_salaryType == 'flexible')
+          'salaryStartDay': int.tryParse(_cycleStartCtrl.text.trim()) ?? 26,
+        if (_salaryType == 'flexible')
+          'salaryEndDay': int.tryParse(_cycleEndCtrl.text.trim()) ?? 25,
       },
     };
 
@@ -1301,9 +1400,15 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   }
 
   Future<void> _toggleStatus(int id, bool currentStatus) async {
-    final employee = employeeUsers.where((e) => '${e['id']}' == '$id').firstOrNull;
-    final changed = await showEmployeeExitDialog(context, id,
-      inactive: !currentStatus, name: employee?['full_name']?.toString() ?? 'employee');
+    final employee = employeeUsers
+        .where((e) => '${e['id']}' == '$id')
+        .firstOrNull;
+    final changed = await showEmployeeExitDialog(
+      context,
+      id,
+      inactive: !currentStatus,
+      name: employee?['full_name']?.toString() ?? 'employee',
+    );
     if (changed && mounted) await _fetchEmployees();
   }
 
@@ -1672,6 +1777,22 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             ),
           ),
           const SizedBox(width: 10),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const RoleSopMasterScreen()),
+            ),
+            icon: const Icon(Icons.menu_book_rounded, size: 18),
+            label: const Text('Role SOP'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF0F9D73),
+              side: const BorderSide(color: Color(0xFFB8E8D8)),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
           ElevatedButton.icon(
             onPressed: () => _openForm(),
             icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
@@ -1748,6 +1869,25 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                 icon: const Icon(Icons.refresh_rounded),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const RoleSopMasterScreen()),
+              ),
+              icon: const Icon(Icons.menu_book_rounded, size: 17),
+              label: const Text('Role-Based SOP'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0F9D73),
+                side: const BorderSide(color: Color(0xFFB8E8D8)),
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -2438,7 +2578,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         const SizedBox(width: 8),
         IconButton(
           tooltip: 'Employee history and settlement',
-          onPressed: id == 0 ? null : () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => EmployeeArchivePage(employeeId: id, name: '${item['full_name']}'))),
+          onPressed: id == 0
+              ? null
+              : () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => EmployeeArchivePage(
+                      employeeId: id,
+                      name: '${item['full_name']}',
+                    ),
+                  ),
+                ),
           style: IconButton.styleFrom(
             backgroundColor: const Color(0xFFFFEEEE),
             foregroundColor: const Color(0xFFDC2626),
@@ -2563,7 +2713,6 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   Widget _buildFormView() {
     final isEditMode = _editingEmployee != null;
-    final activeRoles = _getActiveRoleOptions();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -2730,8 +2879,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       _loadingAttendance
                           ? 'Loading attendance details…'
                           : 'Used by the Attendance app (Employees, Clock Logs, Payroll). '
-                              'The employee is added only here — no need to add again in Attendance.',
-                      style: const TextStyle(color: _muted, fontSize: 12, height: 1.4),
+                                'The employee is added only here — no need to add again in Attendance.',
+                      style: const TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     _responsiveFields(
@@ -2761,11 +2914,15 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                           child: _modernDropdown(
                             label: 'Salary Cycle Type',
                             icon: Icons.event_repeat_rounded,
-                            value: _salaryType == 'flexible' ? 'Flexible' : 'Standard',
+                            value: _salaryType == 'flexible'
+                                ? 'Flexible'
+                                : 'Standard',
                             hint: 'Select cycle',
                             items: const ['Standard', 'Flexible'],
                             onChanged: (v) => setState(
-                              () => _salaryType = v == 'Flexible' ? 'flexible' : 'standard',
+                              () => _salaryType = v == 'Flexible'
+                                  ? 'flexible'
+                                  : 'standard',
                             ),
                           ),
                         ),
@@ -2807,32 +2964,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       isMobile: isMobile,
                       children: [
                         _buildUserTypeSelector(),
-                        _modernDropdown(
-                          label: 'Role *',
-                          icon: Icons.work_outline_rounded,
-                          value: activeRoles.contains(_selectedRole)
-                              ? _selectedRole
-                              : null,
-                          hint: activeRoles.isEmpty
-                              ? 'No roles available'
-                              : 'Select role',
-                          items: activeRoles,
-                          onChanged: (value) async {
-                            if (value == null) return;
-                            setState(() => _selectedRole = value);
-
-                            final matchedRole = allUserRolesMaster.firstWhere(
-                              (r) =>
-                                  r['role_name'].toString().toLowerCase() ==
-                                  value.toLowerCase(),
-                              orElse: () => {},
-                            );
-                            final rId = _toInt(matchedRole['id']);
-                            if (rId != null) {
-                              await _fetchRoleAccessForForm(rId);
-                            }
-                          },
-                        ),
+                        _buildRoleSelector(),
                         _modernTextField(
                           controller: _staffIdCtrl,
                           label: 'Staff ID *',
@@ -2864,7 +2996,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                               controller: _passwordCtrl,
                               label: isEditMode ? 'Password' : 'Password *',
                               hint: isEditMode
-                                  ? (_loadingPassword ? 'Loading current password…' : 'Type a new password to change it')
+                                  ? (_loadingPassword
+                                        ? 'Loading current password…'
+                                        : 'Type a new password to change it')
                                   : 'Minimum 6 characters',
                               icon: Icons.lock_outline_rounded,
                               isPassword: true,
@@ -2872,7 +3006,11 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                const Icon(Icons.shield_rounded, size: 13, color: Color(0xFF16A34A)),
+                                const Icon(
+                                  Icons.shield_rounded,
+                                  size: 13,
+                                  color: Color(0xFF16A34A),
+                                ),
                                 const SizedBox(width: 5),
                                 Expanded(
                                   child: Text(
@@ -2883,7 +3021,9 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                                     style: TextStyle(
                                       fontSize: 10.5,
                                       fontWeight: FontWeight.w600,
-                                      color: _passwordNote == null ? _muted : const Color(0xFFB45309),
+                                      color: _passwordNote == null
+                                          ? _muted
+                                          : const Color(0xFFB45309),
                                     ),
                                   ),
                                 ),
@@ -2904,7 +3044,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'The permissions and allowed modules below are automatically inherited from the selected Role in Access Master.',
+                      'Application permissions are combined from every selected role in Access Master.',
                       style: TextStyle(
                         color: _muted,
                         fontSize: 12,
@@ -3230,8 +3370,19 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                     setState(() {
                       _selectedUserType = 'employee';
                       _isMainAdmin = false;
-                      final roles = _getActiveRoleOptions();
-                      _selectedRole = roles.isNotEmpty ? roles.first : '';
+                      final roles = allUserRolesMaster.where(
+                        (role) =>
+                            _normalizeUserType(role['user_type']) == 'employee',
+                      );
+                      _selectedRoleIds = roles.isEmpty
+                          ? []
+                          : [
+                              _toInt(roles.first['id']),
+                            ].whereType<int>().toList();
+                      _selectedRole = roles.isEmpty
+                          ? ''
+                          : roles.first['role_name'].toString();
+                      _currentRoleAccessRows = [];
                     });
                   },
                 ),
@@ -3244,14 +3395,115 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   onTap: () {
                     setState(() {
                       _selectedUserType = 'admin';
-                      final roles = _getActiveRoleOptions();
-                      _selectedRole = roles.isNotEmpty ? roles.first : '';
+                      final roles = allUserRolesMaster.where(
+                        (role) =>
+                            _normalizeUserType(role['user_type']) == 'admin',
+                      );
+                      _selectedRoleIds = roles.isEmpty
+                          ? []
+                          : [
+                              _toInt(roles.first['id']),
+                            ].whereType<int>().toList();
+                      _selectedRole = roles.isEmpty
+                          ? ''
+                          : roles.first['role_name'].toString();
+                      _currentRoleAccessRows = [];
                     });
                   },
                 ),
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRoleSelector() {
+    final roles = allUserRolesMaster
+        .where(
+          (item) => _normalizeUserType(item['user_type']) == _selectedUserType,
+        )
+        .toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Access Roles *',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: _ink,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: _surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _border),
+          ),
+          child: roles.isEmpty
+              ? Text(
+                  _loadingRoles ? 'Loading roles...' : 'No roles available',
+                  style: const TextStyle(color: _muted, fontSize: 12),
+                )
+              : Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: roles.map((item) {
+                    final id = _toInt(item['id']);
+                    final name = item['role_name'].toString();
+                    final selected =
+                        id != null && _selectedRoleIds.contains(id);
+                    return FilterChip(
+                      label: Text(
+                        _selectedRole.toLowerCase() == name.toLowerCase()
+                            ? '$name (Primary)'
+                            : name,
+                      ),
+                      selected: selected,
+                      onSelected: id == null
+                          ? null
+                          : (value) async {
+                              setState(() {
+                                if (value) {
+                                  if (!_selectedRoleIds.contains(id)) {
+                                    _selectedRoleIds.add(id);
+                                  }
+                                  if (_selectedRole.isEmpty) {
+                                    _selectedRole = name;
+                                  }
+                                } else {
+                                  _selectedRoleIds.remove(id);
+                                  if (_selectedRole.toLowerCase() ==
+                                      name.toLowerCase()) {
+                                    final next = roles.where(
+                                      (role) => _selectedRoleIds.contains(
+                                        _toInt(role['id']),
+                                      ),
+                                    );
+                                    _selectedRole = next.isEmpty
+                                        ? ''
+                                        : next.first['role_name'].toString();
+                                  }
+                                }
+                                _currentRoleAccessRows = [];
+                              });
+                              if (_selectedRoleIds.isNotEmpty) {
+                                await _fetchRoleAccessForForm(_selectedRoleIds);
+                              }
+                            },
+                    );
+                  }).toList(),
+                ),
+        ),
+        const SizedBox(height: 5),
+        const Text(
+          'Select every role whose access is needed. The first selected role remains the primary job role.',
+          style: TextStyle(color: _muted, fontSize: 11),
         ),
       ],
     );

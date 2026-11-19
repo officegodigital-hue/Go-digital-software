@@ -37,12 +37,14 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
     'attendance': 'none',
     'task_manager': 'none',
     'client_repository': 'none',
+    'role_sop': 'none',
   };
 
   final Map<String, Set<String>> _pages = <String, Set<String>>{
     'attendance': <String>{},
     'task_manager': <String>{},
     'client_repository': <String>{},
+    'role_sop': <String>{},
   };
 
   // 🟢 Attendance Pages based on Access Type
@@ -182,9 +184,17 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
     if (decoded is List) {
       rawList = decoded;
     } else if (decoded is Map) {
-      rawList = decoded['data'] ?? decoded['roles'] ?? decoded['items'] ?? <dynamic>[];
+      rawList =
+          decoded['data'] ??
+          decoded['roles'] ??
+          decoded['items'] ??
+          <dynamic>[];
       if (rawList is Map) {
-        rawList = rawList['data'] ?? rawList['roles'] ?? rawList['items'] ?? <dynamic>[];
+        rawList =
+            rawList['data'] ??
+            rawList['roles'] ??
+            rawList['items'] ??
+            <dynamic>[];
       }
     } else {
       rawList = <dynamic>[];
@@ -235,9 +245,14 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
     if (decoded is List) {
       raw = decoded;
     } else if (decoded is Map) {
-      raw = decoded['data'] ?? decoded['access'] ?? decoded['applications'] ?? <dynamic>[];
+      raw =
+          decoded['data'] ??
+          decoded['access'] ??
+          decoded['applications'] ??
+          <dynamic>[];
       if (raw is Map) {
-        raw = raw['applications'] ?? raw['data'] ?? raw['access'] ?? <dynamic>[];
+        raw =
+            raw['applications'] ?? raw['data'] ?? raw['access'] ?? <dynamic>[];
       }
     } else {
       raw = <dynamic>[];
@@ -272,7 +287,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         .trim()
         .toLowerCase();
 
-    _access[application] = <String>{'none', 'employee', 'admin'}.contains(rawAccess)
+    _access[application] =
+        <String>{'none', 'employee', 'admin'}.contains(rawAccess)
         ? rawAccess
         : 'none';
 
@@ -283,7 +299,10 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
 
   Set<String> _parsePages(dynamic raw) {
     if (raw is List) {
-      return raw.map((item) => item.toString()).where((e) => e.isNotEmpty).toSet();
+      return raw
+          .map((item) => item.toString())
+          .where((e) => e.isNotEmpty)
+          .toSet();
     }
     if (raw is String) {
       final text = raw.trim();
@@ -291,10 +310,17 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
       try {
         final decoded = jsonDecode(text);
         if (decoded is List) {
-          return decoded.map((item) => item.toString()).where((e) => e.isNotEmpty).toSet();
+          return decoded
+              .map((item) => item.toString())
+              .where((e) => e.isNotEmpty)
+              .toSet();
         }
       } catch (_) {}
-      return text.split(',').map((item) => item.trim()).where((item) => item.isNotEmpty).toSet();
+      return text
+          .split(',')
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty)
+          .toSet();
     }
     return <String>{};
   }
@@ -332,10 +358,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: jsonEncode({
-          'roleId': id,
-          'applications': applications,
-        }),
+        body: jsonEncode({'roleId': id, 'applications': applications}),
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
@@ -359,7 +382,11 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
   }
 
   String _roleDisplayName(Map<String, dynamic> role) {
-    return (role['role_name'] ?? role['roleName'] ?? role['name'] ?? 'Unnamed Role').toString();
+    return (role['role_name'] ??
+            role['roleName'] ??
+            role['name'] ??
+            'Unnamed Role')
+        .toString();
   }
 
   void _snack(String message, {bool success = false}) {
@@ -372,9 +399,22 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         content: Row(
           children: [
-            Icon(success ? Icons.check_circle_rounded : Icons.error_outline_rounded, color: Colors.white),
+            Icon(
+              success
+                  ? Icons.check_circle_rounded
+                  : Icons.error_outline_rounded,
+              color: Colors.white,
+            ),
             const SizedBox(width: 10),
-            Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -387,6 +427,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         return 'Task Manager';
       case 'client_repository':
         return 'Client Repository';
+      case 'role_sop':
+        return 'Role SOPs & Rules';
       default:
         return 'Attendance';
     }
@@ -398,6 +440,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         return Icons.task_alt_rounded;
       case 'client_repository':
         return Icons.folder_copy_rounded;
+      case 'role_sop':
+        return Icons.menu_book_rounded;
       default:
         return Icons.access_time_rounded;
     }
@@ -495,7 +539,11 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
               color: Colors.white.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: const Icon(Icons.lock_person_rounded, color: Colors.white, size: 28),
+            child: const Icon(
+              Icons.lock_person_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
           ),
           const SizedBox(width: 14),
           const Expanded(
@@ -504,7 +552,11 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
               children: [
                 Text(
                   'Application Access Control',
-                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 SizedBox(height: 5),
                 Text(
@@ -530,7 +582,10 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Select Role', style: TextStyle(color: _ink, fontWeight: FontWeight.w900)),
+          const Text(
+            'Select Role',
+            style: TextStyle(color: _ink, fontWeight: FontWeight.w900),
+          ),
           const SizedBox(height: 9),
           DropdownButtonFormField<int>(
             value: _selectedRoleId,
@@ -580,6 +635,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
   Widget _buildApplicationCard(String application, bool isMobile) {
     final selectedPages = _pages[application]!;
     final accessType = _access[application]!;
+    final isSop = application == 'role_sop';
+    const sopAccent = Color(0xFF7048E8);
 
     List<Map<String, String>> currentPagesList = [];
     if (application == 'attendance') {
@@ -595,8 +652,27 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
       padding: EdgeInsets.all(isMobile ? 15 : 20),
       decoration: BoxDecoration(
         color: Colors.white,
+        gradient: isSop
+            ? const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFF3EEFF), Colors.white, Color(0xFFF8F6FF)],
+              )
+            : null,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _border),
+        border: Border.all(
+          color: isSop ? const Color(0xFFCFC0FF) : _border,
+          width: isSop ? 1.5 : 1,
+        ),
+        boxShadow: isSop
+            ? [
+                BoxShadow(
+                  color: sopAccent.withValues(alpha: 0.10),
+                  blurRadius: 18,
+                  offset: const Offset(0, 7),
+                ),
+              ]
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -604,21 +680,52 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
           Row(
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: isSop ? 48 : 42,
+                height: isSop ? 48 : 42,
                 decoration: BoxDecoration(
-                  color: _light,
-                  borderRadius: BorderRadius.circular(12),
+                  gradient: isSop
+                      ? const LinearGradient(
+                          colors: [Color(0xFF7048E8), Color(0xFFB34CE6)],
+                        )
+                      : null,
+                  color: isSop ? null : _light,
+                  borderRadius: BorderRadius.circular(isSop ? 15 : 12),
+                  boxShadow: isSop
+                      ? [
+                          BoxShadow(
+                            color: sopAccent.withValues(alpha: 0.24),
+                            blurRadius: 12,
+                            offset: const Offset(0, 5),
+                          ),
+                        ]
+                      : null,
                 ),
-                child: Icon(_applicationIcon(application), color: _primary),
+                child: Icon(
+                  _applicationIcon(application),
+                  color: isSop ? Colors.white : _primary,
+                  size: isSop ? 26 : 24,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   _applicationTitle(application),
-                  style: const TextStyle(color: _ink, fontSize: 16, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: isSop ? 18 : 16,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
+              if (isSop)
+                const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Icon(
+                    Icons.auto_awesome_rounded,
+                    color: sopAccent,
+                    size: 20,
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 15),
@@ -632,8 +739,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
                   v == 'none'
                       ? 'No Access'
                       : v == 'employee'
-                          ? 'Employee Access'
-                          : 'Admin Access',
+                      ? 'Employee Access'
+                      : 'Admin Access',
                 ),
                 selectedColor: _primary,
                 backgroundColor: _surface,
@@ -651,14 +758,47 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
               );
             }).toList(),
           ),
-          if (accessType != 'none') ...[
+          if (isSop && accessType != 'none') ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(13),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEDE7FF),
+                borderRadius: BorderRadius.circular(13),
+                border: Border.all(color: const Color(0xFFD8CCFF)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.picture_as_pdf_rounded, color: sopAccent),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Allows assigned employees to view their role-specific SOP PDF. No page-level settings are needed.',
+                      style: TextStyle(
+                        color: Color(0xFF4F3A92),
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (!isSop && accessType != 'none') ...[
             const SizedBox(height: 15),
             Row(
               children: [
                 const Expanded(
                   child: Text(
                     'Allowed Pages',
-                    style: TextStyle(color: _ink, fontWeight: FontWeight.w900, fontSize: 12),
+                    style: TextStyle(
+                      color: _ink,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
                 TextButton.icon(
@@ -671,17 +811,25 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
                     }
                   }),
                   icon: Icon(
-                    selectedPages.containsAll(currentPagesList.map((p) => p['key']!))
+                    selectedPages.containsAll(
+                          currentPagesList.map((p) => p['key']!),
+                        )
                         ? Icons.remove_done_rounded
                         : Icons.done_all_rounded,
                     size: 16,
                     color: _primary,
                   ),
                   label: Text(
-                    selectedPages.containsAll(currentPagesList.map((p) => p['key']!))
+                    selectedPages.containsAll(
+                          currentPagesList.map((p) => p['key']!),
+                        )
                         ? 'Clear all'
                         : 'Select all',
-                    style: const TextStyle(color: _primary, fontSize: 11.5, fontWeight: FontWeight.w800),
+                    style: const TextStyle(
+                      color: _primary,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
@@ -706,7 +854,11 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
                   selectedColor: _light,
                   checkmarkColor: _primary,
                   onSelected: (v) {
-                    setState(() => v ? selectedPages.add(key) : selectedPages.remove(key));
+                    setState(
+                      () => v
+                          ? selectedPages.add(key)
+                          : selectedPages.remove(key),
+                    );
                   },
                 );
               }).toList(),
@@ -717,6 +869,3 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
     );
   }
 }
-
-
-
