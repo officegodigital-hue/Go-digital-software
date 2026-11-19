@@ -17,6 +17,7 @@ import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../services/api_config.dart';
+import '../../services/app_notification_center.dart';
 
 const _kPrimary = Color(0xFF004AAD);
 const _kInk = Color(0xFF0F172A);
@@ -228,6 +229,16 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
         msg = '${jsonDecode(res.body)['message'] ?? msg}';
       } catch (_) {}
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      // Confirmed review decision → show the robot (Approve / Rework / Reject).
+      if (res.statusCode >= 200 &&
+          res.statusCode < 300 &&
+          const ['APPROVED', 'REWORK', 'REJECTED'].contains(action)) {
+        AppNotificationCenter.emitTaskAction(
+          action,
+          title: _str(row['deliverable']),
+          client: _str(row['client']),
+        );
+      }
       await _load(silent: true);
     } catch (_) {
       if (mounted) {

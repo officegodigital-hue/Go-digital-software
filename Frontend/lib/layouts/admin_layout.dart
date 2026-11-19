@@ -9,6 +9,7 @@ import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/push_notification_service.dart';
 import 'package:godigital_portal/services/app_notification_center.dart';
 import 'package:godigital_portal/services/api_config.dart';
+import '../core/widgets/notification_robot.dart';
 import '../screens/admin_dashboard/privacy_policy_screen.dart';
 
 class AdminLayout extends StatefulWidget {
@@ -46,12 +47,32 @@ class _AdminLayoutState extends State<AdminLayout>
   // Animation controller for floating background bubbles in the sidebar
   late AnimationController _bubbleController;
 
+  // Notification robot (shared with the employee top bar).
+  late final AnimationController _robotController;
+  late final AnimationController _robotActionController;
+  late final AnimationController _robotPulseController;
+  RobotEvent _robotEvent = RobotEvent.generic;
+  Timer? _robotActionTimer;
+
   @override
   void initState() {
     super.initState();
     AppNotificationCenter
         .layoutPollers++; // this layout alerts for the list itself
     _startPolling();
+    _robotController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3200),
+      reverseDuration: const Duration(milliseconds: 2200),
+    );
+    _robotActionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+    _robotPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
     // App-wide alerts on every page + phone push for the logged-in admin.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -72,9 +93,13 @@ class _AdminLayoutState extends State<AdminLayout>
     AppNotificationCenter.layoutPollers--;
     _pollingTimer?.cancel();
     _popupTimer?.cancel();
+    _robotActionTimer?.cancel();
     _audioPlayer.dispose();
     _searchController.dispose();
     _bubbleController.dispose();
+    _robotController.dispose();
+    _robotActionController.dispose();
+    _robotPulseController.dispose();
     super.dispose();
   }
 
@@ -104,6 +129,7 @@ class _AdminLayoutState extends State<AdminLayout>
         Set<int> currentIds = {};
         bool hasNewNotification = false;
         String? latestMsgText;
+        RobotEvent latestEvent = RobotEvent.generic;
 
         for (var row in rows) {
           int id = int.tryParse(row["id"]?.toString() ?? '0') ?? 0;
@@ -124,12 +150,15 @@ class _AdminLayoutState extends State<AdminLayout>
               !isSentByMe &&
               !isSeen) {
             hasNewNotification = true;
-            try {
-              final decoded = jsonDecode(row["message"]);
-              final preview = decoded["preview"] ?? "New Notification";
-              latestMsgText = preview;
-            } catch (e) {
-              latestMsgText = row["message"] ?? "New Notification";
+            final parsed =
+                parseNotificationMessage(row["message"]?.toString() ?? '');
+            if (parsed.preview.trim().isNotEmpty) {
+              latestMsgText = parsed.preview;
+              latestEvent = classifyNotificationEvent(
+                row is Map ? row : null,
+                parsed.decoded,
+                parsed.preview,
+              );
             }
           }
         }
@@ -145,7 +174,10 @@ class _AdminLayoutState extends State<AdminLayout>
 
         if (hasNewNotification) {
           _playNotificationSound();
-          _triggerTopRightPopup(latestMsgText ?? "You have a new notification");
+          _triggerTopRightPopup(
+            latestMsgText ?? "You have a new notification",
+            event: latestEvent,
+          );
         }
       }
     } catch (e) {
@@ -153,18 +185,62 @@ class _AdminLayoutState extends State<AdminLayout>
     }
   }
 
-  void _triggerTopRightPopup(String message) {
+  void _triggerTopRightPopup(
+    String message, {
+    RobotEvent event = RobotEvent.generic,
+  }) {
+    if (!mounted) return;
+    _popupTimer?.cancel();
+    final bool wasVisible = _showPopup;
+
     setState(() {
       _latestMessage = message;
+      _robotEvent = event;
       _showPopup = true;
     });
 
-    _popupTimer?.cancel();
-    _popupTimer = Timer(const Duration(seconds: 10), () {
-      if (mounted) {
-        setState(() {
-          _showPopup = false;
-        });
+    // Robot walks in, extends its hand, fires the laser, reveals the panel.
+    if (wasVisible) {
+      _robotController.forward();
+    } else {
+      _robotController.forward(from: 0);
+    }
+
+    // Event-specific action (pause / celebrate / ...) plays once the panel
+    // begins to reveal (70% of the opening animation).
+    _robotActionController.stop();
+    _robotActionController.value = 0;
+    final int actionDelayMs = wasVisible
+        ? 0
+        : ((0.70 - _robotController.value).clamp(0.0, 1.0) *
+                  _robotController.duration!.inMilliseconds)
+              .round();
+    _robotActionTimer?.cancel();
+    _robotActionTimer = Timer(Duration(milliseconds: actionDelayMs), () {
+      if (!mounted || !_showPopup) return;
+      _robotActionController.forward(from: 0);
+    });
+
+    // Panel stays open for the event's hold time once fully revealed.
+    final int remainingOpenMs =
+        ((1 - _robotController.value) *
+                _robotController.duration!.inMilliseconds)
+            .round();
+    _popupTimer = Timer(
+      Duration(milliseconds: remainingOpenMs + event.holdMs),
+      _dismissPopup,
+    );
+  }
+
+  // Panel closes, laser retracts, hand lowers, robot walks away.
+  void _dismissPopup() {
+    if (!mounted) return;
+    _robotController.reverse().whenComplete(() {
+      if (!mounted) return;
+      if (_robotController.status == AnimationStatus.dismissed) {
+        _robotActionController.stop();
+        _robotActionController.value = 0;
+        setState(() => _showPopup = false);
       }
     });
   }
@@ -1033,62 +1109,17 @@ class _AdminLayoutState extends State<AdminLayout>
                             top: 74,
                             right: 20,
                             child: Material(
-                              elevation: 10,
                               color: Colors.transparent,
-                              borderRadius: BorderRadius.circular(10),
-                              child: Container(
-                                width: 320,
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: const Color(0xFF0757D5),
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.12,
-                                      ),
-                                      blurRadius: 15,
-                                      offset: const Offset(0, 5),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.notifications_active,
-                                      color: Color(0xFF0757D5),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          const Text(
-                                            "New Notification",
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 3),
-                                          Text(
-                                            _latestMessage ?? "",
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.black54,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                              child: NotificationRobotScene(
+                                controller: _robotController,
+                                pulse: _robotPulseController,
+                                action: _robotActionController,
+                                event: _robotEvent,
+                                message:
+                                    _latestMessage ??
+                                    'You have a new notification.',
+                                maxWidth:
+                                    MediaQuery.of(context).size.width - 40,
                               ),
                             ),
                           ),

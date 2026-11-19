@@ -38,6 +38,20 @@ class AppNotificationCenter with WidgetsBindingObserver {
   /// They increase this so the same alert is not shown twice.
   static int layoutPollers = 0;
 
+  /// Confirmed task / review actions the user performs in the app (Start,
+  /// Hold, Complete, Restart, Approve, Rework, Reject). The employee top bar
+  /// listens and shows the robot with the matching expression + message.
+  /// This is a local UI signal only — it never hits the network.
+  static final StreamController<TaskActionSignal> _taskActionCtrl =
+      StreamController<TaskActionSignal>.broadcast();
+  static Stream<TaskActionSignal> get taskActions => _taskActionCtrl.stream;
+  static void emitTaskAction(String action, {String title = '', String client = ''}) {
+    if (_taskActionCtrl.isClosed) return;
+    _taskActionCtrl.add(
+      TaskActionSignal(action: action, title: title, client: client),
+    );
+  }
+
   String? _employee;
   OverlayState? _overlay;
   IO.Socket? _socket;
@@ -332,6 +346,19 @@ class AppNotificationCenter with WidgetsBindingObserver {
     overlay.insert(entry);
     _bannerTimer = Timer(const Duration(seconds: 5), _hideBanner);
   }
+}
+
+/// A confirmed task/review action, broadcast via
+/// [AppNotificationCenter.taskActions] so the employee top bar can react.
+class TaskActionSignal {
+  final String action; // start|hold|complete|restart|approved|rework|rejected
+  final String title;
+  final String client;
+  const TaskActionSignal({
+    required this.action,
+    this.title = '',
+    this.client = '',
+  });
 }
 
 class _TopBanner extends StatelessWidget {

@@ -11,6 +11,7 @@ import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 import '../../services/api_config.dart';
+import '../../services/app_notification_center.dart';
 import 'rich_description.dart';
 import 'helpers/calendar_file_save.dart';
 import 'helpers/content_calendar_export_template.dart';
@@ -770,6 +771,11 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
         return; // cancelled
       }
       if (response.statusCode == 200) {
+        AppNotificationCenter.emitTaskAction(
+          action,
+          title: _str(firstRow['deliverable']),
+          client: _str(firstRow['client_name']),
+        );
         await _reloadCurrentClient();
       } else {
         _showMessage(
@@ -840,6 +846,11 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
         if (!mounted) return false;
         if (res.statusCode == 200) {
           ok = true;
+          AppNotificationCenter.emitTaskAction(
+            action,
+            title: _str(row['deliverable']),
+            client: _str(row['client_name']),
+          );
           setState(() => row['cc_status'] = nextCcStatus);
           await _reloadCurrentClient();
         } else {
@@ -876,6 +887,11 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
       }
       if (res.statusCode == 200) {
         ok = true;
+        AppNotificationCenter.emitTaskAction(
+          path.split('/').last, // start | hold | complete
+          title: _str(row['deliverable']),
+          client: _str(row['client_name']),
+        );
         setState(() => row['cc_status'] = nextCcStatus);
         await _reloadCurrentClient();
       } else {
@@ -1017,6 +1033,11 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
         );
         if (shared == true && mounted) {
           _showMessage('Shared ${sheet.length} rows with $allocated');
+          AppNotificationCenter.emitTaskAction(
+            'share',
+            title: _str(firstRow['deliverable']),
+            client: _str(firstRow['client_name']),
+          );
         }
       }
       await _reloadCurrentClient();
@@ -1045,6 +1066,11 @@ class _ContentCalendarScreenState extends State<ContentCalendarScreen> {
     );
     if (shared != true || !mounted) return;
 
+    AppNotificationCenter.emitTaskAction(
+      'share',
+      title: _str(firstRow['deliverable']),
+      client: _str(firstRow['client_name']),
+    );
     var assignedCount = 1;
     for (final r in unassignedCompleted.skip(1)) {
       try {

@@ -18,6 +18,7 @@ import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../services/api_config.dart';
+import '../../services/app_notification_center.dart';
 
 class TaskActions {
   TaskActions._();
@@ -203,6 +204,12 @@ class TaskActions {
         }
         return false;
       }
+      // Confirmed by the server → let the employee top bar show the robot.
+      AppNotificationCenter.emitTaskAction(
+        action,
+        title: title,
+        client: '${item['client'] ?? ''}',
+      );
       return true;
     } catch (_) {
       if (context.mounted) {

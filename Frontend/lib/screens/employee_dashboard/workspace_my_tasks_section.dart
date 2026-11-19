@@ -29,6 +29,7 @@ import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../services/api_config.dart';
+import '../../services/app_notification_center.dart';
 import 'rich_description.dart';
 import 'task_actions.dart';
 
@@ -461,8 +462,16 @@ class _WorkspaceMyTasksSectionState extends State<WorkspaceMyTasksSection> {
       }
       if (res.statusCode != 200) {
         _snack(_messageFrom(res, 'Unable to $action this row'));
-      } else if (action == 'complete') {
-        _snack('Row ${row['display_no']} sent to Task Review');
+      } else {
+        if (action == 'complete') {
+          _snack('Row ${row['display_no']} sent to Task Review');
+        }
+        // Confirmed → employee top bar shows the robot for this action.
+        AppNotificationCenter.emitTaskAction(
+          action,
+          title: _str(row['deliverable']),
+          client: _str(row['client']),
+        );
       }
       await _load(silent: true);
     } catch (_) {

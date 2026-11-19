@@ -29,7 +29,7 @@ enum _Face { neutral, focused, happy, sad, worried, attentive, confident }
 
 enum _Badge { none, pause, review, rework, warning, checklist }
 
-enum _RobotEvent {
+enum RobotEvent {
   generic(
     Color(0xFF1976D2),
     Icons.notifications_none_rounded,
@@ -44,11 +44,19 @@ enum _RobotEvent {
     _Face.focused,
     _Badge.none,
   ),
+  taskRestarted(
+    Color(0xFF2563EB),
+    Icons.play_arrow,
+    6000,
+    _Face.happy,
+    _Badge.none,
+    celebrates: true,
+  ),
   taskHold(
     Color(0xFFF97316),
     Icons.pause_circle_outline,
     6000,
-    _Face.neutral,
+    _Face.sad,
     _Badge.pause,
   ),
   taskCompleted(
@@ -109,6 +117,13 @@ enum _RobotEvent {
     7000,
     _Face.sad,
     _Badge.rework,
+  ),
+  contentShared(
+    Color(0xFF0EA5A9),
+    Icons.send_rounded,
+    6000,
+    _Face.confident,
+    _Badge.checklist,
   );
 
   final Color accent;
@@ -120,7 +135,7 @@ enum _RobotEvent {
   final _Badge badge;
   final bool celebrates;
 
-  const _RobotEvent(
+  const RobotEvent(
     this.accent,
     this.icon,
     this.holdMs,
@@ -130,16 +145,16 @@ enum _RobotEvent {
   });
 }
 
-class _ParsedNotification {
+class ParsedNotification {
   final String preview;
   final Map? decoded;
 
-  const _ParsedNotification(this.preview, this.decoded);
+  const ParsedNotification(this.preview, this.decoded);
 }
 
 /// Same preview rules the top bar already used, but also keeps the decoded
 /// JSON so the event can be classified from its fields.
-_ParsedNotification _parseNotificationMessage(String raw) {
+ParsedNotification parseNotificationMessage(String raw) {
   String preview = raw;
   Map? decodedMap;
   try {
@@ -151,7 +166,7 @@ _ParsedNotification _parseNotificationMessage(String raw) {
           (decoded['fileName'] != null ? '📎 ${decoded['fileName']}' : raw);
     }
   } catch (_) {}
-  return _ParsedNotification(preview, decodedMap);
+  return ParsedNotification(preview, decodedMap);
 }
 
 String _eventToken(dynamic v) =>
@@ -165,14 +180,14 @@ String _eventToken(dynamic v) =>
 ///    "on hold", "sent for review", "approved".
 /// Anything that does not clearly look like a task / Day Planner event stays
 /// `generic` (normal chat messages, file attachments, etc.).
-_RobotEvent _classifyNotificationEvent(
+RobotEvent classifyNotificationEvent(
   Map? source,
   Map? decoded,
   String message,
 ) {
   // Attachments are chat, never a task event.
   if (decoded != null && decoded['fileName'] != null) {
-    return _RobotEvent.generic;
+    return RobotEvent.generic;
   }
 
   const hintKeys = [
@@ -214,28 +229,28 @@ _RobotEvent _classifyNotificationEvent(
 
   final bool isPlanner = has(r'planner');
   if (!structuredHint && !isPlanner && !has(r'\btasks?\b')) {
-    return _RobotEvent.generic;
+    return RobotEvent.generic;
   }
 
   const rework = r'rework|re-work|sent back|send back|returned|return for|revision';
 
   if (isPlanner) {
-    if (has(rework)) return _RobotEvent.plannerRework;
-    if (has(r'approv')) return _RobotEvent.plannerApproved;
-    if (has(r'submit')) return _RobotEvent.plannerSubmitted;
-    return _RobotEvent.generic;
+    if (has(rework)) return RobotEvent.plannerRework;
+    if (has(r'approv')) return RobotEvent.plannerApproved;
+    if (has(r'submit')) return RobotEvent.plannerSubmitted;
+    return RobotEvent.generic;
   }
 
-  if (has(rework)) return _RobotEvent.taskRework;
-  if (has(r'reject')) return _RobotEvent.taskRejected;
-  if (has(r'approv')) return _RobotEvent.taskApproved;
+  if (has(rework)) return RobotEvent.taskRework;
+  if (has(r'reject')) return RobotEvent.taskRejected;
+  if (has(r'approv')) return RobotEvent.taskApproved;
   if (has(r'for review|to review|under review|in review|review request')) {
-    return _RobotEvent.taskReview;
+    return RobotEvent.taskReview;
   }
-  if (has(r'complet|finished')) return _RobotEvent.taskCompleted;
-  if (has(r'on[ _-]?hold|\bheld\b|\bpaused\b')) return _RobotEvent.taskHold;
-  if (has(r'\bstarted\b|in[ _-]?progress')) return _RobotEvent.taskStarted;
-  return _RobotEvent.generic;
+  if (has(r'complet|finished')) return RobotEvent.taskCompleted;
+  if (has(r'on[ _-]?hold|\bheld\b|\bpaused\b')) return RobotEvent.taskHold;
+  if (has(r'\bstarted\b|in[ _-]?progress')) return RobotEvent.taskStarted;
+  return RobotEvent.generic;
 }
 
 // ============================================================
@@ -253,15 +268,15 @@ _RobotEvent _classifyNotificationEvent(
 // the event-specific part: pause symbol, celebration, warning sway, etc.
 // ============================================================
 
-class _NotificationRobotScene extends StatelessWidget {
+class NotificationRobotScene extends StatelessWidget {
   final AnimationController controller;
   final Animation<double> pulse;
   final Animation<double> action;
-  final _RobotEvent event;
+  final RobotEvent event;
   final String message;
   final double maxWidth;
 
-  const _NotificationRobotScene({
+  const NotificationRobotScene({
     required this.controller,
     required this.pulse,
     required this.action,
@@ -311,7 +326,7 @@ class _NotificationRobotScene extends StatelessWidget {
 
           // ON HOLD: after the panel is up the hand lowers and the laser
           // switches off, leaving the pause symbol.
-          final double handLower = event == _RobotEvent.taskHold
+          final double handLower = event == RobotEvent.taskHold
               ? Curves.easeInOut.transform(((act - 0.55) / 0.45).clamp(0.0, 1.0))
               : 0.0;
           final double extendNow = extend * (1 - 0.8 * handLower);
@@ -322,7 +337,7 @@ class _NotificationRobotScene extends StatelessWidget {
               ? -4.0 * Curves.easeInOut.transform(loop) * act
               : 0.0;
           final double sway =
-              event == _RobotEvent.taskRejected ? (loop - 0.5) * 0.09 * act : 0.0;
+              event == RobotEvent.taskRejected ? (loop - 0.5) * 0.09 * act : 0.0;
 
           return Stack(
             clipBehavior: Clip.none,
@@ -1283,8 +1298,11 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   late final AnimationController _robotController;
 late final AnimationController _actionController; // event-specific robot action
   final AudioPlayer _audioPlayer = AudioPlayer();
-  _RobotEvent _robotEvent = _RobotEvent.generic;
+  RobotEvent _robotEvent = RobotEvent.generic;
   Timer? _actionTimer;
+  // Robot pops up when the employee performs a task action anywhere in the
+  // app (Start / Hold / Complete / Restart / Approve / Rework / Reject).
+  StreamSubscription<TaskActionSignal>? _taskActionSub;
 
   bool _isPaused = false;
   bool _isBroadcastPopupShowing = false;
@@ -1299,7 +1317,7 @@ late final AnimationController _actionController; // event-specific robot action
       vsync: this,
       duration: const Duration(seconds: 5),
     )..repeat();
-    // Drives the whole robot + laser + panel sequence (see _NotificationRobotScene).
+    // Drives the whole robot + laser + panel sequence (see NotificationRobotScene).
     _robotController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3200),
@@ -1329,6 +1347,101 @@ late final AnimationController _actionController; // event-specific robot action
     _connectNotificationSocket();
     _checkActiveBroadcast();
     _checkAssignedClientStatusChanges();
+    _taskActionSub = AppNotificationCenter.taskActions.listen(_onTaskAction);
+  }
+
+  // A task action the employee confirmed (in this top bar, the Employee
+  // Workspace, Live Tracking, Day Planner or Task Review). No sound here —
+  // the action itself is the trigger, not an incoming notification.
+  final math.Random _wishRng = math.Random();
+  String _pickWish(List<String> options) =>
+      options[_wishRng.nextInt(options.length)];
+
+  void _onTaskAction(TaskActionSignal signal) {
+    if (!mounted) return;
+    // Friendly, locally generated wishes — not backend text.
+    final String name =
+        signal.title.trim().isEmpty ? 'your task' : signal.title.trim();
+    final RobotEvent event;
+    final String message;
+    switch (signal.action.toLowerCase()) {
+      case 'start':
+        event = RobotEvent.taskStarted;
+        message = _pickWish([
+          '🚀 Started "$name". Let\'s get it done!',
+          '💪 On it! "$name" is now in progress.',
+          '✨ "$name" started — stay focused, you\'ve got this!',
+        ]);
+        break;
+      case 'restart':
+        event = RobotEvent.taskRestarted;
+        message = _pickWish([
+          '🙌 Welcome back to "$name"! Let\'s finish strong.',
+          '😊 Resumed "$name" — pick up right where you left off!',
+          '🔁 Back in action on "$name". You\'ve got this!',
+        ]);
+        break;
+      case 'hold':
+        event = RobotEvent.taskHold;
+        message = _pickWish([
+          '😔 "$name" is on hold. Take a breath and resume soon.',
+          '⏸️ Paused "$name". It\'ll be here when you\'re ready.',
+          '🛑 "$name" held for now — come back to it anytime.',
+        ]);
+        break;
+      case 'complete':
+        event = RobotEvent.taskCompleted;
+        message = _pickWish([
+          '🎉 Congratulations! "$name" is completed.',
+          '🥳 Well done! You finished "$name".',
+          '✅ Great job! "$name" completed and sent for review.',
+        ]);
+        break;
+      case 'approved':
+        event = RobotEvent.taskApproved;
+        message = _pickWish([
+          '✅ Approved! Brilliant work on "$name".',
+          '🌟 "$name" approved — excellent job!',
+          '👏 Nailed it! "$name" is approved.',
+        ]);
+        break;
+      case 'rework':
+        event = RobotEvent.taskRework;
+        message = _pickWish([
+          '🔄 "$name" needs a little rework — you can polish it up!',
+          '✏️ Small changes needed on "$name". You\'ve got this!',
+          '🔧 "$name" sent back for rework — quick fix and done!',
+        ]);
+        break;
+      case 'reject':
+      case 'rejected':
+        event = RobotEvent.taskRejected;
+        message = _pickWish([
+          '❌ "$name" was rejected. Check the notes and try again.',
+          '💡 "$name" wasn\'t accepted — review the feedback and retry.',
+          '🙏 "$name" rejected. Don\'t worry — fix it and resubmit!',
+        ]);
+        break;
+      case 'day_planner_submit':
+        event = RobotEvent.plannerSubmitted;
+        message = _pickWish([
+          '🙌 Good job! Your Day Planner is submitted.',
+          '📋 Day Planner submitted — nicely done!',
+          '✅ All set! Your Day Planner is in. Great work!',
+        ]);
+        break;
+      case 'share':
+        event = RobotEvent.contentShared;
+        message = _pickWish([
+          '📤 Shared "$name" with the team. Nice teamwork!',
+          '🤝 "$name" shared successfully!',
+          '📨 Sent "$name" along — great collaboration!',
+        ]);
+        break;
+      default:
+        return; // unknown action → no robot
+    }
+    _triggerTopRightPopup(message, event: event);
   }
 
   @override
@@ -1337,6 +1450,7 @@ late final AnimationController _actionController; // event-specific robot action
     _pollingTimer?.cancel();
     _tickTimer?.cancel();
     _popupTimer?.cancel();
+    _taskActionSub?.cancel();
     _searchController.dispose();
     _socket?.dispose();
     _audioPlayer.dispose();
@@ -2196,12 +2310,12 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         setState(() => _unreadCount += 1);
 
         final raw = payload['message']?.toString() ?? 'New message';
-        final parsed = _parseNotificationMessage(raw);
+        final parsed = parseNotificationMessage(raw);
 
         _playNotificationSound();
         _triggerTopRightPopup(
           parsed.preview,
-          event: _classifyNotificationEvent(payload, parsed.decoded, parsed.preview),
+          event: classifyNotificationEvent(payload, parsed.decoded, parsed.preview),
         );
       }
 
@@ -2294,17 +2408,11 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     final running = _running;
     if (running == null) return;
     final token = Provider.of<AuthService>(context, listen: false).token ?? '';
-    final ok = await TaskActions.run(
+    // TaskActions.run emits a confirmed-action signal on success, which the
+    // listener below turns into the ON HOLD robot — no manual trigger here.
+    await TaskActions.run(
       context, Map<String, dynamic>.from(running), 'hold', token: token);
     await _fetchTodayWorkingHours();
-    // Hold is performed here and confirmed by the server; it produces no
-    // notification of its own, so show the ON HOLD robot on confirmed success.
-    if (ok && mounted) {
-      final client = '${running['client'] ?? ''}'.trim();
-      final task = '${running['task'] ?? 'Task'}'.trim();
-      final label = client.isEmpty ? task : '$task · $client';
-      _triggerTopRightPopup('$label placed on hold.', event: _RobotEvent.taskHold);
-    }
   }
 
   // Compact "running task" chip shown next to Today Working Hours.
@@ -2396,7 +2504,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         Set<int> currentIds = {};
         bool hasNewNotification = false;
         String? latestMsgText;
-        _RobotEvent latestEvent = _RobotEvent.generic;
+        RobotEvent latestEvent = RobotEvent.generic;
 
         for (var row in rows) {
           int id = int.tryParse(row["id"]?.toString() ?? '0') ?? 0;
@@ -2411,10 +2519,10 @@ List<TextSpan> _buildHighlightedMessage(String message) {
 
           if (_knownNotificationIds.isNotEmpty && !_knownNotificationIds.contains(id) && !isSentByMe && !isSeen) {
             hasNewNotification = true;
-            final parsed = _parseNotificationMessage(row["message"]?.toString() ?? '');
+            final parsed = parseNotificationMessage(row["message"]?.toString() ?? '');
             if (parsed.preview.trim().isNotEmpty) {
               latestMsgText = parsed.preview;
-              latestEvent = _classifyNotificationEvent(
+              latestEvent = classifyNotificationEvent(
                 row is Map ? row : null,
                 parsed.decoded,
                 parsed.preview,
@@ -2445,7 +2553,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     }
   }
 
-void _triggerTopRightPopup(String message, {_RobotEvent event = _RobotEvent.generic}) {
+void _triggerTopRightPopup(String message, {RobotEvent event = RobotEvent.generic}) {
   if (!mounted) return;
 
   _popupTimer?.cancel();
@@ -2857,7 +2965,7 @@ void _dismissPopup() {
     right: 12,
     child: Material(
       color: Colors.transparent,
-      child: _NotificationRobotScene(
+      child: NotificationRobotScene(
         controller: _robotController,
         pulse: _glowController,
         action: _actionController,

@@ -8,6 +8,7 @@ import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:flutter/gestures.dart';
 import 'dart:async';
 import '../../services/api_config.dart';
+import '../../services/app_notification_center.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
 
@@ -1487,6 +1488,9 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
 
       if (response.statusCode == 200) {
         await _checkDeadlineStatus();
+
+        // Confirmed → employee top bar shows the "day planner submitted" robot.
+        AppNotificationCenter.emitTaskAction('day_planner_submit');
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
