@@ -8,7 +8,7 @@ import 'package:godigital_portal/services/api_config.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/app_notification_center.dart';
 import 'package:godigital_portal/services/push_notification_service.dart';
-import 'package:godigital_portal/report/report_dashboard_screen.dart';
+import 'package:godigital_portal/report/report_route_names.dart';
 import 'screens/employee_dashboard/employee_sop_dashboard_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -118,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           'none';
       final reportAcc =
           appAccess['reports']?['access_type']?.toString().toLowerCase() ??
-          'employee';
+          'none';
       final sopAcc =
           appAccess['role_sop']?['access_type']?.toString().toLowerCase() ??
           'none';
@@ -265,12 +265,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     Navigator.pushNamed(context, '/client-work-repository');
   }
 
-  Future<void> _openReports() async {
+  void _openReports() {
     if (_hasReportAccess == false) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => const ReportDashboardScreen()),
-    );
+    Navigator.pushNamed(context, reportRouteName('dashboard'));
   }
 
   Future<void> _openRoleSops() async {

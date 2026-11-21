@@ -297,7 +297,7 @@ router.post('/user-roles', async (req, res) => {
       [trimmedRoleName, roleKey, userType]
     );
 
-    for (const app of ['attendance', 'task_manager', 'client_repository', 'role_sop']) {
+    for (const app of ['attendance', 'task_manager', 'client_repository', 'role_sop', 'reports']) {
       const item = applicationAccess[app] || {};
       const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
         ? (item.accessType || item.access_type) : 'none';
@@ -349,7 +349,7 @@ router.put('/user-roles/:id', async (req, res) => {
     }
 
     if (hasApplicationAccess) {
-      for (const app of ['attendance', 'task_manager', 'client_repository', 'role_sop']) {
+      for (const app of ['attendance', 'task_manager', 'client_repository', 'role_sop', 'reports']) {
         const item = applicationAccess[app] || {};
         const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
           ? (item.accessType || item.access_type) : 'none';
@@ -537,7 +537,7 @@ router.post('/', async (req, res) => {
 
     if (roleIds === null) {
       finalAppAccess = Object.fromEntries(
-        ['attendance', 'task_manager', 'client_repository', 'role_sop'].map((application) => {
+        ['attendance', 'task_manager', 'client_repository', 'role_sop', 'reports'].map((application) => {
           const item = finalAppAccess[application] || {};
           const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
             ? (item.accessType || item.access_type) : 'none';
@@ -685,7 +685,7 @@ router.put('/:id', async (req, res) => {
 
     if (roleIds === null) {
       finalAppAccess = Object.fromEntries(
-        ['attendance', 'task_manager', 'client_repository', 'role_sop'].map((application) => {
+        ['attendance', 'task_manager', 'client_repository', 'role_sop', 'reports'].map((application) => {
           const item = finalAppAccess[application] || {};
           const accessType = ['none', 'employee', 'admin'].includes(item.accessType || item.access_type)
             ? (item.accessType || item.access_type) : 'none';

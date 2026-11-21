@@ -38,6 +38,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
     'task_manager': 'none',
     'client_repository': 'none',
     'role_sop': 'none',
+    'reports': 'none',
   };
 
   final Map<String, Set<String>> _pages = <String, Set<String>>{
@@ -45,6 +46,7 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
     'task_manager': <String>{},
     'client_repository': <String>{},
     'role_sop': <String>{},
+    'reports': <String>{},
   };
 
   // 🟢 Attendance Pages based on Access Type
@@ -123,6 +125,25 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
       return [
         {'key': 'dashboard', 'title': 'Dashboard'},
         {'key': 'documents', 'title': 'Documents'},
+      ];
+    }
+    return [];
+  }
+
+  List<Map<String, String>> _getReportPages(String accessType) {
+    if (accessType == 'admin') {
+      return [
+        {'key': '/reports/dashboard', 'title': 'Report Dashboard'},
+        {'key': '/reports/approvals', 'title': 'Report Approvals'},
+      ];
+    }
+    if (accessType == 'employee') {
+      return [
+        {'key': '/reports/assigned-clients', 'title': 'Assigned Clients'},
+        {
+          'key': '/reports/client-workspace',
+          'title': 'Client Report Workspace',
+        },
       ];
     }
     return [];
@@ -429,6 +450,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         return 'Client Repository';
       case 'role_sop':
         return 'Role SOPs & Rules';
+      case 'reports':
+        return 'Client Reports';
       default:
         return 'Attendance';
     }
@@ -442,6 +465,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
         return Icons.folder_copy_rounded;
       case 'role_sop':
         return Icons.menu_book_rounded;
+      case 'reports':
+        return Icons.bar_chart_rounded;
       default:
         return Icons.access_time_rounded;
     }
@@ -645,6 +670,8 @@ class _AccessMasterScreenState extends State<AccessMasterScreen> {
       currentPagesList = _getTaskManagerPages(accessType);
     } else if (application == 'client_repository') {
       currentPagesList = _getClientRepositoryPages(accessType);
+    } else if (application == 'reports') {
+      currentPagesList = _getReportPages(accessType);
     }
 
     return Container(

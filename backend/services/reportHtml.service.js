@@ -15,6 +15,25 @@ try {
   LOGO_DATA_URI = '';
 }
 
+// The report shows the opened client's own company logo (set per report in
+// buildReportHtml); it falls back to the Go Digital brand logo when the client
+// has none. buildReportHtml runs synchronously, so this module-level value is
+// never shared across concurrent reports.
+let REPORT_LOGO_URI = '';
+function clientLogoUri(payload) {
+  const logo = payload && payload.companyLogo;
+  const bytes = logo && logo.bytesBase64;
+  if (typeof bytes === 'string' && bytes.length > 20) {
+    const mime = (logo.mimeType || 'image/png');
+    const raw = bytes.includes(',') ? bytes.split(',').pop() : bytes;
+    return `data:${mime};base64,${raw}`;
+  }
+  return LOGO_DATA_URI;
+}
+function reportLogo() {
+  return REPORT_LOGO_URI || LOGO_DATA_URI;
+}
+
 // ---- Small helpers --------------------------------------------------------
 function esc(value) {
   return String(value == null ? '' : value)
@@ -39,9 +58,9 @@ function pk(provider) {
 }
 
 // Build provider -> merged metrics map from snapshots (later snapshots win).
-function metricsByProvider(payload) {
+function metricsByProvider(payload, field = 'snapshots') {
   const out = {};
-  const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : [];
+  const snapshots = Array.isArray(payload[field]) ? payload[field] : [];
   for (const snap of snapshots) {
     const key = pk(snap && snap.provider);
     if (!key) continue;
@@ -49,6 +68,27 @@ function metricsByProvider(payload) {
     out[key] = Object.assign({}, out[key], metrics);
   }
   return out;
+}
+
+// Parse a human metric value ("1,24,680", "₹3,256", "96%") to a number.
+function toNumber(raw) {
+  if (raw == null) return null;
+  const cleaned = String(raw).replace(/[^0-9.-]/g, '');
+  if (cleaned === '' || cleaned === '-' || cleaned === '.') return null;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+// vs-last-month change, as a signed string for the card's "vs last month: _ %".
+//   ((this - last) / last) × 100   → e.g. 800 vs 1000 = "-20".
+// Returns '____' when either value is missing or last month is zero.
+function pctChange(thisRaw, lastRaw) {
+  const a = toNumber(thisRaw);
+  const b = toNumber(lastRaw);
+  if (a == null || b == null || b === 0) return '____';
+  const pct = ((a - b) / b) * 100;
+  const rounded = Math.round(pct * 10) / 10;
+  return (rounded > 0 ? '+' : '') + rounded;
 }
 
 // The frontend sends screenshots as a list of
@@ -97,7 +137,7 @@ function editVal(bag, label) {
 // ---- Reusable page chrome -------------------------------------------------
 function slideHeader(opts) {
   const { icon, iconBg, title, subtitle } = opts;
-  const logo = LOGO_DATA_URI ? `<img class="brand-logo" src="${LOGO_DATA_URI}" alt="Go Digital"/>` : `<div class="brand-wordmark">GO DIGITAL</div>`;
+  const logo = reportLogo() ? `<img class="brand-logo" src="${reportLogo()}" alt="Client logo"/>` : `<div class="brand-wordmark">GO DIGITAL</div>`;
   return `
     <div class="s-head">
       <div class="s-head-left">
@@ -210,6 +250,32 @@ const PLATFORM_CARDS = {
       { label: 'COST PER LEAD (₹)', keys: ['cost_per_lead', 'cpl'], sub: 'Cost / conversion' },
       { label: 'CALLS', keys: ['calls'], sub: 'Call ads / extensions' },
       { label: 'KEYWORDS OPTIMIZED', keys: ['keywords_optimized'], sub: 'Added / paused / negatives' },
+    ],
+  },
+  GOOGLE_ANALYTICS: {
+    providers: ['GOOGLE_ANALYTICS'],
+    icon: 'A', iconBg: '#F9AB00', title: 'Google Analytics', subtitle: 'Google Analytics 4 &middot; [Property] &middot; [Date range]', section: 'Section 04A',
+    palette: ['#F9AB00', '#E37400', '#4285F4', '#34A853', '#EA4335', '#F9AB00', '#4285F4', '#34A853'],
+    cards: [
+      { label: 'ACTIVE USERS', keys: ['active_users'], sub: 'Unique users' },
+      { label: 'NEW USERS', keys: ['new_users'], sub: 'First-time users' },
+      { label: 'SESSIONS', keys: ['sessions'], sub: 'Total sessions' },
+      { label: 'ENGAGED SESSIONS', keys: ['engaged_sessions'], sub: 'Meaningful visits' },
+      { label: 'ENGAGEMENT RATE', keys: ['engagement_rate'], sub: 'Sessions engaged' },
+      { label: 'CONVERSIONS', keys: ['conversions'], sub: 'Key events' },
+      { label: 'EVENT COUNT', keys: ['event_count'], sub: 'Tracked events' },
+      { label: 'TOTAL REVENUE', keys: ['total_revenue'], sub: 'Property revenue' },
+    ],
+  },
+  GOOGLE_SEARCH_CONSOLE: {
+    providers: ['GOOGLE_SEARCH_CONSOLE'],
+    icon: 'G', iconBg: '#4285F4', title: 'Google Search Console', subtitle: 'Search performance &middot; [Property] &middot; [Date range]', section: 'Section 04B',
+    palette: ['#4285F4', '#34A853', '#EA4335', '#F9AB00'],
+    cards: [
+      { label: 'TOTAL CLICKS', keys: ['clicks'], sub: 'Search result clicks' },
+      { label: 'TOTAL IMPRESSIONS', keys: ['impressions'], sub: 'Search result views' },
+      { label: 'AVERAGE CTR', keys: ['average_ctr'], sub: 'Click-through rate' },
+      { label: 'AVERAGE POSITION', keys: ['average_position'], sub: 'Search ranking' },
     ],
   },
   YOUTUBE: {
@@ -328,14 +394,27 @@ const PLATFORM_CARDS = {
 function statCardPage(payload, byProv, cfg) {
   const metrics = {};
   for (const p of cfg.providers) Object.assign(metrics, byProv[p] || {});
-  const cards = cfg.cards.map((c, i) => ({
-    label: c.label,
-    value: `<span class="mcard-dash">${mv(metrics, c.keys)}</span>`,
-    sub: c.sub,
-    pct: '____',
-    bg: cfg.palette[i % cfg.palette.length],
-    fg: '#fff',
-  }));
+  // Last month's metrics for this platform, used to auto-compute the
+  // "vs last month: _ %" on each card.
+  const lastMetrics = {};
+  const byProvLast = payload.__byProvLast || {};
+  for (const p of cfg.providers) Object.assign(lastMetrics, byProvLast[p] || {});
+  const cards = cfg.cards.map((c, i) => {
+    // A manually entered "<key>_vs_last_month" wins; otherwise auto-compute
+    // from last month's value with ((this - last) / last) × 100.
+    const enteredVs = mv(metrics, c.keys.map((k) => `${k}_vs_last_month`), '');
+    const pct = String(enteredVs).trim() !== ''
+      ? String(enteredVs).trim().replace(/%$/, '')
+      : pctChange(mv(metrics, c.keys, ''), mv(lastMetrics, c.keys, ''));
+    return {
+      label: c.label,
+      value: `<span class="mcard-dash">${mv(metrics, c.keys)}</span>`,
+      sub: c.sub,
+      pct,
+      bg: cfg.palette[i % cfg.palette.length],
+      fg: '#fff',
+    };
+  });
   const icon = `<span style="${cfg.iconFg ? `color:${cfg.iconFg};` : 'color:#fff;'}font-weight:800">${cfg.icon}</span>`;
   return `<section class="slide">
     ${slideHeader({ icon, iconBg: cfg.iconBg, title: cfg.title, subtitle: cfg.subtitle })}
@@ -372,9 +451,23 @@ function screenshotPage(payload, cfg, shots, caption, withInsights, insightsText
   </section>`;
 }
 
+function hasProviderContent(payload, byProv, providers) {
+  const keys = new Set(providers.map(pk));
+  const listed = (Array.isArray(payload.providers) ? payload.providers : [])
+    .some((item) => item && keys.has(pk(typeof item === 'string' ? item : item.provider)));
+  const hasMetrics = [...keys].some((key) =>
+    Object.entries(byProv[key] || {}).some(([field, value]) =>
+      field !== 'export_overrides' && value != null && String(value).trim() !== '',
+    ),
+  );
+  const hasScreenshot = (Array.isArray(payload.screenshots) ? payload.screenshots : [])
+    .some((shot) => shot && keys.has(pk(shot.provider)) && shot.bytesBase64);
+  return listed || hasMetrics || hasScreenshot;
+}
+
 // ---- Fixed pages ----------------------------------------------------------
-function coverPage(payload) {
-  const logo = LOGO_DATA_URI ? `<img class="cover-logo" src="${LOGO_DATA_URI}" alt="Go Digital"/>` : `<div class="brand-wordmark big">GO DIGITAL</div>`;
+function coverPage(payload, byProv) {
+  const logo = reportLogo() ? `<img class="cover-logo" src="${reportLogo()}" alt="Client logo"/>` : `<div class="brand-wordmark big">GO DIGITAL</div>`;
   const ce = payload.cover_edits || payload.coverEdits || {};
   const chips = [
     ['CLIENT / BRAND', editVal(ce, 'CLIENT / BRAND') || payload.clientName, '#2f55d4'],
@@ -386,7 +479,25 @@ function coverPage(payload) {
       <div class="cc-label">${esc(label)}</div>
       <div class="cc-val">${val ? esc(val) : '[Enter]'}</div>
     </div>`).join('');
-  const channels = ['GMB / GBP', 'Google Ads', 'Meta Ads', 'LinkedIn Ads', 'Instagram', 'Facebook', 'YouTube', 'LinkedIn', 'Twitter / X', 'Posters & Videos']
+  const channelOptions = [
+    { label: 'GMB / GBP', providers: ['GOOGLE_BUSINESS_PROFILE', 'GMB', 'GBP', 'LOCAL_SEO'] },
+    { label: 'Google Ads', providers: ['GOOGLE_ADS'] },
+    { label: 'Google Analytics', providers: ['GOOGLE_ANALYTICS'] },
+    { label: 'Google Search Console', providers: ['GOOGLE_SEARCH_CONSOLE'] },
+    { label: 'Meta Ads', providers: ['META_ADS', 'META'] },
+    { label: 'LinkedIn Ads', providers: ['LINKEDIN_ADS'] },
+    { label: 'Instagram', providers: ['INSTAGRAM'] },
+    { label: 'Facebook', providers: ['FACEBOOK'] },
+    { label: 'YouTube', providers: ['YOUTUBE'] },
+    { label: 'LinkedIn', providers: ['LINKEDIN'] },
+    { label: 'Twitter / X', providers: ['TWITTER_X', 'TWITTER', 'X'] },
+    { label: 'Creatives', providers: ['CREATIVES_PUBLISHED', 'CREATIVES'] },
+    { label: 'Posters & Videos', providers: ['CREATIVE_SHOWCASE'] },
+  ];
+  const channels = channelOptions
+    .filter((channel) => hasProviderContent(payload, byProv, channel.providers))
+    .map(({ label }) => label);
+  const channelCards = (channels.length ? channels : ['No provider dashboards selected'])
     .map((c) => `<div class="cover-channel">${esc(c)}</div>`).join('');
   return `<section class="slide cover">
     <div class="cover-left">
@@ -396,7 +507,7 @@ function coverPage(payload) {
       <div class="cover-h1 accent">Performance Report</div>
       <div class="cover-chips">${chips}</div>
       <div class="cover-channels-label">CHANNELS COVERED</div>
-      <div class="cover-channels">${channels}</div>
+      <div class="cover-channels">${channelCards}</div>
     </div>
     <div class="cover-right">
       <div class="cover-circle big"></div>
@@ -410,9 +521,18 @@ function channelSummaryPage(payload, byProv) {
   // with prefixed keys (e.g. google_ads_impressions). Fall back to each
   // platform's own snapshot when the summary cell is blank.
   const cs = byProv['CHANNEL_SUMMARY'] || {};
+  // Channels that are part of this report (assigned / uploaded) stay in the
+  // summary even when their cells are blank; channels not covered are dropped.
+  const covered = new Set(Object.keys(byProv));
+  for (const p of (Array.isArray(payload.providers) ? payload.providers : [])) {
+    const key = pk(typeof p === 'string' ? p : p && p.provider);
+    if (key) covered.add(key);
+  }
   const rows = [
     ['GMB / GBP', 'gmb', ['GOOGLE_BUSINESS_PROFILE']],
     ['Google Ads', 'google_ads', ['GOOGLE_ADS']],
+    ['Google Analytics', 'google_analytics', ['GOOGLE_ANALYTICS']],
+    ['Google Search Console', 'google_search_console', ['GOOGLE_SEARCH_CONSOLE']],
     ['Meta Ads', 'meta_ads', ['META_ADS']],
     ['LinkedIn Ads', 'linkedin_ads', ['LINKEDIN_ADS']],
     ['Instagram', 'instagram', ['INSTAGRAM']],
@@ -423,7 +543,12 @@ function channelSummaryPage(payload, byProv) {
   ].map(([name, prefix, provs]) => {
     const m = {};
     for (const p of provs) Object.assign(m, byProv[p] || {});
-    return [
+    if (prefix === 'google_analytics') {
+      m.impressions = m.impressions || m.active_users;
+      m.clicks = m.clicks || m.sessions;
+      m.leads = m.leads || m.conversions;
+    }
+    const row = [
       name,
       mv(cs, [`${prefix}_impressions`], mv(m, ['impressions', 'impressions_reach_views', 'reach_impressions'], '')),
       mv(cs, [`${prefix}_clicks`], mv(m, ['clicks'], '')),
@@ -431,7 +556,12 @@ function channelSummaryPage(payload, byProv) {
       mv(cs, [`${prefix}_spend`], mv(m, ['spend'], '')),
       mv(cs, [`${prefix}_estimated_conversion_leads`], mv(m, ['est_conversion_leads'], '')),
     ];
-  });
+    return { row, isCovered: provs.some((p) => covered.has(pk(p))) };
+  })
+    // Keep a channel that is covered by this report, or that has any value.
+    .filter(({ row, isCovered }) =>
+      isCovered || row.slice(1).some((cell) => String(cell).trim() !== ''))
+    .map(({ row }) => row);
   return `<section class="slide">
     ${slideHeader({ icon: '<span style="color:#fff;font-weight:800">∑</span>', iconBg: '#2f55d4', title: 'Channel Summary', subtitle: 'Performance by channel &middot; [Date range]' })}
     ${dataTable(['Channel', 'Impressions', 'Clicks', 'Leads / Calls', 'Spend (₹)', 'Estimated Conversion leads'], rows, rows.length)}
@@ -585,7 +715,12 @@ html,body{background:#fff;font-family:'Segoe UI',Arial,Helvetica,sans-serif;colo
 
 // ---- Public API -----------------------------------------------------------
 function buildReportHtml(payload = {}) {
+  // Use the opened client's company logo across the whole report.
+  REPORT_LOGO_URI = clientLogoUri(payload);
   const byProv = metricsByProvider(payload);
+  // Previous month's metrics (attached by the controller) power the auto
+  // "vs last month %" on every stat card.
+  payload.__byProvLast = metricsByProvider(payload, 'lastMonthSnapshots');
   // Insights text for a platform's dashboard page (stored under the same key).
   const insLines = (cfg) => {
     const m = {};
@@ -596,58 +731,90 @@ function buildReportHtml(payload = {}) {
   };
   const pages = [];
 
-  pages.push(coverPage(payload));
+  pages.push(coverPage(payload, byProv));
   pages.push(channelSummaryPage(payload, byProv));
 
-  // GMB: cards, dashboard table, screenshot, ranking screenshot
+  // Provider pages are included only when selected or populated in Preview/Edit.
   const gmb = PLATFORM_CARDS.GMB;
-  pages.push(statCardPage(payload, byProv, gmb));
-  pages.push(tablePage(payload, byProv, gmb, ['Top search keyword', 'Searches', 'Optimization done'], ['top_search_keyword', 'searches', 'optimization_done']));
-  pages.push(screenshotPage(payload, gmb, shotsFor(payload, gmb.providers), 'Google Business Profile → Performance', false));
-  pages.push(screenshotPage(payload, gmb, shotsFor(payload, ['GMB_RANKING']), 'Google Business Profile → Ranking in the GMB', false));
+  if (hasProviderContent(payload, byProv, gmb.providers)) {
+    pages.push(statCardPage(payload, byProv, gmb));
+    pages.push(tablePage(payload, byProv, gmb, ['Top search keyword', 'Searches', 'Optimization done'], ['top_search_keyword', 'searches', 'optimization_done']));
+    pages.push(screenshotPage(payload, gmb, shotsFor(payload, gmb.providers), 'Google Business Profile → Performance', false));
+  }
+  if (hasProviderContent(payload, byProv, ['GMB_RANKING', 'LOCAL_SEO'])) {
+    pages.push(screenshotPage(payload, gmb, shotsFor(payload, ['GMB_RANKING', 'LOCAL_SEO']), 'Google Business Profile → Ranking in the GMB', false));
+  }
 
   // Google Ads: cards, dashboard table, screenshot
   const gads = PLATFORM_CARDS.GOOGLE_ADS;
-  pages.push(statCardPage(payload, byProv, gads));
-  pages.push(tablePage(payload, byProv, gads, ['Campaign', 'Impr.', 'Clicks', 'Conv.', 'Spend (₹)', 'CPL (₹)'], ['campaign', 'impr', 'clicks', 'conv', 'spend', 'cpl']));
-  pages.push(screenshotPage(payload, gads, shotsFor(payload, gads.providers), 'Google Ads → Overview / Campaigns', false));
+  if (hasProviderContent(payload, byProv, gads.providers)) {
+    pages.push(statCardPage(payload, byProv, gads));
+    pages.push(tablePage(payload, byProv, gads, ['Campaign', 'Impr.', 'Clicks', 'Conv.', 'Spend (₹)', 'CPL (₹)'], ['campaign', 'impr', 'clicks', 'conv', 'spend', 'cpl']));
+    pages.push(screenshotPage(payload, gads, shotsFor(payload, gads.providers), 'Google Ads → Overview / Campaigns', false));
+  }
+
+  const analytics = PLATFORM_CARDS.GOOGLE_ANALYTICS;
+  if (hasProviderContent(payload, byProv, analytics.providers)) {
+    pages.push(statCardPage(payload, byProv, analytics));
+    pages.push(screenshotPage(payload, analytics, shotsFor(payload, analytics.providers), 'Google Analytics → Reports overview', false));
+  }
+
+  const searchConsole = PLATFORM_CARDS.GOOGLE_SEARCH_CONSOLE;
+  if (hasProviderContent(payload, byProv, searchConsole.providers)) {
+    pages.push(statCardPage(payload, byProv, searchConsole));
+    pages.push(screenshotPage(payload, searchConsole, shotsFor(payload, searchConsole.providers), 'Google Search Console → Search results', false));
+  }
 
   // YouTube: cards, screenshot + insights
   const yt = PLATFORM_CARDS.YOUTUBE;
-  pages.push(statCardPage(payload, byProv, yt));
-  pages.push(screenshotPage(payload, yt, shotsFor(payload, yt.providers), 'YouTube Studio → Analytics', true, insLines(yt)));
+  if (hasProviderContent(payload, byProv, yt.providers)) {
+    pages.push(statCardPage(payload, byProv, yt));
+    pages.push(screenshotPage(payload, yt, shotsFor(payload, yt.providers), 'YouTube Studio → Analytics', true, insLines(yt)));
+  }
 
   // Facebook: cards, screenshot + insights
   const fb = PLATFORM_CARDS.FACEBOOK;
-  pages.push(statCardPage(payload, byProv, fb));
-  pages.push(screenshotPage(payload, fb, shotsFor(payload, fb.providers), 'Meta Business Suite → Insights', true, insLines(fb)));
+  if (hasProviderContent(payload, byProv, fb.providers)) {
+    pages.push(statCardPage(payload, byProv, fb));
+    pages.push(screenshotPage(payload, fb, shotsFor(payload, fb.providers), 'Meta Business Suite → Insights', true, insLines(fb)));
+  }
 
   // Meta Ads: cards, dashboard table, screenshot
   const meta = PLATFORM_CARDS.META_ADS;
-  pages.push(statCardPage(payload, byProv, meta));
-  pages.push(tablePage(payload, byProv, meta, ['Campaign / Ad set', 'Reach', 'Clicks', 'Leads', 'Spend (₹)', 'CPL (₹)'], ['campaign_ad_set', 'reach', 'clicks', 'leads', 'spend', 'cpl']));
-  pages.push(screenshotPage(payload, meta, shotsFor(payload, meta.providers), 'Meta Ads Manager → Campaigns', false));
+  if (hasProviderContent(payload, byProv, meta.providers)) {
+    pages.push(statCardPage(payload, byProv, meta));
+    pages.push(tablePage(payload, byProv, meta, ['Campaign / Ad set', 'Reach', 'Clicks', 'Leads', 'Spend (₹)', 'CPL (₹)'], ['campaign_ad_set', 'reach', 'clicks', 'leads', 'spend', 'cpl']));
+    pages.push(screenshotPage(payload, meta, shotsFor(payload, meta.providers), 'Meta Ads Manager → Campaigns', false));
+  }
 
   // Instagram: cards, screenshot + insights
   const ig = PLATFORM_CARDS.INSTAGRAM;
-  pages.push(statCardPage(payload, byProv, ig));
-  pages.push(screenshotPage(payload, ig, shotsFor(payload, ig.providers), 'Instagram → Professional dashboard / Insights', true, insLines(ig)));
+  if (hasProviderContent(payload, byProv, ig.providers)) {
+    pages.push(statCardPage(payload, byProv, ig));
+    pages.push(screenshotPage(payload, ig, shotsFor(payload, ig.providers), 'Instagram → Professional dashboard / Insights', true, insLines(ig)));
+  }
 
   // LinkedIn: cards, screenshot + insights
   const li = PLATFORM_CARDS.LINKEDIN;
-  pages.push(statCardPage(payload, byProv, li));
-  pages.push(screenshotPage(payload, li, shotsFor(payload, li.providers), 'LinkedIn Page → Analytics', true, insLines(li)));
+  if (hasProviderContent(payload, byProv, li.providers)) {
+    pages.push(statCardPage(payload, byProv, li));
+    pages.push(screenshotPage(payload, li, shotsFor(payload, li.providers), 'LinkedIn Page → Analytics', true, insLines(li)));
+  }
 
   // LinkedIn Ads: cards, dashboard table, screenshot
   const lia = PLATFORM_CARDS.LINKEDIN_ADS;
-  pages.push(statCardPage(payload, byProv, lia));
-  pages.push(tablePage(payload, byProv, lia, ['Campaign group / Campaign', 'Impr.', 'Clicks', 'Leads', 'Spend (₹)', 'CPL (₹)'], ['campaign_group_campaign', 'impr', 'clicks', 'leads', 'spend', 'cpl']));
-  pages.push(screenshotPage(payload, lia, shotsFor(payload, lia.providers), 'LinkedIn Campaign Manager → Campaigns', false));
+  if (hasProviderContent(payload, byProv, lia.providers)) {
+    pages.push(statCardPage(payload, byProv, lia));
+    pages.push(tablePage(payload, byProv, lia, ['Campaign group / Campaign', 'Impr.', 'Clicks', 'Leads', 'Spend (₹)', 'CPL (₹)'], ['campaign_group_campaign', 'impr', 'clicks', 'leads', 'spend', 'cpl']));
+    pages.push(screenshotPage(payload, lia, shotsFor(payload, lia.providers), 'LinkedIn Campaign Manager → Campaigns', false));
+  }
 
   // Twitter / X: cards, screenshot + insights
   const tw = PLATFORM_CARDS.TWITTER;
-  pages.push(statCardPage(payload, byProv, tw));
-  pages.push(screenshotPage(payload, tw, shotsFor(payload, tw.providers), 'X Analytics → Account overview', true, insLines(tw)));
+  if (hasProviderContent(payload, byProv, tw.providers)) {
+    pages.push(statCardPage(payload, byProv, tw));
+    pages.push(screenshotPage(payload, tw, shotsFor(payload, tw.providers), 'X Analytics → Account overview', true, insLines(tw)));
+  }
 
   // Creatives + Next Month Plan
   pages.push(creativesPublishedPage(payload, byProv));

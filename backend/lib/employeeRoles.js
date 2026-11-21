@@ -1,6 +1,6 @@
 'use strict';
 
-const APPLICATIONS = ['attendance', 'task_manager', 'client_repository', 'role_sop'];
+const APPLICATIONS = ['attendance', 'task_manager', 'client_repository', 'role_sop', 'reports'];
 const ACCESS_RANK = { none: 0, employee: 1, admin: 2 };
 
 function invalidRoleAssignment(message) {

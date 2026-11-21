@@ -49,9 +49,215 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
   String? _packagesError;
   String _searchQuery = '';
 
+  // ── Category master + filter ─────────────────────────────────
+  static const String _allCategories = 'All';
+  static const String _uncategorized = 'Uncategorized';
+  String _selectedCategory = _allCategories;
+
+  /// Category master list from GET /package-categories.
+  /// Each row: { id, name, color ("#RRGGBB"), sort_order }.
+  List<Map<String, dynamic>> _categories = [];
+
+  /// Colours the admin can pick for a category.
+  static const List<Color> _categorySwatches = [
+    Color(0xFF0052CC),
+    Color(0xFF0E9F6E),
+    Color(0xFF7C3AED),
+    Color(0xFFDB2777),
+    Color(0xFFEA580C),
+    Color(0xFF0891B2),
+    Color(0xFFD97706),
+    Color(0xFF64748B),
+  ];
+
+  static const Map<String, IconData> _categoryIcons = {
+    'social media': Icons.groups_rounded,
+    'seo': Icons.travel_explore_rounded,
+    'website': Icons.language_rounded,
+    'web development': Icons.language_rounded,
+    'branding': Icons.palette_rounded,
+    'performance ads': Icons.campaign_rounded,
+    'ads': Icons.campaign_rounded,
+    'video production': Icons.videocam_rounded,
+    'uncategorized': Icons.category_outlined,
+  };
+
+  int? _asInt(dynamic v) =>
+      v == null ? null : (v is int ? v : int.tryParse(v.toString()));
+
+  Map<String, dynamic>? _categoryById(int? id) {
+    if (id == null) return null;
+    for (final c in _categories) {
+      if (_asInt(c['id']) == id) return c;
+    }
+    return null;
+  }
+
+  Map<String, dynamic>? _categoryByName(String name) {
+    final key = name.trim().toLowerCase();
+    for (final c in _categories) {
+      if ((c['name']?.toString() ?? '').trim().toLowerCase() == key) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  /// Category name of a package: master lookup by category_id first,
+  /// then any name the API returned, else "Uncategorized".
+  String _categoryOf(Map<String, dynamic> pkg) {
+    final master = _categoryById(_asInt(pkg['category_id']));
+    if (master != null) return master['name']?.toString() ?? _uncategorized;
+    final value = (pkg['category_name'] ?? pkg['category'])
+            ?.toString()
+            .trim() ??
+        '';
+    return value.isEmpty ? _uncategorized : value;
+  }
+
+  Color? _parseHex(String? hex) {
+    if (hex == null) return null;
+    final clean = hex.replaceAll('#', '').trim();
+    if (clean.length != 6) return null;
+    final v = int.tryParse(clean, radix: 16);
+    return v == null ? null : Color(0xFF000000 | v);
+  }
+
+  String _toHex(Color c) {
+    final rgb = c.toARGB32() & 0xFFFFFF;
+    return '#${rgb.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+  }
+
+  Color _categoryColor(String category) {
+    if (category == _uncategorized) return _muted;
+    final fromMaster = _parseHex(_categoryByName(category)?['color']?.toString());
+    if (fromMaster != null) return fromMaster;
+    final hash = category.toLowerCase().codeUnits.fold<int>(0, (a, b) => a + b);
+    return _categorySwatches[hash % _categorySwatches.length];
+  }
+
+  IconData _categoryIcon(String category) {
+    return _categoryIcons[category.trim().toLowerCase()] ??
+        Icons.sell_rounded;
+  }
+
+  /// Filter chips: every master category (even with 0 packages), then any
+  /// names not in the master, then Uncategorized when some exist.
+  List<MapEntry<String, int>> _categoryCounts() {
+    final Map<String, int> counts = {};
+    for (final pkg in packagesData) {
+      final c = _categoryOf(pkg);
+      counts[c] = (counts[c] ?? 0) + 1;
+    }
+
+    final List<MapEntry<String, int>> entries = [];
+    final Set<String> seen = {};
+    for (final c in _categories) {
+      final name = c['name']?.toString() ?? '';
+      if (name.isEmpty || !seen.add(name)) continue;
+      entries.add(MapEntry(name, counts[name] ?? 0));
+    }
+    final others = counts.keys
+        .where((n) => !seen.contains(n) && n != _uncategorized)
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    for (final n in others) {
+      entries.add(MapEntry(n, counts[n]!));
+    }
+    if ((counts[_uncategorized] ?? 0) > 0) {
+      entries.add(MapEntry(_uncategorized, counts[_uncategorized]!));
+    }
+    return entries;
+  }
+
+  Future<void> _fetchCategories() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/package-categories'),
+      );
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body);
+        final list = List<Map<String, dynamic>>.from(
+          (body['data'] as List?) ?? [],
+        );
+        list.sort((a, b) {
+          final r = (_asInt(a['sort_order']) ?? 0)
+              .compareTo(_asInt(b['sort_order']) ?? 0);
+          return r != 0
+              ? r
+              : (a['name']?.toString() ?? '')
+                  .toLowerCase()
+                  .compareTo((b['name']?.toString() ?? '').toLowerCase());
+        });
+        if (mounted) {
+          setState(() {
+            _categories = list;
+          });
+        }
+        return;
+      }
+    } catch (_) {}
+  }
+
+  /// Create (id == null) or update a category. Returns an error or null.
+  Future<String?> _saveCategory({
+    int? id,
+    required String name,
+    required String color,
+  }) async {
+    try {
+      final uri = Uri.parse(
+        id == null
+            ? '$_baseUrl/package-categories'
+            : '$_baseUrl/package-categories/$id',
+      );
+      final payload = jsonEncode({'name': name, 'color': color});
+      final headers = {'Content-Type': 'application/json'};
+      final response = id == null
+          ? await http.post(uri, headers: headers, body: payload)
+          : await http.put(uri, headers: headers, body: payload);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        await _fetchCategories();
+        await _fetchPackages();
+        return null;
+      }
+      try {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        return body['message'] as String? ?? 'Failed to save category';
+      } catch (_) {
+        return 'Failed to save category';
+      }
+    } catch (_) {
+      return 'Cannot connect to server';
+    }
+  }
+
+  Future<String?> _deleteCategory(int id) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/package-categories/$id'),
+      );
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        await _fetchCategories();
+        await _fetchPackages();
+        return null;
+      }
+      try {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        return body['message'] as String? ?? 'Failed to delete category';
+      } catch (_) {
+        return 'Failed to delete category';
+      }
+    } catch (_) {
+      return 'Cannot connect to server';
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _fetchCategories();
     _fetchPackages();
   }
 
@@ -73,6 +279,13 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
           packagesData = List<Map<String, dynamic>>.from(
             body['data'] as List,
           );
+
+          if (_selectedCategory != _allCategories &&
+              _categoryByName(_selectedCategory) == null &&
+              !packagesData
+                  .any((p) => _categoryOf(p) == _selectedCategory)) {
+            _selectedCategory = _allCategories;
+          }
 
           _loadingPackages = false;
         });
@@ -760,6 +973,8 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
     bool isPopular =
         (existing?["is_popular"] as bool?) ?? false;
 
+    int? selectedCategoryId = _asInt(existing?["category_id"]);
+
     final List<TextEditingController> featureCtrls =
         existing != null
             ? List<String>.from(
@@ -887,6 +1102,7 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
                 "price": price,
                 "period": period.isEmpty ? "/Month" : period,
                 "isPopular": isPopular,
+                "category_id": selectedCategoryId,
                 "features": features,
                 "package_tasks": packageTasksPayload,
               };
@@ -1116,6 +1332,14 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
                                   hint:
                                       "e.g. SMART LAUNCH FOR GROWING BRANDS",
                                   controller: subtitleCtrl,
+                                ),
+                                const SizedBox(height: 14),
+                                _buildCategoryPicker(
+                                  selectedId: selectedCategoryId,
+                                  onChanged: (id) => setDialogState(() {
+                                    selectedCategoryId = id;
+                                  }),
+                                  setDialogState: setDialogState,
                                 ),
                                 const SizedBox(height: 14),
                                 if (isMobile)
@@ -1629,6 +1853,668 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
     );
   }
 
+  Widget _buildCategoryPicker({
+    required int? selectedId,
+    required ValueChanged<int?> onChanged,
+    required StateSetter setDialogState,
+  }) {
+    Widget chip({
+      required String label,
+      required Color color,
+      required IconData icon,
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
+      return ChoiceChip(
+        selected: selected,
+        showCheckmark: false,
+        avatar: Icon(
+          icon,
+          size: 15,
+          color: selected ? Colors.white : color,
+        ),
+        label: Text(label),
+        labelStyle: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: selected ? Colors.white : _text,
+        ),
+        selectedColor: color,
+        backgroundColor: Colors.white,
+        side: BorderSide(color: selected ? color : _border),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        onSelected: (_) => onTap(),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Category',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: _text,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () async {
+                await _showCategoryManagerDialog(context);
+                setDialogState(() {});
+              },
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('New Category'),
+              style: TextButton.styleFrom(
+                foregroundColor: _primary,
+                textStyle: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        if (_categories.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _warningSoft,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              'No categories yet. Tap "New Category" to add one to the master.',
+              style: TextStyle(fontSize: 11, color: _text),
+            ),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              chip(
+                label: 'None',
+                color: _muted,
+                icon: Icons.block_rounded,
+                selected: selectedId == null,
+                onTap: () => onChanged(null),
+              ),
+              ..._categories.map((c) {
+                final id = _asInt(c['id']);
+                final name = c['name']?.toString() ?? '';
+                return chip(
+                  label: name,
+                  color: _categoryColor(name),
+                  icon: _categoryIcon(name),
+                  selected: id != null && id == selectedId,
+                  onTap: () => onChanged(id),
+                );
+              }),
+            ],
+          ),
+      ],
+    );
+  }
+
+  /// "Add Category" master: list, add, edit and delete package categories.
+  Future<void> _showCategoryManagerDialog(BuildContext context) async {
+    final TextEditingController nameCtrl = TextEditingController();
+    Color selectedColor = _categorySwatches.first;
+    int? editingId;
+    bool busy = false;
+    String? error;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            void resetForm() {
+              editingId = null;
+              nameCtrl.clear();
+              selectedColor = _categorySwatches.first;
+              error = null;
+            }
+
+            Future<void> submit() async {
+              final name = nameCtrl.text.trim();
+              if (name.isEmpty) {
+                setDialogState(() => error = 'Please enter a category name');
+                return;
+              }
+              final duplicate = _categoryByName(name);
+              if (duplicate != null && _asInt(duplicate['id']) != editingId) {
+                setDialogState(() => error = '"$name" already exists');
+                return;
+              }
+              setDialogState(() {
+                busy = true;
+                error = null;
+              });
+              final err = await _saveCategory(
+                id: editingId,
+                name: name,
+                color: _toHex(selectedColor),
+              );
+              setDialogState(() {
+                busy = false;
+                if (err == null) {
+                  resetForm();
+                } else {
+                  error = err;
+                }
+              });
+            }
+
+            Future<void> remove(Map<String, dynamic> c) async {
+              final id = _asInt(c['id']);
+              if (id == null) return;
+              final name = c['name']?.toString() ?? '';
+              final count = packagesData
+                  .where((p) => _categoryOf(p) == name)
+                  .length;
+              final ok = await showDialog<bool>(
+                context: dialogContext,
+                builder: (ctx) => AlertDialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  title: const Text('Delete category?'),
+                  content: Text(
+                    count == 0
+                        ? 'Delete "$name"?'
+                        : 'Delete "$name"? Its $count package${count == 1 ? '' : 's'} will move to Uncategorized.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _danger,
+                      ),
+                      child: const Text(
+                        'Delete',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+              if (ok != true) return;
+              setDialogState(() => busy = true);
+              final err = await _deleteCategory(id);
+              setDialogState(() {
+                busy = false;
+                if (editingId == id) resetForm();
+                error = err;
+              });
+            }
+
+            return Dialog(
+              insetPadding: const EdgeInsets.all(16),
+              backgroundColor: Colors.transparent,
+              child: Container(
+                width: 520,
+                constraints: const BoxConstraints(maxHeight: 680),
+                decoration: BoxDecoration(
+                  color: _card,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.20),
+                      blurRadius: 50,
+                      offset: const Offset(0, 25),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(24, 20, 14, 18),
+                      decoration: const BoxDecoration(
+                        border: Border(bottom: BorderSide(color: _border)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [_primary, _accent],
+                              ),
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: const Icon(
+                              Icons.category_rounded,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Package Categories',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w900,
+                                    color: _ink,
+                                  ),
+                                ),
+                                SizedBox(height: 2),
+                                Text(
+                                  'Add, rename or remove categories used to group packages',
+                                  style: TextStyle(fontSize: 10, color: _muted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close_rounded, color: _muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Form
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 18, 24, 6),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            editingId == null ? 'Add Category' : 'Edit Category',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: _text,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: nameCtrl,
+                            enabled: !busy,
+                            onSubmitted: (_) => submit(),
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: _ink,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            decoration: _premiumInputDecoration(
+                              hint: 'e.g. Social Media, SEO, Website',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _categorySwatches.map((color) {
+                              final bool on = color.toARGB32() ==
+                                  selectedColor.toARGB32();
+                              return InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: busy
+                                    ? null
+                                    : () => setDialogState(
+                                          () => selectedColor = color,
+                                        ),
+                                child: Container(
+                                  width: 30,
+                                  height: 30,
+                                  decoration: BoxDecoration(
+                                    color: color,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: on ? _ink : Colors.white,
+                                      width: on ? 2.5 : 2,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: color.withValues(alpha: 0.30),
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                                  ),
+                                  child: on
+                                      ? const Icon(
+                                          Icons.check_rounded,
+                                          size: 16,
+                                          color: Colors.white,
+                                        )
+                                      : null,
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          if (error != null) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: _dangerSoft,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                error!,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: _danger,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              if (editingId != null)
+                                TextButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => setDialogState(resetForm),
+                                  child: const Text('Cancel edit'),
+                                ),
+                              const Spacer(),
+                              ElevatedButton.icon(
+                                onPressed: busy ? null : submit,
+                                icon: busy
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : Icon(
+                                        editingId == null
+                                            ? Icons.add_rounded
+                                            : Icons.save_rounded,
+                                        color: Colors.white,
+                                        size: 18,
+                                      ),
+                                label: Text(
+                                  editingId == null ? 'Add Category' : 'Save Changes',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _primary,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 13,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(13),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 24, color: _border),
+                    // List
+                    Flexible(
+                      child: _categories.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.fromLTRB(24, 6, 24, 26),
+                              child: Text(
+                                'No categories yet. Add your first one above.',
+                                style: TextStyle(fontSize: 11, color: _muted),
+                              ),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              padding: const EdgeInsets.fromLTRB(24, 0, 24, 22),
+                              itemCount: _categories.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (_, i) {
+                                final c = _categories[i];
+                                final name = c['name']?.toString() ?? '';
+                                final color = _categoryColor(name);
+                                final count = packagesData
+                                    .where((p) => _categoryOf(p) == name)
+                                    .length;
+                                final bool isEditing =
+                                    _asInt(c['id']) == editingId;
+                                return Container(
+                                  padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+                                  decoration: BoxDecoration(
+                                    color: isEditing ? _primarySoft : Colors.white,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isEditing
+                                          ? const Color(0xFFBFD7FF)
+                                          : _border,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 34,
+                                        height: 34,
+                                        decoration: BoxDecoration(
+                                          color: color.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Icon(
+                                          _categoryIcon(name),
+                                          size: 18,
+                                          color: color,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w800,
+                                                color: _ink,
+                                              ),
+                                            ),
+                                            Text(
+                                              '$count package${count == 1 ? '' : 's'}',
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                color: _muted,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Edit',
+                                        onPressed: busy
+                                            ? null
+                                            : () => setDialogState(() {
+                                                  editingId = _asInt(c['id']);
+                                                  nameCtrl.text = name;
+                                                  selectedColor = color;
+                                                  error = null;
+                                                }),
+                                        icon: const Icon(
+                                          Icons.edit_outlined,
+                                          size: 18,
+                                          color: _primary,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Delete',
+                                        onPressed: busy ? null : () => remove(c),
+                                        icon: const Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 18,
+                                          color: _danger,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    // nameCtrl is not disposed here: the dialog may still be animating out.
+  }
+
+
+  Widget _buildCategoryFilterBar() {
+    final entries = _categoryCounts();
+    if (entries.isEmpty) return const SizedBox.shrink();
+
+    Widget chip({
+      required String label,
+      required int count,
+      required IconData icon,
+      required Color color,
+      required bool selected,
+      required VoidCallback onTap,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: selected ? color : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: selected ? color : _border,
+                ),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.22),
+                          blurRadius: 14,
+                          offset: const Offset(0, 6),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    size: 16,
+                    color: selected ? Colors.white : color,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: selected ? Colors.white : _text,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? Colors.white.withValues(alpha: 0.22)
+                          : color.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: selected ? Colors.white : color,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          chip(
+            label: 'All',
+            count: packagesData.length,
+            icon: Icons.apps_rounded,
+            color: _primary,
+            selected: _selectedCategory == _allCategories,
+            onTap: () => setState(() {
+              _selectedCategory = _allCategories;
+            }),
+          ),
+          ...entries.map(
+            (e) => chip(
+              label: e.key,
+              count: e.value,
+              icon: _categoryIcon(e.key),
+              color: _categoryColor(e.key),
+              selected: _selectedCategory == e.key,
+              onTap: () => setState(() {
+                _selectedCategory = e.key;
+              }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDialogSection({
     required IconData icon,
     required String title,
@@ -1863,6 +2749,11 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
     final String query = _searchQuery.trim().toLowerCase();
 
     final filteredPackages = packagesData.where((pkg) {
+      if (_selectedCategory != _allCategories &&
+          _categoryOf(pkg) != _selectedCategory) {
+        return false;
+      }
+
       if (query.isEmpty) {
         return true;
       }
@@ -1873,10 +2764,12 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
           pkg['subtitle']?.toString().toLowerCase() ?? '';
       final price =
           pkg['price']?.toString().toLowerCase() ?? '';
+      final category = _categoryOf(pkg).toLowerCase();
 
       return title.contains(query) ||
           subtitle.contains(query) ||
-          price.contains(query);
+          price.contains(query) ||
+          category.contains(query);
     }).toList();
 
     final List<Map<String, dynamic>> visiblePackages =
@@ -1913,6 +2806,12 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
                 total: filteredPackages.length,
                 hasMore: hasMorePackages,
               ),
+              if (!_loadingPackages &&
+                  _packagesError == null &&
+                  (packagesData.isNotEmpty || _categories.isNotEmpty)) ...[
+                const SizedBox(height: 14),
+                _buildCategoryFilterBar(),
+              ],
               const SizedBox(height: 16),
               if (_loadingPackages)
                 _buildLoadingState()
@@ -2009,6 +2908,34 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
       ),
     );
 
+    final categoryButton = OutlinedButton.icon(
+      onPressed: () => _showCategoryManagerDialog(context),
+      icon: const Icon(
+        Icons.category_rounded,
+        color: Colors.white,
+        size: 19,
+      ),
+      label: const Text(
+        'Add Category',
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
+        ),
+      ),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.white.withValues(alpha: 0.12),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.45)),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 15,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+    );
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(isMobile ? 22 : 28),
@@ -2036,9 +2963,12 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
               children: [
                 content,
                 const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: button,
+                Row(
+                  children: [
+                    Expanded(child: categoryButton),
+                    const SizedBox(width: 10),
+                    Expanded(child: button),
+                  ],
                 ),
               ],
             )
@@ -2046,6 +2976,8 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
               children: [
                 Expanded(child: content),
                 const SizedBox(width: 20),
+                categoryButton,
+                const SizedBox(width: 10),
                 button,
               ],
             ),
@@ -2072,7 +3004,9 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
         ),
         const SizedBox(height: 3),
         Text(
-          '$total package${total == 1 ? '' : 's'} available',
+          _selectedCategory == _allCategories
+              ? '$total package${total == 1 ? '' : 's'} available'
+              : '$total package${total == 1 ? '' : 's'} in $_selectedCategory',
           style: const TextStyle(fontSize: 11, color: _muted),
         ),
       ],
@@ -2218,7 +3152,8 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
   }
 
   Widget _buildEmptyState() {
-    final bool isSearching = _searchQuery.trim().isNotEmpty;
+    final bool isSearching = _searchQuery.trim().isNotEmpty ||
+        _selectedCategory != _allCategories;
 
     return Container(
       width: double.infinity,
@@ -2255,7 +3190,9 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
           const SizedBox(height: 7),
           Text(
             isSearching
-                ? 'Try a different search keyword.'
+                ? (_selectedCategory != _allCategories
+                    ? 'No packages match in $_selectedCategory. Try another category or keyword.'
+                    : 'Try a different search keyword.')
                 : 'Create your first service package to get started.',
             textAlign: TextAlign.center,
             style: const TextStyle(
@@ -2341,6 +3278,8 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
     final bool isPopular = pkg['is_popular'] == true;
     final String tierLabel = 'TIER ${(index + 1).toString().padLeft(2, '0')}';
     final List<String> features = List<String>.from((pkg['features'] as List?) ?? []);
+    final String category = _categoryOf(pkg);
+    final Color categoryColor = _categoryColor(category);
     final int originalIndex = packagesData.indexWhere((p) => p['id'] == pkg['id']);
 
     void openEdit() {
@@ -2405,7 +3344,11 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
       decoration: BoxDecoration(
         color: isPopular ? _primary : Colors.white,
         borderRadius: BorderRadius.circular(isMobile ? 20 : 22),
-        border: isPopular ? null : Border.all(color: _border),
+        // Uniform border (Flutter requires uniform colours with a radius),
+        // tinted with the category colour so cards are easy to tell apart.
+        border: isPopular
+            ? null
+            : Border.all(color: categoryColor.withValues(alpha: 0.35)),
         boxShadow: [
           BoxShadow(
             color: isPopular
@@ -2422,6 +3365,15 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
           mainAxisSize: isMobile ? MainAxisSize.min : MainAxisSize.max,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: isPopular ? Colors.white : categoryColor,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Container(
@@ -2437,6 +3389,42 @@ class _PackagesAdminScreenState extends State<PackagesAdminScreen> {
                       fontWeight: FontWeight.w900,
                       letterSpacing: 0.9,
                       color: isPopular ? Colors.white : _primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isPopular
+                          ? Colors.white
+                          : categoryColor.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _categoryIcon(category),
+                          size: 12,
+                          color: categoryColor,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            category.toUpperCase(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.6,
+                              color: categoryColor,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

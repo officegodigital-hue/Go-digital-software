@@ -5,6 +5,18 @@ const { buildReportHtml } = require('../services/reportHtml.service');
 const { renderHtmlToPdf, renderHtmlToImages } = require('../services/fullReportRender.service');
 const { buildPptxFromImages } = require('../services/fullReportPpt.service');
 const { buildDocxFromImages } = require('../services/fullReportWord.service');
+const {
+  MAX_TEMPLATE_BYTES,
+  generateFromPowerPointTemplate,
+  validatePowerPointTemplate,
+  templateHasPlaceholders,
+} = require('../services/reportTemplate.service');
+const {
+  canAccessReportClient,
+  isAdmin: hasReportAdminAccess,
+  listAssignedReportClients,
+  reportAccessType,
+} = require('../lib/reportTaskAccess');
 
 function safeFilename(value) {
   return String(value || 'Business').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'Business';
@@ -14,13 +26,19 @@ const _MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'Ju
 function monthName(m) { const n = Number(m); return (n >= 1 && n <= 12) ? _MONTHS[n] : `${m}`; }
 
 // Employees must get approval before downloading; admins/owners download freely.
-function isEmployee(user) { return String(user?.role || '').toUpperCase() === 'EMPLOYEE'; }
+function isEmployee(user) {
+  return String(user?.userType || '').toLowerCase() === 'employee'
+    && !hasReportAdminAccess(user);
+}
 
 async function userName(id) {
   if (!id) return null;
   try {
-    const [rows] = await db.query('SELECT name FROM users WHERE id = ? LIMIT 1', [id]);
-    return rows[0]?.name || null;
+    const [rows] = await db.query(
+      'SELECT full_name FROM employee_users WHERE id = ? LIMIT 1',
+      [id],
+    );
+    return rows[0]?.full_name || null;
   } catch (_) {
     return null;
   }
@@ -67,10 +85,57 @@ function applyPreviewOverrides(payload) {
   return payload;
 }
 
+// Attaches the previous month's snapshots so the report can auto-compute the
+// "vs last month %" on each metric card. Best-effort; never blocks generation.
+async function attachLastMonthSnapshots(payload) {
+  try {
+    const company = String(payload?.clientName || '').trim();
+    const month = Number(payload?.reportMonth);
+    const year = Number(payload?.reportYear);
+    if (!company || !month || !year) return;
+    let prevMonth = month - 1;
+    let prevYear = year;
+    if (prevMonth < 1) { prevMonth = 12; prevYear = year - 1; }
+    const [rows] = await db.query(
+      `SELECT payload FROM report_submissions
+       WHERE company_name = ? AND report_month = ? AND report_year = ?
+       ORDER BY created_at DESC LIMIT 1`,
+      [company, prevMonth, prevYear],
+    );
+    if (!rows[0]?.payload) return;
+    const prev = applyPreviewOverrides(JSON.parse(rows[0].payload.toString('utf8')));
+    if (Array.isArray(prev.snapshots)) payload.lastMonthSnapshots = prev.snapshots;
+  } catch (error) {
+    console.error('attachLastMonthSnapshots error:', error.message);
+  }
+}
+
+async function generateReportFile(payload, format) {
+  await attachLastMonthSnapshots(payload);
+  const [templates] = await db.query(
+    'SELECT template_data FROM report_templates WHERE scope = ? LIMIT 1',
+    ['EMPLOYEE_ADMIN'],
+  );
+  const templateBytes = templates[0]?.template_data;
+  // Only drive the report from the uploaded PowerPoint when it actually has
+  // {{...}} placeholders to fill; otherwise fall back to the built-in report so
+  // a plain design never blocks downloads.
+  if (templateBytes && (await templateHasPlaceholders(Buffer.from(templateBytes)))) {
+    return generateFromPowerPointTemplate(Buffer.from(templateBytes), payload, format);
+  }
+
+  const html = buildReportHtml(payload);
+  if (format === 'pdf') return renderHtmlToPdf(html);
+  const images = await renderHtmlToImages(html);
+  return format === 'pptx'
+    ? buildPptxFromImages(images)
+    : buildDocxFromImages(images);
+}
+
 async function downloadFullReportPpt(req, res) {
   try {
     const businessId = Number.parseInt(req.body?.businessId, 10);
-    const screenshotOnly = req.body?.reportTemplate === 'EMPLOYEE_ADMIN' && (!Number.isSafeInteger(businessId) || businessId < 1);
+    const screenshotOnly = req.body?.reportTemplate === 'EMPLOYEE_ADMIN';
     if (!screenshotOnly && (!Number.isSafeInteger(businessId) || businessId < 1)) {
       return res.status(400).json({ success: false, message: 'A valid business is required.' });
     }
@@ -87,9 +152,18 @@ async function downloadFullReportPpt(req, res) {
     // approved for this client + period. Admins/owners are not restricted.
     if (isEmployee(req.user)) {
       const { company, month, year } = reportPeriod(req.body);
+      if (!(await canAccessReportClient(db, req.user, company))) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have a Task Manager assignment for this client.',
+        });
+      }
       const [approved] = await db.query(
-        "SELECT id FROM report_submissions WHERE company_name = ? AND report_month = ? AND report_year = ? AND status = 'approved' ORDER BY created_at DESC LIMIT 1",
-        [company, month, year],
+        `SELECT id FROM report_submissions
+         WHERE company_name = ? AND report_month = ? AND report_year = ?
+           AND submitted_by_user_id = ? AND status = 'approved'
+         ORDER BY created_at DESC LIMIT 1`,
+        [company, month, year, req.user.id],
       );
       if (!approved[0]) {
         return res.status(403).json({ success: false, message: 'This report needs admin approval before it can be downloaded. Use "Pass report" to submit it for approval.' });
@@ -97,16 +171,7 @@ async function downloadFullReportPpt(req, res) {
     }
     const payload = applyPreviewOverrides(req.body || {});
     const format = ['pptx', 'docx', 'pdf'].includes(req.params.format) ? req.params.format : 'pdf';
-    const html = buildReportHtml(payload);
-    let file;
-    if (format === 'pdf') {
-      file = await renderHtmlToPdf(html);
-    } else {
-      const images = await renderHtmlToImages(html);
-      file = format === 'pptx'
-        ? await buildPptxFromImages(images)
-        : await buildDocxFromImages(images);
-    }
+    let file = await generateReportFile(payload, format);
     // Puppeteer's page.pdf() can return a Uint8Array; Express res.send() only
     // treats a Buffer as binary (a Uint8Array would be sent as JSON), so coerce.
     if (!Buffer.isBuffer(file)) file = Buffer.from(file);
@@ -164,6 +229,12 @@ async function saveClientProfile(req, res) {
   try {
     const name = String(req.body?.companyName || '').trim();
     if (!name) return res.status(400).json({ success: false, message: 'A client business name is required.' });
+    if (isEmployee(req.user) && !(await canAccessReportClient(db, req.user, name))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have a Task Manager assignment for this client.',
+      });
+    }
     const logo = req.body?.logoBase64 ? Buffer.from(String(req.body.logoBase64), 'base64') : null;
     const mime = String(req.body?.logoMimeType || 'image/png').slice(0, 150);
     await db.query(
@@ -183,7 +254,13 @@ async function getClientReportCompanies(req, res) {
   try {
     const [profiles] = await db.query('SELECT company_name FROM client_profiles');
     const [history] = await db.query('SELECT DISTINCT company_name FROM client_full_report_history');
-    const set = new Set([...profiles.map((r) => r.company_name), ...history.map((r) => r.company_name)]);
+    const assigned = isEmployee(req.user)
+      ? new Set((await listAssignedReportClients(db, req.user.id)).map((client) => client.name.toLowerCase()))
+      : null;
+    const set = new Set(
+      [...profiles.map((r) => r.company_name), ...history.map((r) => r.company_name)]
+        .filter((name) => !assigned || assigned.has(String(name).toLowerCase())),
+    );
     return res.json({ success: true, companies: [...set].sort((a, b) => a.localeCompare(b)) });
   } catch (error) {
     console.error('getClientReportCompanies error:', error.message);
@@ -207,7 +284,12 @@ async function getClientsDetailed(req, res) {
        WHERE h.company_name NOT IN (SELECT company_name FROM client_profiles)
        GROUP BY h.company_name`,
     );
-    const clients = [...profiles, ...orphans].map((r) => ({
+    const assigned = isEmployee(req.user)
+      ? new Set((await listAssignedReportClients(db, req.user.id)).map((client) => client.name.toLowerCase()))
+      : null;
+    const clients = [...profiles, ...orphans]
+      .filter((row) => !assigned || assigned.has(String(row.name).toLowerCase()))
+      .map((r) => ({
       name: r.name,
       reportCount: Number(r.report_count) || 0,
       lastReportAt: r.last_report_at,
@@ -230,6 +312,12 @@ async function getClientReportHistory(req, res) {
   try {
     const name = String(req.query.companyName || '').trim();
     if (!name) return res.json({ success: true, reports: [] });
+    if (isEmployee(req.user) && !(await canAccessReportClient(db, req.user, name))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have a Task Manager assignment for this client.',
+      });
+    }
     const params = [name];
     let sql = `SELECT id, company_name, report_month, report_year, file_format, file_name, content_type, created_at
                FROM client_full_report_history WHERE company_name = ?`;
@@ -254,9 +342,18 @@ async function getClientReportHistory(req, res) {
 
 async function downloadClientReportHistory(req, res) {
   try {
-    const [rows] = await db.query('SELECT file_name, content_type, file_data FROM client_full_report_history WHERE id = ? LIMIT 1', [req.params.id]);
+    const [rows] = await db.query(
+      'SELECT company_name, file_name, content_type, file_data FROM client_full_report_history WHERE id = ? LIMIT 1',
+      [req.params.id],
+    );
     if (!rows[0]) return res.status(404).json({ success: false, message: 'Saved report not found.' });
     const row = rows[0];
+    if (isEmployee(req.user) && !(await canAccessReportClient(db, req.user, row.company_name))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have a Task Manager assignment for this client.',
+      });
+    }
     res.set({
       'Content-Type': row.content_type,
       'Content-Disposition': `attachment; filename="${row.file_name}"`,
@@ -272,6 +369,12 @@ async function downloadClientReportHistory(req, res) {
 
 async function deleteClientReportHistory(req, res) {
   try {
+    if (!hasReportAdminAccess(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only report administrators can delete saved report history.',
+      });
+    }
     await db.query('DELETE FROM client_full_report_history WHERE id = ?', [req.params.id]);
     return res.json({ success: true });
   } catch (error) {
@@ -283,16 +386,40 @@ async function deleteClientReportHistory(req, res) {
 // ---- Shared report template ----------------------------------------------
 async function saveReportTemplate(req, res) {
   try {
+    if (!hasReportAdminAccess(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Report administrator permission is required to change the shared template.',
+      });
+    }
     const data = req.body?.bytesBase64 ? Buffer.from(String(req.body.bytesBase64), 'base64') : null;
     if (!data || !data.length) return res.status(400).json({ success: false, message: 'No template file was provided.' });
     const fileName = String(req.body?.fileName || 'report-template.pptx').slice(0, 500);
+    if (!/\.pptx$/i.test(fileName)) {
+      return res.status(400).json({ success: false, message: 'The shared report template must be a .pptx file.' });
+    }
+    if (data.length > MAX_TEMPLATE_BYTES) {
+      return res.status(413).json({ success: false, message: 'The shared report template must be 10 MB or smaller.' });
+    }
+    let hasPlaceholders = true;
+    try {
+      hasPlaceholders = await validatePowerPointTemplate(data);
+    } catch (error) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
     await db.query(
       `INSERT INTO report_templates (scope, file_name, template_data, uploaded_by_user_id)
        VALUES (?,?,?,?)
        ON DUPLICATE KEY UPDATE file_name = VALUES(file_name), template_data = VALUES(template_data), uploaded_by_user_id = VALUES(uploaded_by_user_id)`,
       ['EMPLOYEE_ADMIN', fileName, data, req.user?.id || null],
     );
-    return res.json({ success: true });
+    return res.json({
+      success: true,
+      hasPlaceholders,
+      warning: hasPlaceholders
+        ? undefined
+        : 'Template saved. It has no {{field_key}} placeholders yet, so the built-in report design is used for downloads until you add them.',
+    });
   } catch (error) {
     console.error('saveReportTemplate error:', error.message);
     return res.status(500).json({ success: false, message: 'Unable to save the report template.' });
@@ -315,7 +442,13 @@ async function submitReportForApproval(req, res) {
   try {
     const body = req.body || {};
     const { company, month, year } = reportPeriod(body);
-    const submitterName = req.user?.name || (await userName(req.user?.id)) || 'Employee';
+    if (isEmployee(req.user) && !(await canAccessReportClient(db, req.user, company))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have a Task Manager assignment for this client.',
+      });
+    }
+    const submitterName = req.user?.fullName || (await userName(req.user?.id)) || 'Employee';
     const [result] = await db.query(
       `INSERT INTO report_submissions (company_name, report_month, report_year, payload, status, submitted_by_user_id, submitted_by_name)
        VALUES (?,?,?,?, 'pending', ?, ?)`,
@@ -323,11 +456,16 @@ async function submitReportForApproval(req, res) {
     );
     // Notify every active admin that a report is awaiting approval.
     try {
-      const [admins] = await db.query("SELECT name FROM users WHERE role = 'Admin' AND is_active = 1");
-      for (const admin of admins) {
+      const [candidates] = await db.query(
+        `SELECT id, full_name AS name, user_type AS userType, role
+         FROM employee_users
+         WHERE COALESCE(is_active, 1) = 1`,
+      );
+      for (const candidate of candidates) {
+        if (await reportAccessType(db, candidate) !== 'admin') continue;
         await createNotification({
           senderName: submitterName,
-          recipientName: admin.name,
+          recipientName: candidate.name,
           message: `Report for ${company} (${monthName(month)} ${year}) is ready for your approval.`,
         });
       }
@@ -336,8 +474,12 @@ async function submitReportForApproval(req, res) {
     }
     return res.json({ success: true, submissionId: result.insertId });
   } catch (error) {
-    console.error('submitReportForApproval error:', error.message);
-    return res.status(500).json({ success: false, message: 'Unable to submit the report for approval.' });
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error('submitReportForApproval error:', error?.stack || detail);
+    return res.status(500).json({
+      success: false,
+      message: `Unable to submit the report: ${detail}`,
+    });
   }
 }
 
@@ -365,11 +507,23 @@ async function latestSubmissionStatus(req, res) {
   try {
     const now = new Date();
     const company = String(req.query.company || '');
+    if (isEmployee(req.user) && !(await canAccessReportClient(db, req.user, company))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have a Task Manager assignment for this client.',
+      });
+    }
     const month = Number(req.query.month) || now.getMonth() + 1;
     const year = Number(req.query.year) || now.getFullYear();
     const [rows] = await db.query(
-      'SELECT id, status, review_note, reviewed_by_name, reviewed_at, created_at FROM report_submissions WHERE company_name = ? AND report_month = ? AND report_year = ? ORDER BY created_at DESC LIMIT 1',
-      [company, month, year],
+      `SELECT id, status, review_note, reviewed_by_name, reviewed_at, created_at
+       FROM report_submissions
+       WHERE company_name = ? AND report_month = ? AND report_year = ?
+         ${isEmployee(req.user) ? 'AND submitted_by_user_id = ?' : ''}
+       ORDER BY created_at DESC LIMIT 1`,
+      isEmployee(req.user)
+        ? [company, month, year, req.user.id]
+        : [company, month, year],
     );
     return res.json({ success: true, submission: rows[0] || null });
   } catch (error) {
@@ -381,10 +535,25 @@ async function latestSubmissionStatus(req, res) {
 // Admin preview: render the submitted payload to a PDF for review.
 async function previewSubmission(req, res) {
   try {
-    const [rows] = await db.query('SELECT payload FROM report_submissions WHERE id = ? LIMIT 1', [req.params.id]);
+    const [rows] = await db.query(
+      'SELECT payload, company_name, submitted_by_user_id FROM report_submissions WHERE id = ? LIMIT 1',
+      [req.params.id],
+    );
     if (!rows[0]) return res.status(404).json({ success: false, message: 'Submission not found.' });
+    if (isEmployee(req.user) && String(rows[0].submitted_by_user_id) !== String(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only preview your own report submissions.',
+      });
+    }
+    if (isEmployee(req.user) && !(await canAccessReportClient(db, req.user, rows[0].company_name))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have a Task Manager assignment for this client.',
+      });
+    }
     const payload = applyPreviewOverrides(JSON.parse(rows[0].payload.toString('utf8')));
-    let file = await renderHtmlToPdf(buildReportHtml(payload));
+    let file = await generateReportFile(payload, 'pdf');
     if (!Buffer.isBuffer(file)) file = Buffer.from(file);
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="report-preview.pdf"', 'Content-Length': file.length, 'Cache-Control': 'no-store' });
     return res.send(file);
@@ -394,9 +563,50 @@ async function previewSubmission(req, res) {
   }
 }
 
+// Render the current (unsaved) report payload to a PDF for on-screen preview.
+// Unlike the download route, this is NOT gated on admin approval, so an
+// employee can see exactly how the report will look before passing it or
+// downloading it. Task Manager access is still enforced for employees.
+async function previewReport(req, res) {
+  try {
+    const body = req.body || {};
+    if (isEmployee(req.user)) {
+      const { company } = reportPeriod(body);
+      if (!(await canAccessReportClient(db, req.user, company))) {
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have a Task Manager assignment for this client.',
+        });
+      }
+    }
+    const payload = applyPreviewOverrides(body);
+    let file = await generateReportFile(payload, 'pdf');
+    if (!Buffer.isBuffer(file)) file = Buffer.from(file);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="report-preview.pdf"',
+      'Content-Length': file.length,
+      'Cache-Control': 'no-store',
+    });
+    return res.send(file);
+  } catch (error) {
+    console.error('previewReport error:', error?.stack || error.message);
+    return res.status(500).json({
+      success: false,
+      message: `Unable to render the preview: ${error.message}`,
+    });
+  }
+}
+
 async function reviewSubmission(req, res, decision) {
   try {
-    const [rows] = await db.query('SELECT company_name, report_month, report_year, submitted_by_name FROM report_submissions WHERE id = ? LIMIT 1', [req.params.id]);
+    if (!hasReportAdminAccess(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Report administrator permission is required.',
+      });
+    }
+    const [rows] = await db.query('SELECT company_name, report_month, report_year, submitted_by_name, submitted_by_user_id, payload FROM report_submissions WHERE id = ? LIMIT 1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ success: false, message: 'Submission not found.' });
     const note = String(req.body?.note || '').slice(0, 2000);
     const reviewerName = req.user?.name || (await userName(req.user?.id)) || 'Admin';
@@ -404,6 +614,24 @@ async function reviewSubmission(req, res, decision) {
       'UPDATE report_submissions SET status = ?, reviewed_by_user_id = ?, reviewed_by_name = ?, review_note = ?, reviewed_at = NOW() WHERE id = ?',
       [decision, req.user?.id || null, reviewerName, note || null, req.params.id],
     );
+    // Every decision saves a PDF of the report to the client's history, so
+    // there is always a record of exactly what was approved/rejected.
+    try {
+      if (rows[0].payload) {
+        const payload = applyPreviewOverrides(JSON.parse(rows[0].payload.toString('utf8')));
+        let file = await generateReportFile(payload, 'pdf');
+        if (!Buffer.isBuffer(file)) file = Buffer.from(file);
+        const safeClient = String(rows[0].company_name || 'Client').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'Client';
+        const period = `${rows[0].report_year}-${String(rows[0].report_month).padStart(2, '0')}`;
+        const fileName = `${safeClient}_${decision}_${period}.pdf`.slice(0, 500);
+        await db.query(
+          'INSERT INTO client_full_report_history (company_name, report_month, report_year, file_format, file_name, content_type, file_data, downloaded_by_user_id) VALUES (?,?,?,?,?,?,?,?)',
+          [rows[0].company_name, rows[0].report_month, rows[0].report_year, 'pdf', fileName, 'application/pdf', file, rows[0].submitted_by_user_id || null],
+        );
+      }
+    } catch (saveError) {
+      console.error('Review report save failed:', saveError.message);
+    }
     try {
       await createNotification({
         senderName: reviewerName,
@@ -429,11 +657,30 @@ module.exports = {
   listSubmissions,
   latestSubmissionStatus,
   previewSubmission,
+  previewReport,
   approveSubmission,
   rejectSubmission,
   saveClientProfile,
   getClientReportCompanies,
   getClientsDetailed,
+  getAssignedReportClients: async function getAssignedReportClients(req, res) {
+    try {
+      if (!isEmployee(req.user)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Assigned report clients are available to employees only.',
+        });
+      }
+      const clients = await listAssignedReportClients(db, req.user.id);
+      return res.json({ success: true, clients });
+    } catch (error) {
+      console.error('getAssignedReportClients error:', error.message);
+      return res.status(error.status || 500).json({
+        success: false,
+        message: error.status ? error.message : 'Unable to load assigned report clients.',
+      });
+    }
+  },
   getClientReportHistory,
   downloadClientReportHistory,
   deleteClientReportHistory,

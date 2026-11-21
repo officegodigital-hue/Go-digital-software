@@ -3,6 +3,21 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
 
+// Shared SELECT: package columns + category name/colour from the master.
+const PACKAGE_SELECT = `
+  SELECT p.id, p.title, p.subtitle, p.price, p.period, p.is_google, p.is_popular,
+         p.features, p.package_tasks, p.sort_order,
+         p.category_id, c.name AS category_name, c.color AS category_color
+  FROM packages p
+  LEFT JOIN package_categories c ON c.id = p.category_id`;
+
+// Accepts category_id / categoryId; empty, 0 or invalid → NULL (Uncategorized).
+function parseCategoryId(body) {
+  const raw = body.category_id !== undefined ? body.category_id : body.categoryId;
+  const id = parseInt(raw, 10);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 function parseJSONField(field) {
   if (Array.isArray(field)) return field;
   try {
@@ -16,8 +31,7 @@ function parseJSONField(field) {
 router.get('/', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, title, subtitle, price, period, is_google, is_popular, features, package_tasks, sort_order
-       FROM packages ORDER BY sort_order ASC, id ASC`
+      `${PACKAGE_SELECT} ORDER BY p.sort_order ASC, p.id ASC`
     );
     const data = rows.map(r => ({
       ...r,
@@ -37,8 +51,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, title, subtitle, price, period, is_google, is_popular, features, package_tasks, sort_order
-       FROM packages WHERE id = ?`,
+      `${PACKAGE_SELECT} WHERE p.id = ?`,
       [req.params.id]
     );
     if (rows.length === 0)
@@ -67,6 +80,7 @@ router.post('/', async (req, res) => {
 
   const googleFlag = isGoogle !== undefined ? isGoogle : is_google;
   const popularFlag = isPopular !== undefined ? isPopular : is_popular;
+  const categoryId = parseCategoryId(req.body);
 
   if (!title || !price || !Array.isArray(features) || features.length === 0)
     return res.status(400).json({ success: false, message: 'title, price and at least one feature are required' });
@@ -76,10 +90,10 @@ router.post('/', async (req, res) => {
     const nextOrder = maxRow[0].maxOrder + 1;
 
     const [result] = await db.query(
-      `INSERT INTO packages (title, subtitle, price, period, is_google, is_popular, features, package_tasks, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO packages (title, subtitle, price, period, category_id, is_google, is_popular, features, package_tasks, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        title, subtitle || '', price, period || '/Month',
+        title, subtitle || '', price, period || '/Month', categoryId,
         googleFlag ? 1 : 0, popularFlag ? 1 : 0,
         JSON.stringify(features),
         JSON.stringify(package_tasks || []),
@@ -91,7 +105,7 @@ router.post('/', async (req, res) => {
       success: true,
       message: 'Package created',
       data: {
-        id: result.insertId, title, subtitle: subtitle || '', price, period: period || '/Month',
+        id: result.insertId, title, subtitle: subtitle || '', price, period: period || '/Month', category_id: categoryId,
         is_google: !!googleFlag, is_popular: !!popularFlag, features, package_tasks: package_tasks || [], sort_order: nextOrder,
       },
     });
@@ -107,6 +121,7 @@ router.put('/:id', async (req, res) => {
 
   const googleFlag = isGoogle !== undefined ? isGoogle : is_google;
   const popularFlag = isPopular !== undefined ? isPopular : is_popular;
+  const categoryId = parseCategoryId(req.body);
 
   if (!title || !price || !Array.isArray(features) || features.length === 0)
     return res.status(400).json({ success: false, message: 'title, price and at least one feature are required' });
@@ -114,10 +129,10 @@ router.put('/:id', async (req, res) => {
   try {
     const [result] = await db.query(
       `UPDATE packages
-       SET title = ?, subtitle = ?, price = ?, period = ?, is_google = ?, is_popular = ?, features = ?, package_tasks = ?
+       SET title = ?, subtitle = ?, price = ?, period = ?, category_id = ?, is_google = ?, is_popular = ?, features = ?, package_tasks = ?
        WHERE id = ?`,
       [
-        title, subtitle || '', price, period || '/Month',
+        title, subtitle || '', price, period || '/Month', categoryId,
         googleFlag ? 1 : 0, popularFlag ? 1 : 0,
         JSON.stringify(features),
         JSON.stringify(package_tasks || []),

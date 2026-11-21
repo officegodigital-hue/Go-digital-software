@@ -64,7 +64,27 @@ function extractMetrics(text) {
 
 function extractProviderMetrics(text, provider) {
   const key = String(provider || '').toUpperCase();
-  const valueAfter = (label) => text.match(new RegExp(`${label}\\s*\\n?\\s*(?:₹\\s*)?(\\d[\\d,.]*K?)`, 'i'))?.[1];
+  const valueAfter = (label) => text.match(new RegExp(`${label}\\s*\\n?\\s*(?:[₹$€£]\\s*)?(\\d[\\d,.]*%?K?)`, 'i'))?.[1];
+  if (key === 'GOOGLE ANALYTICS DASHBOARD' || key === 'GOOGLE ANALYTICS') {
+    return {
+      active_users: valueAfter('Active users'),
+      new_users: valueAfter('New users'),
+      sessions: valueAfter('Sessions'),
+      engaged_sessions: valueAfter('Engaged sessions'),
+      engagement_rate: valueAfter('Engagement rate'),
+      conversions: valueAfter('Conversions'),
+      event_count: valueAfter('Event count'),
+      total_revenue: valueAfter('Total revenue'),
+    };
+  }
+  if (key === 'GOOGLE SEARCH CONSOLE DASHBOARD' || key === 'GOOGLE SEARCH CONSOLE') {
+    return {
+      clicks: valueAfter('Total clicks'),
+      impressions: valueAfter('Total impressions'),
+      average_ctr: valueAfter('Average CTR'),
+      average_position: valueAfter('Average position'),
+    };
+  }
   if (key === 'GOOGLE ADS DASHBOARD') {
     return {
       clicks: valueAfter('Clicks'),
@@ -114,40 +134,122 @@ function mapToPreviewFields(metrics, provider) {
   return result;
 }
 
+function detectProvider(text, logos = []) {
+  const corpus = `${text || ''} ${logos.join(' ')}`.toLowerCase();
+  const logoNames = (logos || []).map((l) => String(l || '').toLowerCase().trim());
+  const hasLogo = (name) => logoNames.some((ln) => ln === name || ln.includes(name));
+
+  // A brand logo in the screenshot is the strongest signal. Unambiguous brands
+  // map straight to a provider; ambiguous ones (Google, Meta) are disambiguated
+  // by the surrounding text.
+  if (logoNames.length) {
+    if (hasLogo('instagram')) return { name: 'Instagram', confidence: 0.97 };
+    if (hasLogo('youtube')) return { name: 'YouTube', confidence: 0.97 };
+    if (hasLogo('linkedin')) {
+      return corpus.includes('campaign manager') || corpus.includes('linkedin ads')
+        ? { name: 'LinkedIn Ads', confidence: 0.95 }
+        : { name: 'LinkedIn', confidence: 0.95 };
+    }
+    if (hasLogo('twitter') || hasLogo('x corp')) return { name: 'Twitter/X', confidence: 0.95 };
+    if (hasLogo('meta') || hasLogo('facebook')) {
+      return corpus.includes('ads manager') || corpus.includes('ad set') || corpus.includes('campaigns')
+        ? { name: 'Meta Ads', confidence: 0.95 }
+        : { name: 'Facebook', confidence: 0.95 };
+    }
+    if (hasLogo('google')) {
+      if (corpus.includes('google ads') || corpus.includes('ad groups')) return { name: 'Google Ads', confidence: 0.95 };
+      if (corpus.includes('analytics') || corpus.includes('ga4')) return { name: 'Google Analytics', confidence: 0.95 };
+      if (corpus.includes('search console') || corpus.includes('search performance')) return { name: 'Google Search Console', confidence: 0.95 };
+      if (corpus.includes('business profile') || corpus.includes('my business') || corpus.includes('maps')) return { name: 'Google Business Profile', confidence: 0.95 };
+    }
+  }
+
+  const rules = [
+    ['Google Business Profile', ['google business profile', 'google my business', 'google maps', 'gbp insights']],
+    ['Google Ads', ['google ads', 'google adwords', 'ads.google.com', 'ad groups']],
+    ['Google Analytics', ['google analytics', 'google analytics 4', 'ga4']],
+    ['Google Search Console', ['search console', 'google search performance']],
+    ['Meta Ads', ['meta ads', 'ads manager', 'campaign ad set', 'facebook ads manager']],
+    ['Instagram', ['instagram insights', 'instagram.com', 'instagram']],
+    ['Facebook', ['facebook insights', 'facebook page', 'facebook']],
+    ['YouTube', ['youtube studio', 'youtube analytics', 'youtube']],
+    ['LinkedIn Ads', ['linkedin campaign manager', 'linkedin ads']],
+    ['LinkedIn', ['linkedin page analytics', 'linkedin']],
+    ['Twitter/X', ['twitter analytics', 'x analytics', 'twitter', 'x.com']],
+  ];
+
+  for (const [provider, terms] of rules) {
+    if (terms.some((term) => corpus.includes(term))) {
+      return { name: provider, confidence: 0.9 };
+    }
+  }
+  return { name: null, confidence: 0 };
+}
+
+async function analyzeDashboardImages(images, providerOverride) {
+  const safeImages = Array.isArray(images)
+    ? images.slice(0, 12).filter((image) =>
+        typeof image?.base64 === 'string' && image.base64.length > 20)
+    : [];
+  if (!safeImages.length) {
+    const error = new Error('Add a valid dashboard image first.');
+    error.status = 400;
+    throw error;
+  }
+  const visionKey = process.env.GOOGLE_CLOUD_VISION_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+  const texts = [];
+  const logos = [];
+  if (visionKey) {
+    const response = await axios.post(
+      `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(visionKey)}`,
+      { requests: safeImages.map((image) => ({ image: { content: image.base64 }, features: [{ type: 'TEXT_DETECTION', maxResults: 50 }, { type: 'LOGO_DETECTION', maxResults: 10 }] })) },
+      { timeout: 60000 }
+    );
+    for (const item of response.data?.responses || []) {
+      const text = item.fullTextAnnotation?.text || item.textAnnotations?.[0]?.description;
+      if (text) texts.push(text);
+      logos.push(...(item.logoAnnotations || []).map((logo) => logo.description).filter(Boolean));
+    }
+  } else {
+    for (const image of safeImages) {
+      const result = await recognize(Buffer.from(image.base64, 'base64'), 'eng', {}, { tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' });
+      if (result?.data?.text) texts.push(result.data.text);
+    }
+  }
+  const text = texts.join('\n').trim();
+  if (!text) {
+    const error = new Error('No readable text was found in this dashboard image.');
+    error.status = 422;
+    throw error;
+  }
+  const detected = detectProvider(text, logos);
+  const provider = String(providerOverride || detected.name || '');
+  const rawMetrics = Object.fromEntries(Object.entries({
+    ...extractMetrics(text),
+    ...extractProviderMetrics(text, provider),
+  }).filter(([, value]) =>
+    value !== undefined && value !== null && String(value).trim()));
+  return {
+    metrics: mapToPreviewFields(rawMetrics, provider),
+    raw_text: text.slice(0, 8000),
+    detected_provider: detected.name,
+    provider_confidence: detected.confidence,
+  };
+}
+
 async function readDashboardOcr(req, res) {
   try {
-    const images = Array.isArray(req.body?.images) ? req.body.images.slice(0, 12) : [];
-    if (!images.length) return res.status(400).json({ success: false, message: 'Add a dashboard image first.' });
-    const safeImages = images.filter((image) => typeof image?.base64 === 'string' && image.base64.length > 20);
-    const visionKey = process.env.GOOGLE_CLOUD_VISION_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
-    const texts = [];
-    if (visionKey) {
-      const response = await axios.post(
-        `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(visionKey)}`,
-        { requests: safeImages.map((image) => ({ image: { content: image.base64 }, features: [{ type: 'TEXT_DETECTION', maxResults: 50 }] })) },
-        { timeout: 60000 }
-      );
-      for (const item of response.data?.responses || []) {
-        const text = item.fullTextAnnotation?.text || item.textAnnotations?.[0]?.description;
-        if (text) texts.push(text);
-      }
-    } else {
-      for (const image of safeImages) {
-        const result = await recognize(Buffer.from(image.base64, 'base64'), 'eng', {}, { tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' });
-        if (result?.data?.text) texts.push(result.data.text);
-      }
-    }
-    const text = texts.join('\n').trim();
-    if (!text) return res.status(422).json({ success: false, message: 'No readable text was found in this dashboard image.' });
-    const provider = String(req.body?.provider || '');
-    const rawMetrics = Object.fromEntries(Object.entries({ ...extractMetrics(text), ...extractProviderMetrics(text, provider) }).filter(([, value]) => value !== undefined && value !== null && String(value).trim()));
-    const metrics = mapToPreviewFields(rawMetrics, provider);
-    return res.json({ success: true, metrics, raw_text: text.slice(0, 8000) });
+    const result = await analyzeDashboardImages(
+      req.body?.images,
+      req.body?.provider,
+    );
+    return res.json({ success: true, ...result });
   } catch (error) {
     const detail = error?.response?.data?.error?.message || error?.message || 'Unknown OCR error';
     console.error('Dashboard OCR error:', detail);
-    return res.status(502).json({ success: false, message: `Dashboard OCR could not read this image: ${detail}` });
+    const status = error.status || 502;
+    return res.status(status).json({ success: false, message: `Dashboard OCR could not read this image: ${detail}` });
   }
 }
 
-module.exports = { readDashboardOcr };
+module.exports = { analyzeDashboardImages, detectProvider, readDashboardOcr };

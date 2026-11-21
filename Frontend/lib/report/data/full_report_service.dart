@@ -40,8 +40,9 @@ class FullReportService {
         ? '/admin/businesses/$businessId/full-report'
         : '/owner/full-report/$businessId';
 
-    final uri = Uri.parse('$_apiBaseUrl$reportPath')
-        .replace(queryParameters: <String, String>{'period': period});
+    final uri = Uri.parse(
+      '$_apiBaseUrl$reportPath',
+    ).replace(queryParameters: <String, String>{'period': period});
     final response = await http.get(
       uri,
       headers: <String, String>{
@@ -83,7 +84,7 @@ class FullReportService {
     String date(DateTime? value) => value == null
         ? 'Unavailable'
         : '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
-    
+
     const periodDays = <String, int>{
       'today': 1,
       '7d': 7,
@@ -110,17 +111,23 @@ class FullReportService {
           : '${date(rangeStart)}_to_${date(rangeEnd)}',
       'dateRange': range,
       'providers': report.providers
-          .map((provider) => <String, dynamic>{
-                'provider': provider.provider,
-                'connectionStatus': provider.connectionStatus,
-              })
+          .map(
+            (provider) => <String, dynamic>{
+              'provider': provider.provider,
+              'connectionStatus': provider.connectionStatus,
+            },
+          )
           .toList(),
-      'snapshots': report.performanceSnapshots.map((snapshot) => <String, dynamic>{
-        'provider': snapshot.provider,
-        'metric_date': date(snapshot.metricDate),
-        'source_connection_id': snapshot.sourceConnectionId,
-        'metrics': snapshot.metrics,
-      }).toList(),
+      'snapshots': report.performanceSnapshots
+          .map(
+            (snapshot) => <String, dynamic>{
+              'provider': snapshot.provider,
+              'metric_date': date(snapshot.metricDate),
+              'source_connection_id': snapshot.sourceConnectionId,
+              'metrics': snapshot.metrics,
+            },
+          )
+          .toList(),
     };
   }
 
@@ -129,7 +136,9 @@ class FullReportService {
     required String format,
   }) async {
     if (format != 'pptx' && format != 'docx' && format != 'pdf') {
-      throw const FullReportException('Choose PDF, PowerPoint, or Word for this download.');
+      throw const FullReportException(
+        'Choose PDF, PowerPoint, or Word for this download.',
+      );
     }
     final token = AuthSession.requireToken();
     final response = await http.post(
@@ -147,7 +156,10 @@ class FullReportService {
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final body = _decodeMap(response.body);
-      throw FullReportException(body['message']?.toString() ?? 'Unable to generate the Full Report document.');
+      throw FullReportException(
+        body['message']?.toString() ??
+            'Unable to generate the Full Report document.',
+      );
     }
     final client = (payload['clientName']?.toString() ?? 'Business')
         .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')
@@ -161,55 +173,200 @@ class FullReportService {
     downloadFile(Uint8List.fromList(response.bodyBytes), name, contentType);
   }
 
-  // ---- Approval workflow ---------------------------------------------------
-  Future<int> submitForApproval(Map<String, dynamic> payload) async {
+  /// Renders the current (unsaved) report payload to a PDF for on-screen
+  /// preview, without downloading or requiring admin approval.
+  Future<Uint8List> previewReportBytes(Map<String, dynamic> payload) async {
+    final token = AuthSession.requireToken();
     final response = await http.post(
-      Uri.parse('$_apiBaseUrl/report-export/submit'),
-      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}', 'Content-Type': 'application/json'},
+      Uri.parse('$_apiBaseUrl/report-export/preview'),
+      headers: <String, String>{
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+        'Accept': 'application/pdf',
+      },
       body: jsonEncode(payload),
     );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+            'Unable to generate the report preview.',
+      );
+    }
+    return Uint8List.fromList(response.bodyBytes);
+  }
+
+  Future<void> downloadDraft({
+    required int draftId,
+    required String clientName,
+    required String filePeriod,
+    required String format,
+  }) async {
+    if (format != 'pptx' && format != 'docx' && format != 'pdf') {
+      throw const FullReportException(
+        'Choose PDF, PowerPoint, or Word for this download.',
+      );
+    }
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/export/$format'),
+      headers: {
+        'Authorization': 'Bearer ${AuthSession.requireToken()}',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+            'Unable to generate the report document.',
+      );
+    }
+    final safeClient = clientName
+        .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    final contentType = format == 'pdf'
+        ? 'application/pdf'
+        : format == 'docx'
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    downloadFile(
+      Uint8List.fromList(response.bodyBytes),
+      '${safeClient}_Full_Report_$filePeriod.$format',
+      contentType,
+    );
+  }
+
+  Future<int> submitDraftForApproval(int draftId) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/submit'),
+      headers: {
+        'Authorization': 'Bearer ${AuthSession.requireToken()}',
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    );
     final body = _decodeMap(response.body);
-    if (response.statusCode < 200 || response.statusCode >= 300 || body['success'] != true) {
-      throw FullReportException(body['message']?.toString() ?? 'Unable to submit the report for approval.');
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        body['success'] != true) {
+      throw FullReportException(
+        body['message']?.toString() ??
+            'Unable to submit the report for approval.',
+      );
     }
     return (body['submissionId'] as num?)?.toInt() ?? 0;
   }
 
-  Future<Map<String, dynamic>?> submissionStatus({required String company, required int month, required int year}) async {
-    final uri = Uri.parse('$_apiBaseUrl/report-export/submissions/status')
-        .replace(queryParameters: {'company': company, 'month': '$month', 'year': '$year'});
-    final response = await http.get(uri, headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'});
-    if (response.statusCode < 200 || response.statusCode >= 300) return null;
+  // ---- Approval workflow ---------------------------------------------------
+  Future<int> submitForApproval(Map<String, dynamic> payload) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-export/submit'),
+      headers: {
+        'Authorization': 'Bearer ${AuthSession.requireToken()}',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(payload),
+    );
     final body = _decodeMap(response.body);
-    return body['submission'] is Map ? Map<String, dynamic>.from(body['submission'] as Map) : null;
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        body['success'] != true) {
+      throw FullReportException(
+        body['message']?.toString() ??
+            'Unable to submit the report for approval.',
+      );
+    }
+    return (body['submissionId'] as num?)?.toInt() ?? 0;
   }
 
-  Future<List<Map<String, dynamic>>> listSubmissions({String? status}) async {
-    final uri = Uri.parse('$_apiBaseUrl/report-export/submissions')
-        .replace(queryParameters: {if (status != null && status.isNotEmpty) 'status': status});
-    final response = await http.get(uri, headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'});
+  Future<Map<String, dynamic>?> submissionStatus({
+    required String company,
+    required int month,
+    required int year,
+  }) async {
+    final uri = Uri.parse('$_apiBaseUrl/report-export/submissions/status')
+        .replace(
+          queryParameters: {
+            'company': company,
+            'month': '$month',
+            'year': '$year',
+          },
+        );
+    final response = await http.get(
+      uri,
+      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'},
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) return null;
+    final body = _decodeMap(response.body);
+    return body['submission'] is Map
+        ? Map<String, dynamic>.from(body['submission'] as Map)
+        : null;
+  }
+
+  Future<List<Map<String, dynamic>>> listSubmissions({
+    String? status,
+    String? company,
+  }) async {
+    final uri = Uri.parse('$_apiBaseUrl/report-export/submissions').replace(
+      queryParameters: {
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (company != null && company.isNotEmpty) 'company': company,
+      },
+    );
+    final response = await http.get(
+      uri,
+      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'},
+    );
     final body = _decodeMap(response.body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw FullReportException(body['message']?.toString() ?? 'Unable to load submissions.');
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load submissions.',
+      );
     }
     return body['submissions'] is List
-        ? List<Map<String, dynamic>>.from((body['submissions'] as List).map((e) => Map<String, dynamic>.from(e as Map)))
+        ? List<Map<String, dynamic>>.from(
+            (body['submissions'] as List).map(
+              (e) => Map<String, dynamic>.from(e as Map),
+            ),
+          )
         : <Map<String, dynamic>>[];
   }
 
-  Future<void> reviewSubmission(int id, {required bool approve, String? note}) async {
+  Future<void> reviewSubmission(
+    int id, {
+    required bool approve,
+    String? note,
+  }) async {
     final response = await http.post(
-      Uri.parse('$_apiBaseUrl/report-export/submissions/$id/${approve ? 'approve' : 'reject'}'),
-      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}', 'Content-Type': 'application/json'},
+      Uri.parse(
+        '$_apiBaseUrl/report-export/submissions/$id/${approve ? 'approve' : 'reject'}',
+      ),
+      headers: {
+        'Authorization': 'Bearer ${AuthSession.requireToken()}',
+        'Content-Type': 'application/json',
+      },
       body: jsonEncode({'note': note ?? ''}),
     );
     final body = _decodeMap(response.body);
-    if (response.statusCode < 200 || response.statusCode >= 300 || body['success'] != true) {
-      throw FullReportException(body['message']?.toString() ?? 'Unable to update the submission.');
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        body['success'] != true) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to update the submission.',
+      );
     }
   }
 
-  String submissionPreviewUrl(int id) => '$_apiBaseUrl/report-export/submissions/$id/preview.pdf';
+  /// Downloads a submission's rendered PDF (used for an approved report).
+  Future<void> downloadSubmissionPdf({
+    required int id,
+    required String fileName,
+  }) async {
+    final bytes = await submissionPreviewBytes(id);
+    downloadFile(bytes, fileName, 'application/pdf');
+  }
+
+  String submissionPreviewUrl(int id) =>
+      '$_apiBaseUrl/report-export/submissions/$id/preview.pdf';
 
   Future<Uint8List> submissionPreviewBytes(int id) async {
     final response = await http.get(
@@ -217,7 +374,10 @@ class FullReportService {
       headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'},
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw FullReportException(_decodeMap(response.body)['message']?.toString() ?? 'Unable to load the preview.');
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+            'Unable to load the preview.',
+      );
     }
     return Uint8List.fromList(response.bodyBytes);
   }
@@ -229,12 +389,42 @@ class FullReportService {
     );
     final body = _decodeMap(response.body);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw FullReportException(body['message']?.toString() ?? 'Unable to load clients.');
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load clients.',
+      );
     }
     return body['clients'] is List
         ? List<Map<String, dynamic>>.from(
-            (body['clients'] as List).map((e) => Map<String, dynamic>.from(e as Map)))
+            (body['clients'] as List).map(
+              (e) => Map<String, dynamic>.from(e as Map),
+            ),
+          )
         : <Map<String, dynamic>>[];
+  }
+
+  Future<void> saveClientProfile(
+    String companyName, {
+    String? logoBase64,
+    String? logoMimeType,
+  }) async {
+    final response = await http.put(
+      Uri.parse('$_apiBaseUrl/report-export/client-profile'),
+      headers: {
+        'Authorization': 'Bearer ${AuthSession.requireToken()}',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'companyName': companyName,
+        if (logoBase64 != null) 'logoBase64': logoBase64,
+        if (logoMimeType != null) 'logoMimeType': logoMimeType,
+      }),
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to save the client.',
+      );
+    }
   }
 
   Future<List<dynamic>> clientReportHistory({
@@ -249,29 +439,341 @@ class FullReportService {
         if (month != null && year != null) 'year': '$year',
       },
     );
-    final response = await http.get(uri, headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'});
+    final response = await http.get(
+      uri,
+      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'},
+    );
     final body = _decodeMap(response.body);
-    if (response.statusCode < 200 || response.statusCode >= 300) throw FullReportException(body['message']?.toString() ?? 'Unable to load report history.');
-    return body['reports'] is List ? List<dynamic>.from(body['reports'] as List) : <dynamic>[];
+    if (response.statusCode < 200 || response.statusCode >= 300)
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load report history.',
+      );
+    return body['reports'] is List
+        ? List<dynamic>.from(body['reports'] as List)
+        : <dynamic>[];
   }
 
   Future<void> downloadClientHistoryItem(Map<String, dynamic> item) async {
     final id = item['id'];
-    final response = await http.get(Uri.parse('$_apiBaseUrl/report-export/client-history/$id/download'), headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'});
-    if (response.statusCode < 200 || response.statusCode >= 300) throw const FullReportException('Unable to download the saved report.');
+    final response = await _clientHistoryItemResponse(id);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw const FullReportException('Unable to download the saved report.');
+    }
     final format = item['file_format']?.toString().toLowerCase() ?? 'pdf';
-    final type = format == 'pdf' ? 'application/pdf' : format == 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
-    downloadFile(Uint8List.fromList(response.bodyBytes), item['file_name']?.toString() ?? 'Client_Full_Report.$format', type);
+    final type = format == 'pdf'
+        ? 'application/pdf'
+        : format == 'docx'
+        ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        : 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    downloadFile(
+      Uint8List.fromList(response.bodyBytes),
+      item['file_name']?.toString() ?? 'Client_Full_Report.$format',
+      type,
+    );
+  }
+
+  Future<Uint8List> clientHistoryItemBytes(Map<String, dynamic> item) async {
+    if (item['file_format']?.toString().toLowerCase() != 'pdf') {
+      throw const FullReportException('Only PDF reports can be previewed.');
+    }
+    final response = await _clientHistoryItemResponse(item['id']);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+            'Unable to load the saved report preview.',
+      );
+    }
+    final contentType = response.headers['content-type']?.toLowerCase() ?? '';
+    if (!contentType.contains('application/pdf')) {
+      throw const FullReportException('The saved report is not a PDF.');
+    }
+    return Uint8List.fromList(response.bodyBytes);
+  }
+
+  Future<http.Response> _clientHistoryItemResponse(Object? id) async {
+    return http.get(
+      Uri.parse('$_apiBaseUrl/report-export/client-history/$id/download'),
+      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'},
+    );
   }
 
   Future<void> deleteClientHistoryItem(Map<String, dynamic> item) async {
-    final response = await http.delete(Uri.parse('$_apiBaseUrl/report-export/client-history/${item['id']}'), headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'});
-    if (response.statusCode < 200 || response.statusCode >= 300) throw const FullReportException('Unable to delete the saved report.');
+    final response = await http.delete(
+      Uri.parse('$_apiBaseUrl/report-export/client-history/${item['id']}'),
+      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'},
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300)
+      throw const FullReportException('Unable to delete the saved report.');
   }
 
-  Future<void> uploadSharedReportTemplate(Uint8List bytes, String fileName) async {
-    final response = await http.put(Uri.parse('$_apiBaseUrl/report-export/template'), headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}', 'Content-Type': 'application/json'}, body: jsonEncode({'bytesBase64': base64Encode(bytes), 'fileName': fileName}));
-    if (response.statusCode < 200 || response.statusCode >= 300) throw const FullReportException('Unable to save the report template.');
+  Future<void> uploadSharedReportTemplate(
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    final response = await http.put(
+      Uri.parse('$_apiBaseUrl/report-export/template'),
+      headers: {
+        'Authorization': 'Bearer ${AuthSession.requireToken()}',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'bytesBase64': base64Encode(bytes),
+        'fileName': fileName,
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final body = _decodeMap(response.body);
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to save the report template.',
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>?> sharedReportTemplate() async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-export/template'),
+      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load the report template.',
+      );
+    }
+    return body['template'] is Map
+        ? Map<String, dynamic>.from(body['template'] as Map)
+        : null;
+  }
+
+  // ---- Report-module clients & assignments (admin) -------------------------
+  String get _authHeader => 'Bearer ${AuthSession.requireToken()}';
+
+  Future<List<Map<String, dynamic>>> taskManagerClientCards() async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/workspace-tasks/admin/cards'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ??
+            'Unable to load Task Manager client assignments.',
+      );
+    }
+    return body['data'] is List
+        ? List<Map<String, dynamic>>.from(
+            (body['data'] as List).map((e) => Map<String, dynamic>.from(e as Map)),
+          )
+        : <Map<String, dynamic>>[];
+  }
+
+  Future<List<Map<String, dynamic>>> reportClients() async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-export/report-clients'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load clients.',
+      );
+    }
+    return body['clients'] is List
+        ? List<Map<String, dynamic>>.from(
+            (body['clients'] as List).map((e) => Map<String, dynamic>.from(e as Map)))
+        : <Map<String, dynamic>>[];
+  }
+
+  Future<List<Map<String, dynamic>>> reportEmployees() async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-export/report-employees'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load employees.',
+      );
+    }
+    return body['employees'] is List
+        ? List<Map<String, dynamic>>.from(
+            (body['employees'] as List).map((e) => Map<String, dynamic>.from(e as Map)))
+        : <Map<String, dynamic>>[];
+  }
+
+  /// Create/update a client with category, logo and the full assignment set.
+  Future<void> saveReportClient({
+    required String companyName,
+    String? businessCategory,
+    String? logoBase64,
+    String? logoMimeType,
+    List<Map<String, dynamic>>? assignments,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-export/report-clients'),
+      headers: {'Authorization': _authHeader, 'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'companyName': companyName,
+        if (businessCategory != null) 'businessCategory': businessCategory,
+        if (logoBase64 != null) 'logoBase64': logoBase64,
+        if (logoMimeType != null) 'logoMimeType': logoMimeType,
+        if (assignments != null) 'assignments': assignments,
+      }),
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to save the client.',
+      );
+    }
+  }
+
+  Future<void> assignReportEmployee({
+    required String companyName,
+    required int employeeId,
+    required List<String> providers,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-export/report-clients/assign'),
+      headers: {'Authorization': _authHeader, 'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'companyName': companyName,
+        'employeeId': employeeId,
+        'providers': providers,
+      }),
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to assign the employee.',
+      );
+    }
+  }
+
+  Future<void> revokeReportAssignment({
+    required String companyName,
+    required int employeeId,
+    int? reassignToEmployeeId,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-export/report-clients/revoke'),
+      headers: {'Authorization': _authHeader, 'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'companyName': companyName,
+        'employeeId': employeeId,
+        if (reassignToEmployeeId != null)
+          'reassignToEmployeeId': reassignToEmployeeId,
+      }),
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to revoke the assignment.',
+      );
+    }
+  }
+
+  Future<void> deleteReportClient(String companyName) async {
+    final response = await http.delete(
+      Uri.parse(
+        '$_apiBaseUrl/report-export/report-clients/${Uri.encodeComponent(companyName)}',
+      ),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to delete the client.',
+      );
+    }
+  }
+
+  // ---- Report template library (admin) -------------------------------------
+  Future<List<Map<String, dynamic>>> reportTemplates() async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-export/templates'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load report templates.',
+      );
+    }
+    return body['templates'] is List
+        ? List<Map<String, dynamic>>.from(
+            (body['templates'] as List).map((e) => Map<String, dynamic>.from(e as Map)))
+        : <Map<String, dynamic>>[];
+  }
+
+  Future<void> uploadReportTemplate({
+    required Uint8List bytes,
+    required String fileName,
+    String? name,
+    bool activate = false,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-export/templates'),
+      headers: {'Authorization': _authHeader, 'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'bytesBase64': base64Encode(bytes),
+        'fileName': fileName,
+        if (name != null && name.isNotEmpty) 'name': name,
+        'activate': activate,
+      }),
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to save the report template.',
+      );
+    }
+  }
+
+  Future<void> activateReportTemplate(int id) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-export/templates/$id/activate'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to activate the template.',
+      );
+    }
+  }
+
+  Future<void> deleteReportTemplate(int id) async {
+    final response = await http.delete(
+      Uri.parse('$_apiBaseUrl/report-export/templates/$id'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to delete the template.',
+      );
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> templatePages([int? id]) async {
+    final uri = id == null
+        ? '$_apiBaseUrl/report-export/templates/pages'
+        : '$_apiBaseUrl/report-export/templates/$id/pages';
+    final response = await http.get(
+      Uri.parse(uri),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load template pages.',
+      );
+    }
+    return body['pages'] is List
+        ? List<Map<String, dynamic>>.from(
+            (body['pages'] as List).map((e) => Map<String, dynamic>.from(e as Map)))
+        : <Map<String, dynamic>>[];
   }
 
   Future<Map<String, String>> generateProviderInsights({
@@ -292,7 +794,8 @@ class FullReportService {
       }),
     );
     final body = _decodeMap(response.body);
-    if (response.statusCode < 200 || response.statusCode >= 300 ||
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
         body['success'] != true) {
       throw FullReportException(
         body['message']?.toString() ?? 'Unable to generate AI dashboard notes.',
@@ -323,16 +826,16 @@ class FullReportService {
       }),
     );
     final body = _decodeMap(response.body);
-    if (response.statusCode < 200 || response.statusCode >= 300 ||
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
         body['success'] != true) {
       throw FullReportException(
-        body['message']?.toString() ?? 'Unable to generate the Next Month Plan.',
+        body['message']?.toString() ??
+            'Unable to generate the Next Month Plan.',
       );
     }
     final plan = body['next_month_plan'];
-    return plan is Map
-        ? Map<String, dynamic>.from(plan)
-        : <String, dynamic>{};
+    return plan is Map ? Map<String, dynamic>.from(plan) : <String, dynamic>{};
   }
 
   Future<void> syncLinkedIn(String businessId) async {

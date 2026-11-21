@@ -51,6 +51,7 @@ import 'package:godigital_portal/screens/employee_dashboard/tech_workspace.dart'
     show TechProjectsAdminScreen;
 
 import 'package:godigital_portal/report/clients_full_report_screen.dart';
+import 'package:godigital_portal/report/report_home_screen.dart';
 /// Global navigator key — used by WaitingAlertService to show dialogs from
 /// outside the widget tree (e.g. background timers).
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -90,8 +91,18 @@ class MyApp extends StatelessWidget {
         builder: (context, child) => WaitingAlertHost(
           navigatorKey: appNavigatorKey, child: child ?? const SizedBox(),
         ),
-        initialRoute: '/',
         onGenerateRoute: (settings) {
+          final uri = Uri.tryParse(settings.name ?? '');
+          if (uri != null &&
+              uri.path == '/reports' &&
+              uri.queryParameters.containsKey('section')) {
+            return MaterialPageRoute(
+              settings: settings,
+              builder: (_) => ReportHomeRoute(
+                section: uri.queryParameters['section'] ?? 'dashboard',
+              ),
+            );
+          }
           final builder = AppRouter.routes[settings.name];
           if (builder == null) return null;
           return MaterialPageRoute(
