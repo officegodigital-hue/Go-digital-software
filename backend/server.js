@@ -389,38 +389,38 @@ app.use((err, req, res, next) => {
 server.listen(PORT, async () => {
   console.log(`GoDigital API running at http://localhost:${PORT}`);
   console.log('Socket.io server is active and running');
-  try {
-    await ensureContentCalendarWorkspaceSchema(db);
-    console.log('Content Calendar workspace schema is ready');
-    await ensureAttendanceTables(db);
-    await ensureWorkspaceTaskSchema(db);
-    console.log('Workspace task schema is ready');
-    await ensureAuthSchema(db);
-    console.log('Login schema is ready');
-    console.log('Attendance tables are ready');
-    await ensureAttendancePolicyTables();
-    await attendancePolicy.getTimeSettings(db);
-    console.log('Attendance time settings are ready');
-    await ensureHrmsEmployeeTables(db);
-    await require('./lib/employeeLifecycle').ensureLifecycle();
-    console.log('HRMS employee profiles are ready');
+  // Each startup step runs independently: a failure in one (e.g. payroll
+  // generation hitting unexpected data on the server) must NOT skip the
+  // steps after it. Previously a single try/catch meant one early failure
+  // left later tables — such as the report client/assignment tables — never
+  // created, which surfaced on the server as "Unable to load report clients".
+  const step = async (label, fn) => {
+    try {
+      await fn();
+      if (label) console.log(`${label} is ready`);
+    } catch (error) {
+      console.error(`Startup step failed (${label}):`, error.message);
+    }
+  };
+
+  await step('Content Calendar workspace schema', () => ensureContentCalendarWorkspaceSchema(db));
+  await step('Attendance tables', () => ensureAttendanceTables(db));
+  await step('Workspace task schema', () => ensureWorkspaceTaskSchema(db));
+  await step('Login schema', () => ensureAuthSchema(db));
+  await step('Attendance policy tables', () => ensureAttendancePolicyTables());
+  await step('Attendance time settings', () => attendancePolicy.getTimeSettings(db));
+  await step('HRMS employee tables', () => ensureHrmsEmployeeTables(db));
+  await step('HRMS employee lifecycle', () => require('./lib/employeeLifecycle').ensureLifecycle());
+  await step('Current payroll draft', async () => {
     const [currentYear, currentMonth] = attendancePolicy.todayIstDate().split('-').map(Number);
     const payrollRun = await generatePayrollRun(currentYear, currentMonth, attendancePolicy.todayIstDate());
     console.log(`Current payroll draft ready: ${payrollRun.generatedCount} included, ${payrollRun.skippedCount} need compensation.`);
-    await ensureHrmsTrackingTables(db);
-    await ensureClientRepositoryTables(db);
-    console.log('HRMS tracking tables are ready');
-    console.log('Client Work Repository tables are ready');
-    await require('./lib/ensureReportClientSchema').ensureReportClientSchema(db);
-    console.log('Report client/assignment tables are ready');
-    await require('./lib/ensureFullReportExportSchema')
-      .ensureFullReportExportSchema(db);
-    console.log('Full report export and approval tables are ready');
-    await require('./lib/ensureReportTemplateSchema').ensureReportTemplateSchema(db);
-    console.log('Report template library tables are ready');
-  } catch (error) {
-    console.error('Could not ensure startup database tables:', error.message);
-  }
+  });
+  await step('HRMS tracking tables', () => ensureHrmsTrackingTables(db));
+  await step('Client Work Repository tables', () => ensureClientRepositoryTables(db));
+  await step('Report client/assignment tables', () => require('./lib/ensureReportClientSchema').ensureReportClientSchema(db));
+  await step('Full report export and approval tables', () => require('./lib/ensureFullReportExportSchema').ensureFullReportExportSchema(db));
+  await step('Report template library tables', () => require('./lib/ensureReportTemplateSchema').ensureReportTemplateSchema(db));
   // Every new row in `notifications` (task assigned, review, planner ...) -> phone push.
   push.startNotificationWatcher();
 });

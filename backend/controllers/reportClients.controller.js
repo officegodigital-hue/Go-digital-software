@@ -9,6 +9,29 @@
 const db = require('../config/db');
 const { isAdmin } = require('../lib/reportTaskAccess');
 const { createNotification } = require('../routes/notifications');
+const { ensureReportClientSchema } = require('../lib/ensureReportClientSchema');
+const { ensureFullReportExportSchema } = require('../lib/ensureFullReportExportSchema');
+
+// Self-heal the report tables on first use. Startup already ensures these, but
+// if an earlier startup step failed (or the server was not restarted after a
+// deploy) the report_clients / report_client_assignments tables — and the
+// shared client_profiles / client_full_report_history tables this module reads
+// — may be missing, which otherwise surfaces as a 500 "Unable to load report
+// clients". Cached so the CREATE TABLE IF NOT EXISTS statements run once; reset
+// on failure so a transient error can be retried on the next request.
+let schemaReady = null;
+function ensureSchema() {
+  if (!schemaReady) {
+    schemaReady = (async () => {
+      await ensureReportClientSchema(db);
+      await ensureFullReportExportSchema(db);
+    })().catch((error) => {
+      schemaReady = null;
+      throw error;
+    });
+  }
+  return schemaReady;
+}
 
 // Best-effort notification; never fails the request it is attached to.
 async function notify(senderName, recipientName, message) {
@@ -68,15 +91,23 @@ async function listAssignableEmployees(req, res) {
 async function listReportClients(req, res) {
   try {
     if (!requireAdmin(req, res)) return undefined;
+    await ensureSchema();
+    // The cross-table `company_name` comparisons below force an explicit
+    // COLLATE so they never fail with "Illegal mix of collations" when the
+    // report tables and the shared client_profiles / client_full_report_history
+    // tables carry different collations (MySQL 8 server vs local). This is the
+    // guaranteed fallback for ensureReportClientSchema's collation normalization,
+    // which may be skipped if the DB user lacks the ALTER privilege.
     const [clients] = await db.query(
       `SELECT rc.company_name, rc.business_category, rc.created_at,
               cp.logo_data, cp.logo_mime_type,
               (SELECT COUNT(*) FROM client_full_report_history h
-                 WHERE h.company_name = rc.company_name) AS report_count,
+                 WHERE h.company_name = rc.company_name COLLATE utf8mb4_general_ci) AS report_count,
               (SELECT MAX(h.created_at) FROM client_full_report_history h
-                 WHERE h.company_name = rc.company_name) AS last_report_at
+                 WHERE h.company_name = rc.company_name COLLATE utf8mb4_general_ci) AS last_report_at
        FROM report_clients rc
-       LEFT JOIN client_profiles cp ON cp.company_name = rc.company_name
+       LEFT JOIN client_profiles cp
+              ON cp.company_name = rc.company_name COLLATE utf8mb4_general_ci
        ORDER BY rc.company_name`,
     );
     const [assignments] = await db.query(
@@ -123,6 +154,7 @@ async function listReportClients(req, res) {
 async function upsertReportClient(req, res) {
   try {
     if (!requireAdmin(req, res)) return undefined;
+    await ensureSchema();
     const companyName = String(req.body?.companyName || '').trim();
     if (!companyName) {
       return res.status(422).json({ success: false, message: 'Company name is required.' });
@@ -212,6 +244,7 @@ async function applyAssignments(companyName, assignments, actorId) {
 async function assignEmployee(req, res) {
   try {
     if (!requireAdmin(req, res)) return undefined;
+    await ensureSchema();
     const companyName = String(req.body?.companyName || '').trim();
     const employeeId = Number(req.body?.employeeId);
     if (!companyName || !Number.isSafeInteger(employeeId) || employeeId < 1) {
@@ -255,6 +288,7 @@ async function assignEmployee(req, res) {
 async function revokeAssignment(req, res) {
   try {
     if (!requireAdmin(req, res)) return undefined;
+    await ensureSchema();
     const companyName = String(req.body?.companyName || '').trim();
     const employeeId = Number(req.body?.employeeId);
     const reassignTo = req.body?.reassignToEmployeeId
@@ -311,6 +345,7 @@ async function revokeAssignment(req, res) {
 async function deleteReportClient(req, res) {
   try {
     if (!requireAdmin(req, res)) return undefined;
+    await ensureSchema();
     const companyName = String(req.params.company || '').trim();
     if (!companyName) {
       return res.status(422).json({ success: false, message: 'Company name is required.' });
