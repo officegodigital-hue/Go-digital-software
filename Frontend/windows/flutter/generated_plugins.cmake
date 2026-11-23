@@ -7,9 +7,11 @@ list(APPEND FLUTTER_PLUGIN_LIST
   emoji_picker_flutter
   file_selector_windows
   firebase_core
+  flutter_tts
   geolocator_windows
   printing
   share_plus
+  syncfusion_pdfviewer_windows
   url_launcher_windows
 )
 
