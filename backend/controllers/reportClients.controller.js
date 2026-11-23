@@ -101,6 +101,11 @@ async function listReportClients(req, res) {
     const [clients] = await db.query(
       `SELECT rc.company_name, rc.business_category, rc.created_at,
               cp.logo_data, cp.logo_mime_type,
+              CASE
+                WHEN COALESCE(tmc.is_on_hold, 0) = 1 THEN 'hold'
+                WHEN tmc.company_name IS NOT NULL AND tmc.is_active = 0 THEN 'inactive'
+                ELSE 'active'
+              END AS status,
               (SELECT COUNT(*) FROM client_full_report_history h
                  WHERE h.company_name = rc.company_name COLLATE utf8mb4_general_ci) AS report_count,
               (SELECT MAX(h.created_at) FROM client_full_report_history h
@@ -108,6 +113,9 @@ async function listReportClients(req, res) {
        FROM report_clients rc
        LEFT JOIN client_profiles cp
               ON cp.company_name = rc.company_name COLLATE utf8mb4_general_ci
+       LEFT JOIN clients tmc
+              ON tmc.company_name COLLATE utf8mb4_general_ci
+               = rc.company_name COLLATE utf8mb4_general_ci
        ORDER BY rc.company_name`,
     );
     const [assignments] = await db.query(
@@ -135,6 +143,7 @@ async function listReportClients(req, res) {
       return {
         companyName: c.company_name,
         businessCategory: c.business_category || '',
+        status: c.status || 'active',
         reportCount: Number(c.report_count) || 0,
         lastReportAt: c.last_report_at,
         logoBase64: c.logo_data ? c.logo_data.toString('base64') : null,

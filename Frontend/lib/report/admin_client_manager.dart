@@ -42,6 +42,10 @@ class _ReportClientManagerState extends State<ReportClientManager> {
   List<Map<String, dynamic>> _clients = const [];
   List<Map<String, dynamic>> _employees = const [];
 
+  // Clients list defaults to showing only ACTIVE clients. Switching this to
+  // 'inactive' or 'hold' shows only clients in that state instead.
+  String _statusFilter = 'active';
+
   @override
   void initState() {
     super.initState();
@@ -80,6 +84,7 @@ class _ReportClientManagerState extends State<ReportClientManager> {
           () => <String, dynamic>{
             'companyName': name,
             'businessCategory': '',
+            'status': 'active',
             'reportCount': 0,
             'employees': <Map<String, dynamic>>[],
             'providers': <String>[],
@@ -168,11 +173,64 @@ class _ReportClientManagerState extends State<ReportClientManager> {
 
   List<Map<String, dynamic>> get _filtered {
     final q = _search.text.trim().toLowerCase();
-    if (q.isEmpty) return _clients;
-    return _clients
-        .where((c) =>
-            (c['companyName']?.toString() ?? '').toLowerCase().contains(q))
-        .toList();
+    return _clients.where((c) {
+      final status = (c['status']?.toString() ?? 'active').toLowerCase();
+      if (status != _statusFilter) return false;
+      if (q.isEmpty) return true;
+      return (c['companyName']?.toString() ?? '').toLowerCase().contains(q);
+    }).toList();
+  }
+
+  int _statusCount(String status) => _clients
+      .where((c) => (c['status']?.toString() ?? 'active').toLowerCase() == status)
+      .length;
+
+  Widget _statusFilterChip(String label, String value, int count) {
+    final bool selected = _statusFilter == value;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => setState(() => _statusFilter = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? _blue : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? _blue : _lineBlue),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : _mutedBlue,
+                fontWeight: FontWeight.w800,
+                fontSize: 12.5,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: selected
+                    ? Colors.white.withValues(alpha: .22)
+                    : _paleBlue,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  color: selected ? Colors.white : _blue,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ── Actions ─────────────────────────────────────────────────────────────
@@ -401,6 +459,16 @@ class _ReportClientManagerState extends State<ReportClientManager> {
             ),
           ],
         ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            _statusFilterChip('Active', 'active', _statusCount('active')),
+            const SizedBox(width: 10),
+            _statusFilterChip('Inactive', 'inactive', _statusCount('inactive')),
+            const SizedBox(width: 10),
+            _statusFilterChip('On Hold', 'hold', _statusCount('hold')),
+          ],
+        ),
         const SizedBox(height: 18),
         if (_filtered.isEmpty)
           Container(
@@ -409,10 +477,25 @@ class _ReportClientManagerState extends State<ReportClientManager> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Container(width: 68, height: 68, decoration: BoxDecoration(color: _paleBlue, borderRadius: BorderRadius.circular(22)), child: const Icon(Icons.business_center_outlined, size: 32, color: _blue)),
               const SizedBox(height: 14),
-              Text(_search.text.trim().isEmpty ? 'No clients added yet' : 'No matching clients', style: const TextStyle(color: _navy, fontSize: 17, fontWeight: FontWeight.w800)),
+              Text(
+                _search.text.trim().isNotEmpty
+                    ? 'No matching clients'
+                    : _statusFilter == 'active'
+                        ? 'No clients added yet'
+                        : 'No ${_statusFilter == 'hold' ? 'on-hold' : 'inactive'} clients',
+                style: const TextStyle(color: _navy, fontSize: 17, fontWeight: FontWeight.w800),
+              ),
               const SizedBox(height: 6),
-              Text(_search.text.trim().isEmpty ? 'Add your first client to start managing reports.' : 'Try another company name or clear your search.', textAlign: TextAlign.center, style: const TextStyle(color: _mutedBlue, height: 1.5)),
-              if (_search.text.trim().isEmpty) ...[
+              Text(
+                _search.text.trim().isNotEmpty
+                    ? 'Try another company name or clear your search.'
+                    : _statusFilter == 'active'
+                        ? 'Add your first client to start managing reports.'
+                        : 'There are no clients in this state right now.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _mutedBlue, height: 1.5),
+              ),
+              if (_search.text.trim().isEmpty && _statusFilter == 'active') ...[
                 const SizedBox(height: 16),
                 FilledButton.icon(onPressed: () => _openEditor(), icon: const Icon(Icons.add_rounded), label: const Text('Add your first client'), style: FilledButton.styleFrom(backgroundColor: _blue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13))),
               ],

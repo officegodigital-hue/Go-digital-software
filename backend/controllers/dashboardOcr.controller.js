@@ -196,26 +196,58 @@ async function analyzeDashboardImages(images, providerOverride) {
     error.status = 400;
     throw error;
   }
-  const visionKey = process.env.GOOGLE_CLOUD_VISION_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+  // Only use a dedicated Cloud Vision key. A Google Maps key is NOT authorized
+  // for the Vision API and makes Vision reply "Permission denied on the
+  // service", so it must never be used here. When Vision is unavailable or the
+  // call fails (no key, disabled API, billing/permission error, network), we
+  // fall back to the bundled Tesseract engine (eng.traineddata) so OCR keeps
+  // working — the user can still correct values in Preview/Edit.
+  // Accept any of the dedicated Vision key names used in .env. A Google Maps /
+  // Geocoding key must NEVER be used here — it is not authorized for the Vision
+  // API and makes Vision reply "Permission denied on the service".
+  const visionKey = process.env.GOOGLE_CLOUD_VISION_API_KEY
+    || process.env.GOOGLE_VISION_API_KEY
+    || process.env.OCR_API_KEY;
+  const visionUrl = process.env.OCR_API_URL || 'https://vision.googleapis.com/v1/images:annotate';
+  const visionTimeout = Number(process.env.OCR_TIMEOUT_MS) > 0
+    ? Number(process.env.OCR_TIMEOUT_MS)
+    : 60000;
   const texts = [];
   const logos = [];
+
+  let usedVision = false;
   if (visionKey) {
-    const response = await axios.post(
-      `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(visionKey)}`,
-      { requests: safeImages.map((image) => ({ image: { content: image.base64 }, features: [{ type: 'TEXT_DETECTION', maxResults: 50 }, { type: 'LOGO_DETECTION', maxResults: 10 }] })) },
-      { timeout: 60000 }
-    );
-    for (const item of response.data?.responses || []) {
-      const text = item.fullTextAnnotation?.text || item.textAnnotations?.[0]?.description;
-      if (text) texts.push(text);
-      logos.push(...(item.logoAnnotations || []).map((logo) => logo.description).filter(Boolean));
-    }
-  } else {
-    for (const image of safeImages) {
-      const result = await recognize(Buffer.from(image.base64, 'base64'), 'eng', {}, { tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' });
-      if (result?.data?.text) texts.push(result.data.text);
+    try {
+      const response = await axios.post(
+        `${visionUrl}?key=${encodeURIComponent(visionKey)}`,
+        { requests: safeImages.map((image) => ({ image: { content: image.base64 }, features: [{ type: 'TEXT_DETECTION', maxResults: 50 }, { type: 'LOGO_DETECTION', maxResults: 10 }] })) },
+        { timeout: visionTimeout }
+      );
+      for (const item of response.data?.responses || []) {
+        const text = item.fullTextAnnotation?.text || item.textAnnotations?.[0]?.description;
+        if (text) texts.push(text);
+        logos.push(...(item.logoAnnotations || []).map((logo) => logo.description).filter(Boolean));
+      }
+      usedVision = true;
+    } catch (visionError) {
+      const detail = visionError?.response?.data?.error?.message || visionError?.message || 'unknown error';
+      console.error('Dashboard OCR: Cloud Vision failed, falling back to Tesseract:', detail);
+      texts.length = 0;
+      logos.length = 0;
     }
   }
+
+  if (!usedVision) {
+    for (const image of safeImages) {
+      try {
+        const result = await recognize(Buffer.from(image.base64, 'base64'), 'eng', {}, { tessedit_pageseg_mode: '11', preserve_interword_spaces: '1' });
+        if (result?.data?.text) texts.push(result.data.text);
+      } catch (tessError) {
+        console.error('Dashboard OCR: Tesseract failed for one image:', tessError?.message || tessError);
+      }
+    }
+  }
+
   const text = texts.join('\n').trim();
   if (!text) {
     const error = new Error('No readable text was found in this dashboard image.');
