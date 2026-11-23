@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS client_full_report_history (
   content_type VARCHAR(150) NOT NULL,
   file_data LONGBLOB NOT NULL,
   downloaded_by_user_id BIGINT UNSIGNED NULL,
+  client_id BIGINT UNSIGNED NULL,
+  template_id BIGINT UNSIGNED NULL,
+  template_version INT UNSIGNED NULL,
+  report_data LONGBLOB NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_client_report_history_company_period
@@ -74,6 +78,7 @@ CREATE TABLE IF NOT EXISTS report_workflow_drafts (
   report_name VARCHAR(255) NOT NULL,
   reporting_month DATE NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  report_data LONGBLOB NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     ON UPDATE CURRENT_TIMESTAMP,

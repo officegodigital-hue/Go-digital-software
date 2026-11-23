@@ -421,6 +421,7 @@ server.listen(PORT, async () => {
   await step('Report client/assignment tables', () => require('./lib/ensureReportClientSchema').ensureReportClientSchema(db));
   await step('Full report export and approval tables', () => require('./lib/ensureFullReportExportSchema').ensureFullReportExportSchema(db));
   await step('Report template library tables', () => require('./lib/ensureReportTemplateSchema').ensureReportTemplateSchema(db));
+  await step('Report workflow draft tables', () => require('./lib/ensureReportWorkflowSchema').ensureReportWorkflowSchema(db));
   // Every new row in `notifications` (task assigned, review, planner ...) -> phone push.
   push.startNotificationWatcher();
 });

@@ -6,6 +6,7 @@
 // endpoints. It reuses the existing report builder / history / approvals
 // screens for the actual work.
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -517,9 +518,10 @@ class _ReportHomeScreenState extends State<ReportHomeScreen> {
   Widget _dashboard() {
     final showClientsOnly =
         _section == _Section.clients || _section == _Section.reports;
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
+    return ReportWorkspace(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (!showClientsOnly) ...[
@@ -553,6 +555,7 @@ class _ReportHomeScreenState extends State<ReportHomeScreen> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -746,69 +749,107 @@ class _Kpi extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(20),
-    child: AnimatedContainer(
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.all(compact ? 12 : 18),
-      decoration: BoxDecoration(
-        color: selected ? color.withValues(alpha: .13) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: selected ? color : color.withValues(alpha: .25),
-          width: selected ? 2.5 : 1,
+  Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.all(compact ? 13 : 16),
+        decoration: BoxDecoration(
+          gradient: selected
+              ? LinearGradient(
+                  colors: [color.withValues(alpha: .12), Colors.white],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : const LinearGradient(
+                  colors: [Colors.white, Color(0xfffbfdff)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? color : const Color(0xffe1eaf7),
+            width: selected ? 1.8 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: selected
+                  ? color.withValues(alpha: .18)
+                  : const Color(0x120b2850),
+              blurRadius: selected ? 20 : 14,
+              offset: const Offset(0, 7),
+            ),
+          ],
         ),
-        boxShadow: [
-          BoxShadow(
-            color: selected
-                ? color.withValues(alpha: .28)
-                : const Color(0x150b2850),
-            blurRadius: selected ? 22 : 14,
-            offset: Offset(0, selected ? 9 : 5),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: compact ? 22 : 27,
-            backgroundColor: selected ? color : color.withValues(alpha: .13),
-            child: Icon(
-              icon,
-              color: selected ? Colors.white : color,
-              size: compact ? 25 : 30,
-            ),
-          ),
-          SizedBox(width: compact ? 10 : 16),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$value',
-                  style: TextStyle(
-                    fontSize: compact ? 28 : 32,
-                    fontWeight: FontWeight.w800,
-                    color: _navy,
-                  ),
+        child: Row(
+          children: [
+            Container(
+              width: compact ? 44 : 48,
+              height: compact ? 44 : 48,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [color, color.withValues(alpha: .78)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                Text(
-                  title,
-                  maxLines: compact ? 2 : null,
-                  overflow: compact ? TextOverflow.ellipsis : null,
-                  style: TextStyle(
-                    fontSize: compact ? 12 : 14,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xff152850),
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: .22),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: Icon(
+                icon,
+                color: Colors.white,
+                size: compact ? 23 : 25,
+              ),
             ),
-          ),
-        ],
+            SizedBox(width: compact ? 11 : 14),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: Text(
+                      '$value',
+                      key: ValueKey(value),
+                      style: TextStyle(
+                        fontSize: compact ? 26 : 29,
+                        height: 1.05,
+                        fontWeight: FontWeight.w900,
+                        color: _navy,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.2,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xff627594),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              Icon(Icons.check_circle_rounded, color: color, size: 18),
+          ],
+        ),
       ),
     ),
   );
@@ -995,18 +1036,57 @@ class _ClientsPanel extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.groups_rounded, size: 29, color: _blue),
-                const SizedBox(width: 9),
+                Container(
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: ReportBrand.brandGradient,
+                    borderRadius: BorderRadius.circular(13),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _blue.withValues(alpha: .26),
+                        blurRadius: 12,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.groups_rounded,
+                    size: 22,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 11),
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
                     color: _navy,
+                    letterSpacing: -.3,
                   ),
                 ),
-                const SizedBox(width: 9),
-                Chip(label: Text('${rows.length} Clients')),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xfff1f7ff),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xffdce8fb)),
+                  ),
+                  child: Text(
+                    '${rows.length} Clients',
+                    style: const TextStyle(
+                      color: _blue,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
               ],
             ),
             Row(
@@ -1017,32 +1097,67 @@ class _ClientsPanel extends StatelessWidget {
                   child: TextField(
                     controller: search,
                     onChanged: onSearch,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       isDense: true,
-                      prefixIcon: Icon(Icons.search),
+                      prefixIcon: const Icon(Icons.search_rounded, color: _blue),
                       hintText: 'Search by client name...',
-                      border: OutlineInputBorder(),
+                      hintStyle: const TextStyle(
+                        color: Color(0xff91a4c0),
+                        fontSize: 13,
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xfff7faff),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 14,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xffdce8fb)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Color(0xffdce8fb)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: _blue, width: 1.6),
+                      ),
                     ),
                   ),
                 ),
                 IconButton(
                   onPressed: onReset,
-                  icon: const Icon(Icons.restart_alt_rounded),
+                  icon: const Icon(Icons.restart_alt_rounded, color: _blue),
                   tooltip: 'Reset filters',
                 ),
                 const SizedBox(width: 4),
                 FilledButton.icon(
                   onPressed: onNew,
-                  style: FilledButton.styleFrom(backgroundColor: _blue),
-                  icon: const Icon(Icons.add),
-                  label: const Text('New report'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _blue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 15,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.add_rounded, size: 19),
+                  label: const Text(
+                    'New report',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
                 ),
               ],
             ),
           ],
         ),
-        const SizedBox(height: 18),
-        const Divider(),
+        const SizedBox(height: 16),
+        const Divider(color: Color(0xffe9eff8)),
         if (loading)
           const Padding(
             padding: EdgeInsets.all(32),
@@ -1065,7 +1180,7 @@ class _ClientsPanel extends StatelessWidget {
                   crossAxisCount: cols,
                   mainAxisSpacing: 16,
                   crossAxisSpacing: 16,
-                  childAspectRatio: 1.42,
+                  mainAxisExtent: 256,
                 ),
                 itemCount: rows.length,
                 itemBuilder: (context, i) => FadeSlideIn(
@@ -1155,19 +1270,26 @@ Widget _statusChip(String? status) {
   );
 }
 
-// A single client shown as a card: logo/initial, name, assigned-provider
-// brand logos, and report count. Tapping opens the month-wise reports view.
+// A single client shown as a premium card matching the admin client manager:
+// a gradient accent bar, gradient logo badge, status pill, a report-history
+// pill, assigned platforms, and a footer action bar. Tapping opens the
+// month-wise reports view. (Visuals only — all data/behaviour is unchanged.)
 class _ClientCard extends StatelessWidget {
   const _ClientCard({required this.row, required this.onTap});
   final _ClientRow row;
   final VoidCallback onTap;
 
-  ImageProvider? get _logo {
+  static const _sky = Color(0xff35a4ff);
+  static const _lineBlue = Color(0xffdce8fb);
+  static const _paleBlue = Color(0xfff1f7ff);
+  static const _mutedBlue = Color(0xff647b9f);
+
+  Uint8List? get _logoBytes {
     final encoded = (row.raw['logoBase64'] ?? row.raw['companyLogoBase64'])
         ?.toString();
     if (encoded == null || encoded.isEmpty) return null;
     try {
-      return MemoryImage(base64Decode(encoded));
+      return base64Decode(encoded);
     } catch (_) {
       return null;
     }
@@ -1176,105 +1298,258 @@ class _ClientCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final providers = providersFromTaskNames(row.providers);
-    final logo = _logo;
+    final logoBytes = _logoBytes;
+    final reports = row.reports;
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(22),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
         child: Container(
-          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xffE6ECF6)),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: _lineBlue),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0d082d61),
+                blurRadius: 22,
+                offset: Offset(0, 8),
+              ),
+            ],
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: const Color(0xffEFF3FB),
-                    backgroundImage: logo,
-                    child: logo == null
-                        ? Text(
-                            row.name.isNotEmpty
-                                ? row.name[0].toUpperCase()
-                                : '?',
-                            style: const TextStyle(
-                              color: _navy,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 18,
-                            ),
-                          )
-                        : null,
-                  ),
-                  const Spacer(),
-                  _statusChip(row.status),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                row.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 16.5,
-                  fontWeight: FontWeight.w800,
-                  color: _navy,
+              Container(
+                height: 5,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(colors: [_navy, _blue, _sky]),
                 ),
               ),
-              const SizedBox(height: 10),
-              if (providers.isEmpty)
-                const Text(
-                  'No providers assigned',
-                  style: TextStyle(color: Color(0xff8094b8), fontSize: 12),
-                )
-              else
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.topLeft,
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final p in providers.take(7))
-                          Tooltip(
-                            message: p.label,
-                            child: Container(
-                              padding: const EdgeInsets.all(5),
-                              decoration: BoxDecoration(
-                                color: p.color.withValues(alpha: .09),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: ProviderLogo(provider: p, size: 17),
-                            ),
-                          ),
-                        if (providers.length > 7)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 5,
-                            ),
+                            width: 46,
+                            height: 46,
                             decoration: BoxDecoration(
-                              color: const Color(0xffEFF3FB),
-                              borderRadius: BorderRadius.circular(8),
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [_blue, _sky],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _blue.withValues(alpha: .17),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                             ),
+                            clipBehavior: Clip.antiAlias,
+                            child: logoBytes != null
+                                ? Image.memory(logoBytes, fit: BoxFit.cover)
+                                : Center(
+                                    child: Text(
+                                      row.name.isNotEmpty
+                                          ? row.name[0].toUpperCase()
+                                          : '?',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 21,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
                             child: Text(
-                              '+${providers.length - 7}',
+                              row.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w800,
                                 color: _navy,
+                                height: 1.15,
                               ),
                             ),
                           ),
-                      ],
-                    ),
+                          const SizedBox(width: 8),
+                          _statusChip(row.status),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 9,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _paleBlue,
+                          borderRadius: BorderRadius.circular(13),
+                          border: Border.all(color: const Color(0xffe4efff)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.description_outlined,
+                                size: 16,
+                                color: _blue,
+                              ),
+                            ),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '$reports report${reports == 1 ? '' : 's'}',
+                                    style: const TextStyle(
+                                      fontSize: 12.5,
+                                      color: _navy,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const Text(
+                                    'Report history',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      color: _mutedBlue,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.arrow_forward_rounded,
+                              size: 16,
+                              color: _blue,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: const [
+                          Icon(Icons.hub_outlined, size: 14, color: _blue),
+                          SizedBox(width: 6),
+                          Text(
+                            'ASSIGNED PLATFORMS',
+                            style: TextStyle(
+                              fontSize: 10,
+                              letterSpacing: .7,
+                              fontWeight: FontWeight.w900,
+                              color: _navy,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          child: providers.isEmpty
+                              ? const Text(
+                                  'No platforms assigned',
+                                  style: TextStyle(
+                                    color: _mutedBlue,
+                                    fontSize: 11.5,
+                                  ),
+                                )
+                              : Wrap(
+                                  spacing: 7,
+                                  runSpacing: 6,
+                                  children: [
+                                    for (final p in providers.take(8))
+                                      Tooltip(
+                                        message: p.label,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: _paleBlue,
+                                            borderRadius:
+                                                BorderRadius.circular(9),
+                                            border:
+                                                Border.all(color: _lineBlue),
+                                          ),
+                                          child: ProviderLogo(
+                                            provider: p,
+                                            size: 18,
+                                          ),
+                                        ),
+                                      ),
+                                    if (providers.length > 8)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: _paleBlue,
+                                          borderRadius:
+                                              BorderRadius.circular(9),
+                                          border: Border.all(color: _lineBlue),
+                                        ),
+                                        child: Text(
+                                          '+${providers.length - 8}',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            color: _navy,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                decoration: const BoxDecoration(
+                  color: Color(0xfff8fbff),
+                  border: Border(top: BorderSide(color: _lineBlue)),
+                ),
+                child: const Row(
+                  children: [
+                    Text(
+                      'Open monthly reports',
+                      style: TextStyle(
+                        color: _blue,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Spacer(),
+                    Icon(Icons.arrow_outward_rounded, color: _blue, size: 16),
+                  ],
+                ),
+              ),
             ],
           ),
         ),

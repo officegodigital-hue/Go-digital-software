@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -12,6 +13,7 @@ import 'package:godigital_portal/report/data/full_report_service.dart';
 import 'package:godigital_portal/report/report_providers.dart';
 import 'package:godigital_portal/report/report_brand.dart';
 import 'package:godigital_portal/report/report_preview_screen.dart';
+import '../screens/widgets/pdf_inline_view.dart';
 
 class ClientsFullReportScreen extends StatefulWidget {
   const ClientsFullReportScreen({super.key, required this.business});
@@ -21,39 +23,179 @@ class ClientsFullReportScreen extends StatefulWidget {
       _ClientsFullReportScreenState();
 }
 
+String _templateFieldKey(dynamic value) =>
+    value?.toString().trim().toLowerCase() ?? '';
+
 class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
+  String get _reportingMonth {
+    final now = DateTime.now();
+    final month =
+        int.tryParse(widget.business['reportMonth']?.toString() ?? '') ??
+        now.month;
+    final year =
+        int.tryParse(widget.business['reportYear']?.toString() ?? '') ??
+        now.year;
+    return '$year-${month.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _loadTemplateFields() async {
+    final templateFuture = _activeTemplateFuture;
+    try {
+      final template = await templateFuture;
+      final templateId = (template?['id'] as num?)?.toInt();
+      if (templateId == null || templateId < 1) {
+        if (!mounted || templateFuture != _activeTemplateFuture) return;
+        setState(() {
+          _templateFields = const [];
+          _templateFieldValues.clear();
+          _reportDraftId = null;
+          _templateFieldsError = 'There is no active report template.';
+        });
+        return;
+      }
+
+      final fields = await reportService.reportTemplateFields(templateId);
+      final rawClientId =
+          widget.business['id'] ?? widget.business['businessId'];
+      final clientId = int.tryParse(rawClientId?.toString() ?? '');
+      final clientName =
+          widget.business['name']?.toString().trim() ?? '';
+      int? draftId;
+      var draftFields = <Map<String, dynamic>>[];
+      Map<String, dynamic>? reportDraftData;
+      if (clientName.isNotEmpty) {
+        draftId = await reportService.openReportDraft(
+          clientId: clientId != null && clientId > 0 ? clientId : null,
+          clientName: clientName,
+          templateId: templateId,
+          reportingMonth: _reportingMonth,
+          reportName: '$clientName report',
+        );
+        draftFields = await reportService.reportDraftFields(draftId);
+        reportDraftData = await reportService.reportDraftData(draftId);
+      }
+
+      final values = <String, String>{};
+      for (final record in draftFields) {
+        final key = _templateFieldKey(
+          record['override_label'] ?? record['source_label'],
+        );
+        if (key.isEmpty) continue;
+        values[key] =
+            (record['override_value'] ?? record['extracted_value'] ?? '')
+                .toString();
+      }
+      for (final field in fields.where(
+        (field) => field['field_type'] == 'text',
+      )) {
+        final key = _templateFieldKey(field['field_key']);
+        if (key.isNotEmpty) values.putIfAbsent(key, () => '');
+      }
+      final savedTemplateFields = reportDraftData?['templateFields'];
+      if (savedTemplateFields is Map) {
+        for (final entry in savedTemplateFields.entries) {
+          final key = _templateFieldKey(entry.key);
+          if (key.isNotEmpty) values[key] = entry.value?.toString() ?? '';
+        }
+      }
+
+      if (!mounted || templateFuture != _activeTemplateFuture) return;
+      if (reportDraftData != null) {
+        _restoreReportDraftData(reportDraftData);
+      }
+      setState(() {
+        _templateFields = fields;
+        _templateFieldValues
+          ..clear()
+          ..addAll(values);
+        _reportDraftId = draftId;
+        _templateFieldsError = null;
+        if (reportDraftData != null) {
+          review = true;
+          _templateView = false;
+          _continueFromHistory = true;
+        }
+      });
+    } catch (error) {
+      if (!mounted || templateFuture != _activeTemplateFuture) return;
+      setState(() => _templateFieldsError = '$error');
+    }
+  }
+
+  void _restoreReportDraftData(Map<String, dynamic> reportData) {
+    final snapshots = reportData['snapshots'];
+    if (snapshots is List) {
+      for (final rawSnapshot in snapshots.whereType<Map>()) {
+        final snapshot = Map<String, dynamic>.from(rawSnapshot);
+        final section = _providerForDetection(snapshot['provider']) ??
+            (snapshot['provider']?.toString().toUpperCase() == 'LOCAL_SEO'
+                ? 'Google Business Profile Ranking by GMB Dashboard'
+                : null);
+        if (section == null) continue;
+        final rawMetrics = snapshot['metrics'];
+        if (rawMetrics is! Map) continue;
+        final overrideValues = rawMetrics['export_overrides'];
+        final source = overrideValues is Map ? overrideValues : rawMetrics;
+        metrics[section] = {
+          ...?metrics[section],
+          for (final entry in source.entries)
+            if (entry.key.toString() != 'export_overrides')
+              entry.key.toString(): entry.value?.toString() ?? '',
+        };
+      }
+    }
+
+    final rawCoverEdits = reportData['cover_edits'];
+    if (rawCoverEdits is Map) {
+      coverEdits
+        ..clear()
+        ..addAll({
+          for (final entry in rawCoverEdits.entries)
+            entry.key.toString(): entry.value?.toString() ?? '',
+        });
+    }
+
+    final rawScreenshots = reportData['screenshots'];
+    if (rawScreenshots is List) {
+      for (final rawScreenshot in rawScreenshots.whereType<Map>()) {
+        final screenshot = Map<String, dynamic>.from(rawScreenshot);
+        final base64 = screenshot['bytesBase64']?.toString();
+        if (base64 == null || base64.isEmpty) continue;
+        final image = XFile.fromData(
+          base64Decode(base64),
+          name: 'saved_report_image',
+          mimeType: screenshot['mimeType']?.toString() ?? 'image/jpeg',
+        );
+        final provider = screenshot['provider']?.toString() ?? '';
+        if (provider.toUpperCase() == 'CREATIVE_SHOWCASE') {
+          final slot = screenshot['slot']?.toString();
+          if (slot != null && creativeShowcaseSlots.contains(slot)) {
+            creativeShowcaseUploads[slot] = image;
+          }
+          continue;
+        }
+        final section = _providerForDetection(provider);
+        if (section != null) {
+          uploads.putIfAbsent(section, () => <XFile>[]).add(image);
+        } else {
+          _templateScreenshotValues['screenshot:${provider.toLowerCase()}'] =
+              image;
+        }
+      }
+    }
+  }
+
+  Future<void> _pickTemplateScreenshot(String fieldKey) async {
+    final image = await picker.pickImage(source: ImageSource.gallery);
+    if (image == null || !mounted) return;
+    setState(() => _templateScreenshotValues[fieldKey] = image);
+  }
+
   bool get _canManageReports =>
       AuthSession.isAdmin || widget.business['canManageReports'] == true;
 
   bool _continueFromHistory = false;
   List<dynamic> _historyReports = <dynamic>[];
-  static const previewPageNames = <String>[
-    'Client Monthly Report (Cover Page)',
-    'Channel Summary',
-    'Google Business Profile',
-    'Google Business Profile Dashboard',
-    'Google Ads',
-    'Google Ads Dashboard',
-    'YouTube',
-    'YouTube Dashboard',
-    'Google Analytics Dashboard',
-    'Google Search Console Dashboard',
-    'Facebook',
-    'Facebook Dashboard',
-    'Meta Ads',
-    'Meta Ads Dashboard',
-    'Instagram',
-    'Instagram Dashboard',
-    'LinkedIn',
-    'LinkedIn Dashboard',
-    'LinkedIn Ads',
-    'LinkedIn Ads Dashboard',
-    'Twitter / X',
-    'Twitter / X Dashboard',
-    'Creatives Published',
-    'Creative Showcase',
-    'Next Month Plan',
-  ];
   static const providers = <String>[
     'Google Business Profile Dashboard',
     'Google Business Profile Ranking by GMB Dashboard',
@@ -93,6 +235,8 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     'photos_added': 'Photos added',
     'new_reviews': 'New reviews',
     'review_replies': 'Review replies',
+    'profile_name': 'Profile name',
+    'location': 'Location',
     'top_search_keyword': 'Top search keyword',
     'searches': 'Searches',
     'optimization_done': 'Optimization done',
@@ -122,177 +266,6 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     'total_revenue': 'Total revenue',
     'average_ctr': 'Average CTR',
     'average_position': 'Average position',
-  };
-  static const providerFields = <String, List<String>>{
-    'Google Business Profile Dashboard': [
-      'search_impressions',
-      'maps_impressions',
-      'calls',
-      'website_clicks',
-      'est_conversion_leads',
-      'bookings',
-      'posts_published',
-      'photos_added',
-      'new_reviews',
-      'review_replies',
-    ],
-    'Google Business Profile Ranking by GMB Dashboard': [
-      'top_search_keyword',
-      'searches',
-      'optimization_done',
-    ],
-    'Google Ads Dashboard': [
-      'active_campaigns',
-      'impressions',
-      'clicks',
-      'ctr',
-      'spend',
-      'conversions_leads',
-      'cost_per_lead',
-      'calls',
-      'keywords_optimized',
-      'campaign',
-      'impr',
-      'conv',
-      'cpl',
-    ],
-    'YouTube Dashboard': [
-      'subscribers',
-      'new_subscribers',
-      'impressions',
-      'impression_ctr',
-      'watch_time_hours',
-      'avg_view_duration',
-      'videos_published',
-      'shorts_published',
-      'likes_shares',
-      'top_video_views',
-      'insights_next_actions',
-    ],
-    'Facebook Dashboard': [
-      'page_followers',
-      'new_followers',
-      'impressions_reach_views',
-      'engagement',
-      'posts_published',
-      'videos_reels',
-      'stories',
-      'insights_next_actions',
-    ],
-    'Meta Ads Dashboard': [
-      'active_campaigns',
-      'reach_impressions',
-      'frequency',
-      'est_conversion_leads',
-      'ctr',
-      'cpm',
-      'spend',
-      'leads',
-      'cost_per_lead',
-      'whatsapp_messages',
-      'video_views',
-      'campaign_ad_set',
-      'clicks',
-      'cpl',
-    ],
-    'Instagram Dashboard': [
-      'followers',
-      'new_followers',
-      'impressions_reach_views',
-      'engagement',
-      'posts_published',
-      'reels_published',
-      'stories',
-      'insights_next_actions',
-    ],
-    'LinkedIn Dashboard': [
-      'followers',
-      'new_followers',
-      'impressions',
-      'engagement_rate',
-      'reposts',
-      'clicks',
-      'posts_published',
-      'insights_next_actions',
-    ],
-    'LinkedIn Ads Dashboard': [
-      'active_campaigns',
-      'leads',
-      'impressions',
-      'cost_per_lead',
-      'clicks',
-      'est_conversion_leads',
-      'ctr',
-      'engagements',
-      'avg_cpc',
-      'video_views',
-      'cpm',
-      'spend',
-      'campaign_group_campaign',
-      'impr',
-      'conv',
-      'cpl',
-    ],
-    'Google Analytics Dashboard': [
-      'active_users',
-      'new_users',
-      'sessions',
-      'engaged_sessions',
-      'engagement_rate',
-      'conversions',
-      'event_count',
-      'total_revenue',
-    ],
-    'Google Search Console Dashboard': [
-      'clicks',
-      'impressions',
-      'average_ctr',
-      'average_position',
-    ],
-    'Twitter Dashboard': [
-      'followers',
-      'posts_published',
-      'new_followers',
-      'impressions',
-      'engagement_rate',
-      'engagements',
-      'profile_visits',
-      'link_clicks',
-      'insights_next_actions',
-    ],
-    'Creatives Published': [
-      'posters_static_posts',
-      'posters_static_posts_vs_last_month',
-      'carousels',
-      'carousels_vs_last_month',
-      'reels_short_videos',
-      'reels_short_videos_vs_last_month',
-      'long_videos',
-      'long_videos_vs_last_month',
-      'ad_creatives',
-      'ad_creatives_vs_last_month',
-      'stories',
-      'stories_vs_last_month',
-      'best_creative_platform',
-      'best_creative_reach_views',
-      'best_creative_engagement',
-    ],
-    // Showcase entries are image slots in the PowerPoint template, not data fields.
-    'Creative Showcase': [],
-    'Next Month Plan': [
-      'gmb_gbp_action',
-      'google_ads_action',
-      'meta_ads_action',
-      'linkedin_ads_action',
-      'instagram_action',
-      'facebook_action',
-      'youtube_action',
-      'linkedin_organic_action',
-      'twitter_x_action',
-      'creatives_action',
-      'approvals_inputs',
-      'remarks',
-    ],
   };
   // A dashboard image unlocks its exact report-template pages. Values never
   // sit under the image page unless that page itself is a dashboard table.
@@ -382,6 +355,8 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
       'twitter_x_estimated_conversion_leads',
     ],
     'Google Business Profile': [
+      'profile_name',
+      'location',
       'search_impressions',
       'maps_impressions',
       'calls',
@@ -610,6 +585,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
   final picker = ImagePicker();
   final Map<String, List<XFile>> uploads = {};
   final Map<String, XFile> creativeShowcaseUploads = {};
+  final Map<String, XFile> _templateScreenshotValues = {};
   final Map<String, Map<String, String>> metrics = {};
   final Map<String, Map<String, String>> ocrMetrics = {};
   final Map<String, Set<String>> hiddenFields = {};
@@ -621,10 +597,15 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
   // when they need them; the template itself allows up to six.
   final Map<String, int> visibleTableRows = {};
   final reportService = const FullReportService();
+  late Future<Map<String, dynamic>?> _activeTemplateFuture;
+  List<Map<String, dynamic>> _templateFields = const [];
+  final Map<String, String> _templateFieldValues = {};
+  int? _reportDraftId;
+  String? _templateFieldsError;
   bool review = false, extracting = false;
-  // Preview/Edit view mode: false = form fields, true = the visual template
-  // card layout (the PDF look) with inline-editable values.
+  // Preview/Edit view mode: false = form fields, true = the rendered PPTX template.
   bool _templateView = true;
+  Future<Uint8List>? _templatePreviewFuture;
   String? extractingProvider;
   String _selectedCreativeShowcaseSlot = 'Poster 1';
 
@@ -713,6 +694,8 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     super.initState();
     final reports = widget.business['existingReports'];
     if (reports is List) _historyReports = List<dynamic>.from(reports);
+    _activeTemplateFuture = reportService.activeReportTemplate();
+    unawaited(_loadTemplateFields());
   }
 
   Future<void> _refreshHistory() async {
@@ -840,9 +823,13 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     if (file?.bytes == null || file == null) return;
     try {
       await reportService.uploadSharedReportTemplate(file.bytes!, file.name);
+      _activeTemplateFuture = reportService.activeReportTemplate();
+      _templatePreviewFuture = null;
+      unawaited(_loadTemplateFields());
+      if (review) _refreshTemplatePreview();
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Shared report template saved.')),
+          const SnackBar(content: Text('Report template updated and activated.')),
         );
     } catch (error) {
       if (mounted)
@@ -1538,11 +1525,13 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
       );
       return;
     }
+    final canReview = failures.isEmpty;
     setState(() {
       extracting = false;
       extractingProvider = null;
-      review = failures.isEmpty;
+      review = canReview;
     });
+    if (canReview) _refreshTemplatePreview();
     if (failures.isNotEmpty && mounted) {
       final continueToPreview = await showDialog<bool>(
         context: context,
@@ -1563,13 +1552,41 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
           ],
         ),
       );
-      if (continueToPreview == true && mounted) setState(() => review = true);
+      if (continueToPreview == true && mounted) {
+        setState(() => review = true);
+        _refreshTemplatePreview();
+      }
     }
   }
 
   /// Validates and assembles the full report payload shared by download and
   /// "Pass report" (approval submission). Returns null if the user aborts.
-  Future<Map<String, dynamic>?> _assembleReportPayload() async {
+  Future<Map<String, dynamic>?> _assembleReportPayload({
+    bool confirmOcrChanges = true,
+    bool requireReportContent = true,
+  }) async {
+    Map<String, dynamic>? activeTemplate;
+    try {
+      activeTemplate = await _activeTemplateFuture;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+      return null;
+    }
+    final templateId = (activeTemplate?['id'] as num?)?.toInt();
+    if (templateId == null || templateId < 1) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('An active PowerPoint report template is required.'),
+          ),
+        );
+      }
+      return null;
+    }
     final changedValues = <String>[];
     for (final entry in ocrMetrics.entries) {
       final edited = metrics[entry.key] ?? const <String, String>{};
@@ -1581,7 +1598,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         }
       }
     }
-    if (changedValues.isNotEmpty && mounted) {
+    if (confirmOcrChanges && changedValues.isNotEmpty && mounted) {
       final proceed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -1606,6 +1623,13 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     final now = DateTime.now();
     final businessId =
         widget.business['id'] ?? widget.business['businessId'] ?? 0;
+    final clientId = int.tryParse(businessId.toString());
+    final reportMonth =
+        int.tryParse(widget.business['reportMonth']?.toString() ?? '') ??
+        now.month;
+    final reportYear =
+        int.tryParse(widget.business['reportYear']?.toString() ?? '') ??
+        now.year;
     String providerName(String value) {
       final name = value.toUpperCase().replaceAll(' DASHBOARD', '');
       if (name.contains('RANKING BY GMB')) return 'LOCAL_SEO';
@@ -1622,7 +1646,8 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
           (entry) => entry.value.values.any((value) => value.trim().isNotEmpty),
         )
         .toList();
-    if (populated.isEmpty &&
+    if (requireReportContent &&
+        populated.isEmpty &&
         uploads.values.every((images) => images.isEmpty) &&
         creativeShowcaseUploads.isEmpty) {
       if (mounted)
@@ -1659,6 +1684,15 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         'mimeType': image.mimeType ?? 'image/jpeg',
       });
     }
+    for (final entry in _templateScreenshotValues.entries) {
+      final provider = entry.key.replaceFirst(RegExp(r'^screenshot:'), '');
+      if (provider.isEmpty) continue;
+      screenshots.add(<String, String>{
+        'provider': provider,
+        'bytesBase64': base64Encode(await entry.value.readAsBytes()),
+        'mimeType': entry.value.mimeType ?? 'image/jpeg',
+      });
+    }
     // A dashboard image is report content in its own right. Keep its provider
     // in the request even when OCR could not extract any editable metrics;
     // otherwise the template filter would remove the dashboard page before
@@ -1674,6 +1708,9 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
           )
           .map((entry) => providerName(entry.key)),
       if (creativeShowcaseUploads.isNotEmpty) 'CREATIVE_SHOWCASE',
+      ..._templateScreenshotValues.keys
+          .map((key) => key.replaceFirst(RegExp(r'^screenshot:'), '').toUpperCase())
+          .where((provider) => provider.isNotEmpty),
     };
     const insightSlides = <String, int>{
       'YouTube Dashboard': 11,
@@ -1765,8 +1802,14 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
       'spend': 'spend (₹)',
       'estimated_conversion_leads': 'estimated conversion leads',
     };
+    // Dashboard OCR values feed the Channel Summary automatically. Any value
+    // entered in the Channel Summary form deliberately wins over OCR.
+    final channelSummaryValues = <String, String>{
+      ..._channelSummaryValues(),
+      ...(metrics['Channel Summary'] ?? const <String, String>{}),
+    };
     final summaryEdits = <String, String>{};
-    (metrics['Channel Summary'] ?? const <String, String>{}).forEach((
+    channelSummaryValues.forEach((
       key,
       value,
     ) {
@@ -1829,17 +1872,38 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         planEdits['Remarks'] = value;
     });
     if (planEdits.isNotEmpty) slideEdits['28'] = planEdits;
+    final gmbValues = metrics['Google Business Profile Dashboard'] ??
+        metrics['Google Business Profile'] ??
+        const <String, String>{};
+    String firstGmbValue(List<String> keys, String fallback) => keys
+        .map((key) => gmbValues[key]?.trim() ?? '')
+        .firstWhere((value) => value.isNotEmpty, orElse: () => fallback);
+    final profileName = firstGmbValue(
+      const ['profile_name', 'profile', 'business_name'],
+      widget.business['name']?.toString().trim() ?? '',
+    );
+    final location = firstGmbValue(
+      const ['location', 'address', 'business_location'],
+      widget.business['address']?.toString().trim() ?? '',
+    );
     final payload = <String, dynamic>{
       'businessId': businessId.toString(),
+      if (clientId != null && clientId > 0) 'clientId': clientId,
+      'templateId': templateId,
       'clientName': widget.business['name']?.toString() ?? 'Client',
       if ((coverEdits['FILE NAME'] ?? '').trim().isNotEmpty)
         'fileName': coverEdits['FILE NAME']!.trim(),
-      'periodLabel': '${now.year}-${now.month.toString().padLeft(2, '0')}',
-      'filePeriod': '${now.year}-${now.month.toString().padLeft(2, '0')}',
+      'periodLabel':
+          '$reportYear-${reportMonth.toString().padLeft(2, '0')}',
+      'filePeriod':
+          '$reportYear-${reportMonth.toString().padLeft(2, '0')}',
       'dateRange': 'Overall',
-      'reportMonth': now.month,
-      'reportYear': now.year,
+      'reportMonth': reportMonth,
+      'reportYear': reportYear,
       'reportTemplate': 'EMPLOYEE_ADMIN',
+      // Keep the user's platform selection even when every metric field is
+      // blank, so the summary and next-month-plan tables still show its row.
+      'selectedProviders': includedProviders.toList(),
       // A provider can be reviewed on screen without being exported. Only
       // providers with at least one entered value get report pages.
       'providers': includedProviders
@@ -1864,6 +1928,12 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
             },
           )
           .toList(),
+      'templateFields': <String, String>{
+        ..._channelSummaryValues(),
+        if (profileName.isNotEmpty) 'profile_name': profileName,
+        if (location.isNotEmpty) 'location': location,
+        ..._templateFieldValues,
+      },
       'screenshots': screenshots,
       'slide_edits': slideEdits,
       'cover_edits': coverEdits,
@@ -1874,6 +1944,192 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         },
     };
     return payload;
+  }
+
+  Future<Uint8List> _loadTemplatePreview() async {
+    final payload = await _assembleReportPayload(
+      confirmOcrChanges: false,
+      requireReportContent: false,
+    );
+    if (payload == null) {
+      throw StateError('Unable to prepare the report template preview.');
+    }
+    return reportService.previewReportBytes(payload);
+  }
+
+  void _refreshTemplatePreview() {
+    if (!mounted) return;
+    setState(() => _templatePreviewFuture = _loadTemplatePreview());
+  }
+
+  Future<void> _saveTemplateFieldValues(Map<String, String> values) async {
+    final draftId = _reportDraftId;
+    if (draftId == null) {
+      final message = _templateFieldsError ??
+          'This client does not have a saved report draft.';
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
+      return;
+    }
+    final pageOrders = <String, dynamic>{
+      for (final field in _templateFields.where(
+        (field) => field['field_type'] == 'text',
+      ))
+        _templateFieldKey(field['field_key']): field['page_order'],
+    };
+    final fields = values.entries
+        .map((entry) => <String, dynamic>{
+              'label': entry.key,
+              'value': entry.value,
+              'templatePageId': pageOrders[entry.key],
+            })
+        .toList();
+    try {
+      await reportService.saveReportDraftFields(
+        draftId: draftId,
+        fields: fields,
+      );
+      if (!mounted) return;
+      setState(() {
+        _templateFieldValues
+          ..clear()
+          ..addAll(values);
+      });
+      final reportData = await _assembleReportPayload(
+        confirmOcrChanges: false,
+        requireReportContent: false,
+      );
+      if (reportData == null) {
+        throw StateError('Unable to prepare the report draft for saving.');
+      }
+      await reportService.saveReportDraftData(
+        draftId: draftId,
+        reportData: reportData,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report draft saved.')),
+      );
+      if (review && _templateView) _refreshTemplatePreview();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+
+  Future<void> _editTemplateFields() async {
+    if (_templateFieldsError != null && _templateFields.isEmpty) {
+      await _loadTemplateFields();
+    }
+    if (!mounted) return;
+    final editableFields = _templateFields
+        .where((field) => field['field_type'] == 'text')
+        .toList();
+    if (editableFields.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _templateFieldsError ??
+                'This PPTX has no {{field_key}} text placeholders to edit.',
+          ),
+        ),
+      );
+      return;
+    }
+    final values = Map<String, String>.from(_templateFieldValues);
+    final visibleKeys = editableFields
+        .map((field) => _templateFieldKey(field['field_key']))
+        .toSet();
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit client template fields'),
+          content: SizedBox(
+            width: 580,
+            height: 480,
+            child: Column(
+              children: [
+                const Text(
+                  'These values are saved for this client and report month. '
+                  'The master PPTX is unchanged.',
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView(
+                    children: editableFields.map((field) {
+                      final key = _templateFieldKey(field['field_key']);
+                      if (!visibleKeys.contains(key)) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: TextFormField(
+                          key: ValueKey('template_field_$key'),
+                          initialValue: values[key] ?? '',
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            labelText:
+                                '${field['label'] ?? key}  ({{$key}})',
+                            border: const OutlineInputBorder(),
+                            suffixIcon: IconButton(
+                              tooltip: 'Clear this client field',
+                              icon: const Icon(Icons.delete_outline_rounded),
+                              onPressed: () => setDialogState(() {
+                                values.remove(key);
+                                visibleKeys.remove(key);
+                              }),
+                            ),
+                          ),
+                          onChanged: (value) => values[key] = value,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                if (visibleKeys.length < editableFields.length)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => setDialogState(() {
+                        final next = editableFields
+                            .map((field) =>
+                                _templateFieldKey(field['field_key']))
+                            .firstWhere((key) => !visibleKeys.contains(key));
+                        visibleKeys.add(next);
+                        values.putIfAbsent(next, () => '');
+                      }),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add field'),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (save == true) {
+      await _saveTemplateFieldValues({
+        for (final key in visibleKeys) key: values[key] ?? '',
+      });
+    }
   }
 
   /// Renders the current report to a PDF and shows it inline in the shared
@@ -2429,20 +2685,23 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
   }
 
   Map<String, String> _channelSummaryValues() {
-    const sources = <String, String>{
-      'gmb': 'Google Business Profile Dashboard',
-      'google_ads': 'Google Ads Dashboard',
-      'meta_ads': 'Meta Ads Dashboard',
-      'linkedin_ads': 'LinkedIn Ads Dashboard',
-      'instagram': 'Instagram Dashboard',
-      'facebook': 'Facebook Dashboard',
-      'youtube': 'YouTube Dashboard',
-      'linkedin_organic': 'LinkedIn Dashboard',
-      'twitter_x': 'Twitter Dashboard',
+    const sources = <String, List<String>>{
+      'gmb': ['Google Business Profile Dashboard', 'Google Business Profile'],
+      'google_ads': ['Google Ads Dashboard', 'Google Ads'],
+      'meta_ads': ['Meta Ads Dashboard', 'Meta Ads'],
+      'linkedin_ads': ['LinkedIn Ads Dashboard', 'LinkedIn Ads'],
+      'instagram': ['Instagram Dashboard', 'Instagram'],
+      'facebook': ['Facebook Dashboard', 'Facebook'],
+      'youtube': ['YouTube Dashboard', 'YouTube'],
+      'linkedin_organic': ['LinkedIn Dashboard', 'LinkedIn'],
+      'twitter_x': ['Twitter Dashboard', 'Twitter / X'],
     };
     final result = <String, String>{};
     for (final entry in sources.entries) {
-      final values = metrics[entry.value] ?? const <String, String>{};
+      final values = entry.value
+          .map((source) => metrics[source] ?? const <String, String>{})
+          .firstWhere((source) => source.values.any((value) => value.trim().isNotEmpty),
+              orElse: () => const <String, String>{});
       String value(List<String> keys) => keys
           .map((key) => values[key] ?? '')
           .firstWhere((item) => item.trim().isNotEmpty, orElse: () => '');
@@ -2499,7 +2758,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         if (_canManageReports)
           Tooltip(
             message:
-                'The latest .pptx upload becomes the shared default. Use {{field_key}} and {{SCREENSHOT:provider}} placeholders.',
+                'Manage versioned PowerPoint templates. Use {{field_key}} and {{SCREENSHOT:provider}} placeholders.',
             child: TextButton.icon(
               onPressed: _uploadTemplate,
               icon: const Icon(Icons.upload_file_outlined),
@@ -2570,6 +2829,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     }
     return Scaffold(
       appBar: appBar,
+      backgroundColor: ReportBrand.bg,
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: review
@@ -2580,7 +2840,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                     _viewToggle(),
                     const SizedBox(height: 12),
                     _templateView
-                        ? _templatePreview(previewPages)
+                        ? _templatePreview()
                         : preview(previewPages),
                   ],
                 ),
@@ -2605,8 +2865,42 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                       ..._uploadProviderSections.map((provider) {
                         if (provider == 'Creative Showcase')
                           return Card(
+                            elevation: 0,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            color: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: const BorderSide(color: Color(0xffdce8fb)),
+                            ),
+                            clipBehavior: Clip.antiAlias,
                             child: ListTile(
-                              title: const Text('Creative Showcase'),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 6,
+                              ),
+                              leading: Container(
+                                width: 42,
+                                height: 42,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xfff1f7ff),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border:
+                                      Border.all(color: const Color(0xffdce8fb)),
+                                ),
+                                child: const Icon(
+                                  Icons.collections_rounded,
+                                  color: ReportBrand.blue,
+                                  size: 21,
+                                ),
+                              ),
+                              title: const Text(
+                                'Creative Showcase',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: ReportBrand.navy,
+                                ),
+                              ),
                               subtitle: Text(
                                 '${creativeShowcaseUploads.length} of 8 template slots filled • Upload JPEG, PNG, or WebP images between 1 MB and 10 MB',
                               ),
@@ -2650,32 +2944,99 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                         if (provider == 'Creatives Published' ||
                             provider == 'Next Month Plan') {
                           return Card(
+                            elevation: 0,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            color: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: const BorderSide(color: Color(0xffdce8fb)),
+                            ),
+                            clipBehavior: Clip.antiAlias,
                             child: ListTile(
-                              title: Text(provider),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 6,
+                              ),
+                              title: Text(
+                                provider,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: ReportBrand.navy,
+                                ),
+                              ),
                               subtitle: Text(
                                 provider == 'Creatives Published'
                                     ? 'Enter completed creative work in Preview/Edit.'
                                     : 'Enter next month actions in Preview/Edit.',
                               ),
-                              leading: const Icon(Icons.edit_note_rounded),
+                              leading: Container(
+                                width: 42,
+                                height: 42,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xfff1f7ff),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border:
+                                      Border.all(color: const Color(0xffdce8fb)),
+                                ),
+                                child: const Icon(
+                                  Icons.edit_note_rounded,
+                                  color: ReportBrand.blue,
+                                  size: 21,
+                                ),
+                              ),
                             ),
                           );
                         }
                         final images = uploads[provider] ?? const <XFile>[];
                         return Card(
+                          elevation: 0,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          color: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            side: const BorderSide(color: Color(0xffdce8fb)),
+                          ),
+                          clipBehavior: Clip.antiAlias,
                           child: ExpansionTile(
                             initiallyExpanded: images.isNotEmpty,
-                            leading: provider == _needsProvider
-                                ? const Icon(
-                                    Icons.help_outline_rounded,
-                                    color: Colors.orange,
-                                  )
-                                : (_providerLogo(provider) ??
-                                      const Icon(Icons.dashboard_outlined)),
+                            shape: const Border(),
+                            collapsedShape: const Border(),
+                            tilePadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 4,
+                            ),
+                            leading: Container(
+                              width: 42,
+                              height: 42,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: provider == _needsProvider
+                                    ? const Color(0xfffff3e4)
+                                    : const Color(0xfff1f7ff),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: provider == _needsProvider
+                                      ? const Color(0xffffd9a6)
+                                      : const Color(0xffdce8fb),
+                                ),
+                              ),
+                              child: provider == _needsProvider
+                                  ? const Icon(
+                                      Icons.help_outline_rounded,
+                                      color: Colors.orange,
+                                    )
+                                  : (_providerLogo(provider, size: 22) ??
+                                      const Icon(
+                                        Icons.dashboard_outlined,
+                                        color: ReportBrand.blue,
+                                      )),
+                            ),
                             title: Text(
                               provider,
                               style: const TextStyle(
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w800,
+                                color: ReportBrand.navy,
                               ),
                             ),
                             subtitle: Text(
@@ -2786,10 +3147,29 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                   );
                   final continueButton = FilledButton.icon(
                     onPressed: extracting ? null : extractAndPreview,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ReportBrand.blue,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
                     icon: extracting
                         ? const SizedBox.square(
                             dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
                           )
                         : const Icon(Icons.arrow_forward_rounded),
                     label: Text(
@@ -2917,58 +3297,6 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     );
   }
 
-  // ── Template (visual) editor ───────────────────────────────────────────
-  // Renders the report in its PDF card layout with every value inline-editable,
-  // writing to the same `metrics` / `coverEdits` maps the form view uses.
-  static const _templateDashboardSource = <String, String>{
-    'Google Business Profile': 'Google Business Profile Dashboard',
-    'Google Ads': 'Google Ads Dashboard',
-    'YouTube': 'YouTube Dashboard',
-    'Facebook': 'Facebook Dashboard',
-    'Meta Ads': 'Meta Ads Dashboard',
-    'Instagram': 'Instagram Dashboard',
-    'LinkedIn': 'LinkedIn Dashboard',
-    'LinkedIn Ads': 'LinkedIn Ads Dashboard',
-    'Twitter / X': 'Twitter Dashboard',
-    'Twitter / X Dashboard': 'Twitter Dashboard',
-  };
-  static const _templateComparisonPages = <String>{
-    'Google Business Profile',
-    'Google Ads',
-    'YouTube',
-    'Facebook',
-    'Meta Ads',
-    'Instagram',
-    'LinkedIn',
-    'LinkedIn Ads',
-    'Twitter / X',
-  };
-
-  bool _isTemplateTextField(String key) =>
-      key == 'insights_next_actions' ||
-      key == 'approvals_inputs' ||
-      key == 'remarks' ||
-      key.endsWith('_action') ||
-      key.endsWith('_owner') ||
-      key.endsWith('_due') ||
-      key.startsWith('top_search_keyword') ||
-      key.startsWith('optimization_done') ||
-      key == 'campaign' ||
-      key == 'campaign_ad_set' ||
-      key == 'campaign_group_campaign' ||
-      key.startsWith('best_creative') ||
-      key.startsWith('platform');
-
-  Color _templateCardColor(Color base, int index) {
-    final shades = <Color>[
-      base,
-      Color.lerp(base, Colors.black, .20)!,
-      Color.lerp(base, const Color(0xff6d28d9), .32)!,
-      Color.lerp(base, Colors.black, .34)!,
-    ];
-    return shades[index % shades.length];
-  }
-
   Widget _viewToggle() {
     Widget chip(String label, IconData icon, bool selected, VoidCallback onTap) =>
         InkWell(
@@ -3006,7 +3334,10 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           chip('Template view', Icons.dashboard_customize_rounded, _templateView,
-              () => setState(() => _templateView = true)),
+              () {
+            setState(() => _templateView = true);
+            _refreshTemplatePreview();
+          }),
           chip('Form view', Icons.list_alt_rounded, !_templateView,
               () => setState(() => _templateView = false)),
         ]),
@@ -3014,7 +3345,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     );
   }
 
-  Widget _templatePreview(List<String> active) => Column(
+  Widget _templatePreview() => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
@@ -3023,268 +3354,173 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Edit values directly on the report cards below. Only fields with a '
-            'value are included in the export.',
+            'This preview uses the active PowerPoint template. Switch to Form '
+            'view to edit report values.',
             style: TextStyle(color: Color(0xff5c6f93)),
           ),
           const SizedBox(height: 16),
-          _coverTemplateCard(),
-          const SizedBox(height: 18),
-          ...active.map(_providerTemplateSection),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: _editTemplateFields,
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Edit template fields'),
+              ),
+              OutlinedButton.icon(
+                onPressed: previewReport,
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('Open preview'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 760,
+            child: FutureBuilder<Uint8List>(
+              future: _templatePreviewFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Unable to render the PowerPoint template: '
+                          '${snapshot.error}',
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _refreshTemplatePreview,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                final bytes = snapshot.data;
+                if (bytes == null || bytes.isEmpty) {
+                  return Center(
+                    child: OutlinedButton.icon(
+                      onPressed: _refreshTemplatePreview,
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: const Text('Load PowerPoint template preview'),
+                    ),
+                  );
+                }
+                return buildPdfInlineView(bytes);
+              },
+            ),
+          ),
         ],
       );
 
-  Widget _coverTemplateCard() {
-    Widget field(String label, String labelKey, {String? initial}) => SizedBox(
-          width: 200,
-          child: TextFormField(
-            initialValue: initial,
-            onChanged: (value) => coverEdits[labelKey] = value,
-            decoration: InputDecoration(
-              labelText: label,
-              isDense: true,
-              border: const OutlineInputBorder(),
-            ),
-          ),
-        );
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xff0b2e63), Color(0xff0866e8)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: const [
-          BoxShadow(color: Color(0x330866e8), blurRadius: 18, offset: Offset(0, 8)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('CLIENT MONTHLY REPORT',
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  letterSpacing: 2,
-                  fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12)),
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                field('CLIENT / BRAND', 'CLIENT / BRAND',
-                    initial: widget.business['name']?.toString() ?? 'Client'),
-                field('REPORT MONTH', 'REPORT MONTH'),
-                field('DATE RANGE', 'DATE RANGE'),
-                field('PREPARED BY', 'PREPARED BY'),
-                field('DOWNLOAD FILE NAME', 'FILE NAME'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _providerTemplateSection(String provider) {
-    final dashboardSource = _templateDashboardSource[provider] ?? provider;
-    final extracted = provider == 'Channel Summary'
-        ? _channelSummaryValues()
-        : (metrics[dashboardSource] ?? const <String, String>{});
-    final keys = <String>[
-      ..._fieldsForPage(provider),
-      ...?manualFields[provider],
-    ]
-        .where((k) =>
-            !(hiddenFields[provider]?.contains(k) ?? false) &&
-            !k.endsWith('_vs_last_month'))
+  Widget _templateFieldFormSection() {
+    final textFields = _templateFields
+        .where((field) => field['field_type'] == 'text')
         .toList();
-    if (keys.isEmpty) return const SizedBox.shrink();
-    final base = providerByDashboardPage(provider)?.color ??
-        providerForName(provider)?.color ??
-        const Color(0xff2563eb);
-    final showVs = _templateComparisonPages.contains(provider);
-    final cards = <Widget>[];
-    for (var i = 0; i < keys.length; i++) {
-      final key = keys[i];
-      final value = metrics[dashboardSource]?[key] ?? extracted[key] ?? '';
-      cards.add(_isTemplateTextField(key)
-          ? _templateTextCard(dashboardSource, key, value)
-          : _templateMetricCard(
-              dashboardSource, key, value, _templateCardColor(base, i),
-              showVs: showVs));
+    final imageFields = _templateFields
+        .where((field) => field['field_type'] == 'image')
+        .toList();
+    if (textFields.isEmpty && imageFields.isEmpty) {
+      return const SizedBox.shrink();
     }
-    return Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xffe2eaf7)),
-        boxShadow: const [
-          BoxShadow(color: Color(0x12082d61), blurRadius: 16, offset: Offset(0, 7)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            if (providerForName(provider) != null) ...[
-              ProviderLogo.fromName(provider, size: 22, padded: true),
-              const SizedBox(width: 10),
-            ],
-            Expanded(
-              child: Text(provider,
-                  style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xff142f61))),
-            ),
-          ]),
-          const SizedBox(height: 14),
-          Wrap(spacing: 12, runSpacing: 12, children: cards),
-        ],
-      ),
-    );
-  }
-
-  Widget _templateMetricCard(
-      String source, String key, String value, Color color,
-      {required bool showVs}) {
-    final vsKey = '${key}_vs_last_month';
-    return SizedBox(
-      width: 232,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [color, Color.lerp(color, Colors.black, .26)!],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-                color: color.withValues(alpha: .30),
-                blurRadius: 14,
-                offset: const Offset(0, 7)),
-          ],
-        ),
+    return Card(
+      color: const Color(0xfff4f8ff),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(_fieldLabel(key).toUpperCase(),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    letterSpacing: .6,
-                    fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: ValueKey('tplval_${source}_$key'),
-              initialValue: value,
-              cursorColor: Colors.white,
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800),
-              decoration: const InputDecoration(
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                border: InputBorder.none,
-                hintText: '—',
-                hintStyle: TextStyle(color: Colors.white60),
-              ),
-              onChanged: (v) =>
-                  metrics.putIfAbsent(source, () => <String, String>{})[key] = v,
-            ),
-            const SizedBox(height: 10),
-            if (showVs)
-              Row(children: [
-                const Text('vs last month:',
-                    style: TextStyle(color: Colors.white70, fontSize: 11)),
-                const SizedBox(width: 6),
-                SizedBox(
-                  width: 54,
-                  child: TextFormField(
-                    key: ValueKey('tplvs_${source}_$vsKey'),
-                    initialValue: metrics[source]?[vsKey] ?? '',
-                    textAlign: TextAlign.center,
-                    cursorColor: Colors.white,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700),
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 2),
-                      hintText: '____',
-                      hintStyle: TextStyle(color: Colors.white54, fontSize: 12),
-                      enabledBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white38)),
-                      focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: Colors.white)),
-                    ),
-                    onChanged: (v) => metrics.putIfAbsent(
-                        source, () => <String, String>{})[vsKey] = v,
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Fields from the active PPTX',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                   ),
                 ),
-                const Text(' %',
-                    style: TextStyle(color: Colors.white70, fontSize: 11)),
-              ]),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _templateTextCard(String source, String key, String value) {
-    final isLong = key == 'insights_next_actions' ||
-        key == 'remarks' ||
-        key == 'approvals_inputs';
-    return SizedBox(
-      width: isLong ? 480 : 232,
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: const Color(0xfff6f9ff),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xffdce8fb)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(_fieldLabel(key).toUpperCase(),
-                style: const TextStyle(
-                    color: Color(0xff52648a),
-                    fontSize: 10.5,
-                    letterSpacing: .6,
-                    fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            TextFormField(
-              key: ValueKey('tpltxt_${source}_$key'),
-              initialValue: value,
-              minLines: isLong ? 3 : 1,
-              maxLines: isLong ? 6 : 2,
-              style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xff142f61)),
-              decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                hintText: '—',
-              ),
-              onChanged: (v) =>
-                  metrics.putIfAbsent(source, () => <String, String>{})[key] = v,
+                TextButton.icon(
+                  onPressed: () => _saveTemplateFieldValues(
+                    Map<String, String>.from(_templateFieldValues),
+                  ),
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('Save report'),
+                ),
+              ],
             ),
+            const Text(
+              'These values map directly to the {{field_key}} placeholders in '
+              'the selected template.',
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              children: textFields.map((field) {
+                final key = _templateFieldKey(field['field_key']);
+                return SizedBox(
+                  width: 300,
+                  child: TextFormField(
+                    key: ValueKey('template_form_$key'),
+                    initialValue: _templateFieldValues[key] ?? '',
+                    maxLines: 2,
+                    onChanged: (value) => _templateFieldValues[key] = value,
+                    decoration: InputDecoration(
+                      labelText: '${field['label'] ?? key}  ({{$key}})',
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            if (imageFields.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const Text(
+                'PPTX image placeholders',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: imageFields.map((field) {
+                  final key = _templateFieldKey(field['field_key']);
+                  final image = _templateScreenshotValues[key];
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => _pickTemplateScreenshot(key),
+                        icon: Icon(
+                          image == null
+                              ? Icons.add_photo_alternate_outlined
+                              : Icons.image_outlined,
+                        ),
+                        label: Text(
+                          image == null
+                              ? '${field['label'] ?? key}: Add image'
+                              : '${field['label'] ?? key}: Change image',
+                        ),
+                      ),
+                      if (image != null)
+                        IconButton(
+                          tooltip: 'Remove image',
+                          onPressed: () =>
+                              setState(() => _templateScreenshotValues.remove(key)),
+                          icon: const Icon(Icons.delete_outline_rounded),
+                        ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ],
           ],
         ),
       ),
@@ -3303,6 +3539,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         'Enter or edit the required values. Mandatory report pages are available even without a dashboard image; only fields with a value will be included in the exported report.',
       ),
       const SizedBox(height: 12),
+      _templateFieldFormSection(),
       Card(
         color: const Color(0xfff4f8ff),
         child: Padding(
@@ -3763,35 +4000,38 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
             onPressed: () => showDialog<void>(
               context: context,
               builder: (dialogContext) => AlertDialog(
-                title: const Text('Choose download format'),
+                title: const Text('Download report'),
                 content: const Text(
-                  'The reviewed Preview/Edit values will be used in the downloaded report.',
+                  'Choose the file format. The download includes only the report values and screenshots you added for this month.',
                 ),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('Back'),
+                    child: const Text('Cancel'),
                   ),
-                  FilledButton(
-                    onPressed: () {
-                      Navigator.of(dialogContext).pop();
-                      downloadReport('pdf');
-                    },
-                    child: const Text('PDF'),
-                  ),
-                  FilledButton(
+                  OutlinedButton.icon(
                     onPressed: () {
                       Navigator.of(dialogContext).pop();
                       downloadReport('docx');
                     },
-                    child: const Text('Word'),
+                    icon: const Icon(Icons.description_outlined),
+                    label: const Text('Word'),
                   ),
-                  FilledButton(
+                  OutlinedButton.icon(
                     onPressed: () {
                       Navigator.of(dialogContext).pop();
                       downloadReport('pptx');
                     },
-                    child: const Text('PowerPoint'),
+                    icon: const Icon(Icons.slideshow_outlined),
+                    label: const Text('PowerPoint'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      downloadReport('pdf');
+                    },
+                    icon: const Icon(Icons.picture_as_pdf_outlined),
+                    label: const Text('PDF'),
                   ),
                 ],
               ),

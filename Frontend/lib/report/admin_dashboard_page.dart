@@ -561,12 +561,14 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       ? const Center(child: CircularProgressIndicator(color: _adminBlue))
       : _error != null
       ? _message('Could not load client data', _error!, onRetry: _load)
-      : RefreshIndicator(
-          onRefresh: _load,
-          color: _adminBlue,
-          child: ListView(
+      : ReportWorkspace(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            color: _adminBlue,
+            child: ListView(
             padding: const EdgeInsets.all(24),
             children: [ReportClientManager(onChanged: _load)],
+            ),
           ),
         );
 
@@ -591,16 +593,18 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       ? const Center(child: CircularProgressIndicator(color: _adminBlue))
       : _error != null
       ? _message('Could not load report data', _error!, onRetry: _load)
-      : RefreshIndicator(
-          onRefresh: _load,
-          color: _adminBlue,
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              _pageHeading(title, subtitle ?? '', action: action),
-              const SizedBox(height: 24),
-              child,
-            ],
+      : ReportWorkspace(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            color: _adminBlue,
+            child: ListView(
+              padding: const EdgeInsets.all(24),
+              children: [
+                _pageHeading(title, subtitle ?? '', action: action),
+                const SizedBox(height: 24),
+                child,
+              ],
+            ),
           ),
         );
 

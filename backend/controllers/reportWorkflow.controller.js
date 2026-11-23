@@ -14,6 +14,11 @@ const {
 const {
   extractPowerPointTemplatePages,
 } = require('../services/reportTemplate.service');
+const {
+  findActiveReportTemplate,
+  findReportTemplateById,
+} = require('../services/reportTemplateLibrary.service');
+const { ensureReportWorkflowSchemaOnce } = require('../lib/ensureReportWorkflowSchema');
 
 const PROVIDER_NAMES = {
   GOOGLE_BUSINESS_PROFILE: 'Google Business Profile',
@@ -63,25 +68,13 @@ function validImageFile(file) {
 }
 
 async function activeTemplate() {
-  const [rows] = await db.query(
-    `SELECT file_name, template_data, updated_at
-     FROM report_templates WHERE scope = ? LIMIT 1`,
-    ['EMPLOYEE_ADMIN'],
-  );
-  return rows[0] ? { ...rows[0], id: 1 } : null;
+  return findActiveReportTemplate();
 }
 
 async function pagesForTemplate(templateId) {
-  if (Number(templateId) !== 1) {
-    throw httpError(404, 'The active report template was not found.');
-  }
-  const [rows] = await db.query(
-    `SELECT template_data FROM report_templates
-     WHERE scope = ? LIMIT 1`,
-    ['EMPLOYEE_ADMIN'],
-  );
-  if (!rows[0]) throw httpError(404, 'The active report template was not found.');
-  return extractPowerPointTemplatePages(Buffer.from(rows[0].template_data));
+  const template = await findReportTemplateById(Number(templateId));
+  if (!template) throw httpError(404, 'The selected report template was not found.');
+  return extractPowerPointTemplatePages(Buffer.from(template.template_data));
 }
 
 async function requireDraft(req, draftId) {
@@ -102,14 +95,57 @@ async function requireDraft(req, draftId) {
   return draft;
 }
 
+async function getDraftData(req, res) {
+  const draft = await requireDraft(req, req.params.draftId);
+  const [rows] = await db.query(
+    'SELECT report_data FROM report_workflow_drafts WHERE id = ? LIMIT 1',
+    [draft.id],
+  );
+  const stored = rows[0]?.report_data;
+  if (stored == null) return res.json({ success: true, reportData: null });
+  let reportData;
+  try {
+    reportData = JSON.parse(Buffer.isBuffer(stored)
+      ? stored.toString('utf8')
+      : String(stored));
+  } catch (error) {
+    console.error('Stored report draft data is invalid:', error.message);
+    throw httpError(500, 'The saved report draft data could not be read.');
+  }
+  return res.json({ success: true, reportData });
+}
+
+async function saveDraftData(req, res) {
+  const draft = await requireDraft(req, req.params.draftId);
+  const reportData = req.body?.reportData;
+  if (!reportData || typeof reportData !== 'object' || Array.isArray(reportData)) {
+    throw httpError(400, 'Provide report draft data as an object.');
+  }
+  if (Number(reportData.templateId) !== Number(draft.template_id)) {
+    throw httpError(400, 'The report draft must use its selected template.');
+  }
+  const serialized = JSON.stringify(reportData);
+  if (Buffer.byteLength(serialized, 'utf8') > 50 * 1024 * 1024) {
+    throw httpError(413, 'The saved report draft must be 50 MB or smaller.');
+  }
+  await db.query(
+    `UPDATE report_workflow_drafts
+     SET report_data = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [serialized, draft.id],
+  );
+  return res.json({ success: true });
+}
+
 async function getTemplates(req, res) {
   const template = await activeTemplate();
   return res.json({
     success: true,
     templates: template ? [{
       id: Number(template.id),
-      name: template.file_name,
-      updated_at: template.updated_at,
+      name: template.name,
+      version: Number(template.version) || 1,
+      updated_at: template.created_at,
     }] : [],
   });
 }
@@ -146,6 +182,7 @@ async function getHistory(req, res) {
 }
 
 async function getClientWorkspace(req, res) {
+  await ensureReportWorkflowSchemaOnce(db);
   const clientId = Number(req.params.clientId);
   if (!Number.isSafeInteger(clientId) || clientId < 1) {
     throw httpError(400, 'A valid client ID is required.');
@@ -259,36 +296,58 @@ async function getClientWorkspace(req, res) {
 }
 
 async function createDraft(req, res) {
+  await ensureReportWorkflowSchemaOnce(db);
   const clientId = Number(req.body?.clientId);
   const templateId = Number(req.body?.templateId);
   const reportingMonth = String(req.body?.reportingMonth || '');
+  const requestedName = String(req.body?.clientName || req.body?.reportName || '').trim();
   const match = /^(\d{4})-(\d{2})$/.exec(reportingMonth);
-  if (!Number.isSafeInteger(clientId) || clientId < 1
+  const hasClientId = Number.isSafeInteger(clientId) && clientId > 0;
+  if ((!hasClientId && !requestedName)
+      || (hasClientId && requestedName.length > 255)
+      || requestedName.length > 255
       || !Number.isSafeInteger(templateId) || templateId < 1
       || !match || Number(match[2]) < 1 || Number(match[2]) > 12) {
     throw httpError(400, 'A valid client, template, and reporting month are required.');
   }
 
-  const [clients] = await db.query(
-    'SELECT id, company_name FROM clients WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1',
-    [clientId],
-  );
-  const client = clients[0];
-  if (!client) throw httpError(404, 'The selected client was not found.');
-  if (!(await canAccessReportClient(db, req.user, client.company_name))) {
+  let resolvedClientId = 0;
+  let clientName = requestedName;
+  if (hasClientId) {
+    const [clients] = await db.query(
+      'SELECT id, company_name FROM clients WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1',
+      [clientId],
+    );
+    const client = clients[0];
+    if (!client) throw httpError(404, 'The selected client was not found.');
+    resolvedClientId = Number(client.id);
+    clientName = client.company_name;
+  }
+  if (!clientName || !(await canAccessReportClient(db, req.user, clientName))) {
     throw httpError(403, 'You do not have a Task Manager assignment for this client.');
   }
-  if (templateId !== 1 || !(await activeTemplate())) {
+  const template = await findReportTemplateById(templateId);
+  if (!template) {
     throw httpError(404, 'The selected report template was not found.');
   }
 
   const monthDate = `${match[1]}-${match[2]}-01`;
-  const name = String(req.body?.reportName || `${client.company_name} report`).trim().slice(0, 255);
+  const name = String(req.body?.reportName || `${clientName} report`).trim().slice(0, 255);
+  const [existingDrafts] = await db.query(
+    `SELECT id FROM report_workflow_drafts
+     WHERE client_id = ? AND client_name = ? AND template_id = ? AND employee_id = ?
+       AND reporting_month = ? AND status = 'draft'
+     ORDER BY updated_at DESC LIMIT 1`,
+    [resolvedClientId, clientName, templateId, req.user.id, monthDate],
+  );
+  if (existingDrafts[0]) {
+    return res.status(200).json({ success: true, id: Number(existingDrafts[0].id) });
+  }
   const [result] = await db.query(
     `INSERT INTO report_workflow_drafts
       (client_id, client_name, template_id, employee_id, report_name, reporting_month)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [client.id, client.company_name, templateId, req.user.id, name, monthDate],
+    [resolvedClientId, clientName, templateId, req.user.id, name, monthDate],
   );
   return res.status(201).json({ success: true, id: Number(result.insertId) });
 }
@@ -529,10 +588,6 @@ async function getDraftPreview(req, res) {
     [draft.id],
   );
   const pages = await pagesForTemplate(draft.template_id);
-  const uploadedProviders = new Set(screenshots
-    .map((screenshot) => String(screenshot.provider_name || '').toLowerCase()));
-  const selectedPages = pages.filter((page) => page.required_static
-    || uploadedProviders.has(providerName(page.provider_code).toLowerCase()));
   return res.json({
     success: true,
     draft: {
@@ -543,7 +598,7 @@ async function getDraftPreview(req, res) {
       reportingMonth: draft.reporting_month,
       status: draft.status,
     },
-    pages: selectedPages,
+    pages,
     screenshots,
     fields,
   });
@@ -596,7 +651,84 @@ async function deleteField(req, res) {
   return res.json({ success: true });
 }
 
+async function replaceDraftFields(req, res) {
+  const draft = await requireDraft(req, req.params.draftId);
+  const fields = req.body?.fields;
+  if (!Array.isArray(fields) || fields.length > 500) {
+    throw httpError(400, 'Provide no more than 500 editable template fields.');
+  }
+  const pages = await pagesForTemplate(draft.template_id);
+  const pageIds = new Set(pages.map((page) => page.id));
+  const normalized = fields.map((field) => {
+    const label = String(field?.label || '').trim();
+    const value = String(field?.value ?? '');
+    const pageId = Number(field?.templatePageId) || null;
+    if (!label || label.length > 255) {
+      throw httpError(400, 'Each editable field needs a name of 255 characters or fewer.');
+    }
+    if (value.length > 4000) {
+      throw httpError(400, 'Editable field values must be 4,000 characters or fewer.');
+    }
+    if (pageId != null && !pageIds.has(pageId)) {
+      throw httpError(400, 'An editable field refers to a page outside this template.');
+    }
+    return { label, value, pageId };
+  });
+  if (new Set(normalized.map((field) => field.label.toLowerCase())).size !== normalized.length) {
+    throw httpError(400, 'Editable template field names must be unique.');
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query(
+      'DELETE FROM report_workflow_fields WHERE draft_id = ? AND screenshot_id IS NULL',
+      [draft.id],
+    );
+    for (const field of normalized) {
+      await connection.query(
+        `INSERT INTO report_workflow_fields
+           (draft_id, template_page_id, source_label, extracted_value,
+            override_label, override_value)
+         VALUES (?, ?, ?, NULL, ?, ?)`,
+        [draft.id, field.pageId, field.label, field.label, field.value],
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return res.json({ success: true, fieldCount: normalized.length });
+}
+
 async function buildDraftPayload(draft) {
+  const [savedRows] = await db.query(
+    'SELECT report_data FROM report_workflow_drafts WHERE id = ? LIMIT 1',
+    [draft.id],
+  );
+  const savedData = savedRows[0]?.report_data;
+  if (savedData != null) {
+    let payload;
+    try {
+      payload = JSON.parse(Buffer.isBuffer(savedData)
+        ? savedData.toString('utf8')
+        : String(savedData));
+    } catch (error) {
+      console.error('Stored report draft data is invalid:', error.message);
+      throw httpError(500, 'The saved report draft data could not be read.');
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw httpError(500, 'The saved report draft data has an invalid format.');
+    }
+    if (Number(payload.templateId) !== Number(draft.template_id)) {
+      throw httpError(409, 'The saved report draft template no longer matches.');
+    }
+    return payload;
+  }
+
   const [screenshots] = await db.query(
     `SELECT id, image_data, mime_type, provider_name
      FROM report_workflow_screenshots
@@ -612,15 +744,18 @@ async function buildDraftPayload(draft) {
   );
   const snapshots = new Map();
   const slideEdits = {};
+  const templateFields = {};
   for (const field of fields) {
     const key = fieldKey(field.override_label || field.source_label);
     const value = field.override_value ?? field.extracted_value;
     if (!key || value == null || String(value).trim() === '') continue;
     const provider = providerName(field.provider_name);
     if (!provider && field.template_page_id != null) {
-      const pageEdits = slideEdits[String(field.template_page_id)] || {};
-      pageEdits[field.override_label || field.source_label] = String(value);
-      slideEdits[String(field.template_page_id)] = pageEdits;
+      templateFields[field.override_label || field.source_label] = String(value);
+      continue;
+    }
+    if (!provider) {
+      templateFields[field.override_label || field.source_label] = String(value);
       continue;
     }
     if (!provider) continue;
@@ -638,7 +773,9 @@ async function buildDraftPayload(draft) {
   ].filter(Boolean))];
   return {
     businessId: String(draft.client_id),
+    clientId: Number(draft.client_id),
     clientName: draft.client_name,
+    templateId: Number(draft.template_id),
     reportName: draft.report_name,
     reportMonth: month,
     reportYear: year,
@@ -650,10 +787,12 @@ async function buildDraftPayload(draft) {
       provider,
       connectionStatus: 'SCREENSHOT',
     })),
+    selectedProviders: providers,
     snapshots: [...snapshots.entries()].map(([provider, metrics]) => ({
       provider,
       metrics: { ...metrics, export_overrides: metrics },
     })),
+    templateFields,
     slide_edits: slideEdits,
     screenshots: screenshots.map((screenshot) => ({
       provider: providerName(screenshot.provider_name),
@@ -663,7 +802,27 @@ async function buildDraftPayload(draft) {
   };
 }
 
+function hasReportContent(payload) {
+  return (Array.isArray(payload.screenshots) && payload.screenshots.length > 0)
+    || (Array.isArray(payload.snapshots) && payload.snapshots.length > 0)
+    || Object.keys(payload.templateFields || {}).length > 0
+    || Object.keys(payload.slide_edits || {}).length > 0;
+}
+
 async function readyDraftPayload(draft) {
+  const [savedRows] = await db.query(
+    'SELECT report_data FROM report_workflow_drafts WHERE id = ? LIMIT 1',
+    [draft.id],
+  );
+  if (savedRows[0]?.report_data != null) {
+    const payload = await buildDraftPayload(draft);
+    if (!hasReportContent(payload)) {
+      throw httpError(400, 'Enter report values or add a dashboard image before exporting.');
+    }
+    return payload;
+  }
+
+  const payload = await buildDraftPayload(draft);
   const [rows] = await db.query(
     `SELECT COUNT(*) AS total,
             SUM(CASE WHEN provider_name IS NULL OR TRIM(provider_name) = '' THEN 1 ELSE 0 END) AS unassigned
@@ -676,7 +835,7 @@ async function readyDraftPayload(draft) {
   if (Number(rows[0]?.unassigned)) {
     throw httpError(400, 'Choose a provider for every screenshot before submitting the report.');
   }
-  return buildDraftPayload(draft);
+  return payload;
 }
 
 async function submitDraft(req, res) {
@@ -699,6 +858,7 @@ module.exports = {
   createDraft,
   deleteField,
   deleteScreenshot,
+  getDraftData,
   getHistory,
   getClientWorkspace,
   exportDraft,
@@ -709,6 +869,8 @@ module.exports = {
   listScreenshots,
   readScreenshot,
   replaceScreenshot,
+  replaceDraftFields,
+  saveDraftData,
   submitDraft,
   updateField,
   updateScreenshot,

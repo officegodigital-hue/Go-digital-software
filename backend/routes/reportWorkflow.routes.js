@@ -12,6 +12,7 @@ const {
   deleteScreenshot,
   getHistory,
   getClientWorkspace,
+  getDraftData,
   getDraftPreview,
   exportDraft,
   getTemplatePages,
@@ -20,6 +21,8 @@ const {
   listScreenshots,
   readScreenshot,
   replaceScreenshot,
+  replaceDraftFields,
+  saveDraftData,
   submitDraft,
   updateField,
   updateScreenshot,
@@ -90,6 +93,8 @@ router.get('/templates/:templateId/pages', getTemplatePages);
 router.get('/history', getHistory);
 router.get('/clients/:clientId/workspace', getClientWorkspace);
 router.post('/drafts', createDraft);
+router.get('/drafts/:draftId/data', getDraftData);
+router.put('/drafts/:draftId/data', saveDraftData);
 router.get('/drafts/:draftId/preview', getDraftPreview);
 router.post('/drafts/:draftId/submit', submitDraft);
 router.post('/drafts/:draftId/export/:format', exportDraft);
@@ -102,6 +107,7 @@ router.patch('/drafts/:draftId/screenshots/:screenshotId', updateScreenshot);
 router.delete('/drafts/:draftId/screenshots/:screenshotId', deleteScreenshot);
 router.get('/drafts/:draftId/fields', listFields);
 router.post('/drafts/:draftId/fields', addField);
+router.put('/drafts/:draftId/fields', replaceDraftFields);
 router.patch('/drafts/:draftId/fields/:fieldId', updateField);
 router.delete('/drafts/:draftId/fields/:fieldId', deleteField);
 

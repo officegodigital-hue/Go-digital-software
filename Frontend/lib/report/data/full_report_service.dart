@@ -256,6 +256,180 @@ class FullReportService {
     return (body['submissionId'] as num?)?.toInt() ?? 0;
   }
 
+  Future<int> openReportDraft({
+    int? clientId,
+    required String clientName,
+    required int templateId,
+    required String reportingMonth,
+    required String reportName,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts'),
+      headers: {
+        'Authorization': _authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        if (clientId != null && clientId > 0) 'clientId': clientId,
+        'clientName': clientName,
+        'templateId': templateId,
+        'reportingMonth': reportingMonth,
+        'reportName': reportName,
+      }),
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to open the report draft.',
+      );
+    }
+    final id = (body['id'] as num?)?.toInt();
+    if (id == null || id < 1) {
+      throw const FullReportException('The report draft ID is invalid.');
+    }
+    return id;
+  }
+
+  Future<List<Map<String, dynamic>>> reportDraftFields(int draftId) async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/fields'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load saved report fields.',
+      );
+    }
+    return body['fields'] is List
+        ? List<Map<String, dynamic>>.from(
+            (body['fields'] as List).map(
+              (item) => Map<String, dynamic>.from(item as Map),
+            ),
+          )
+        : <Map<String, dynamic>>[];
+  }
+
+  Future<Map<String, dynamic>?> reportDraftData(int draftId) async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/data'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load the report draft.',
+      );
+    }
+    final data = body['reportData'];
+    return data is Map ? Map<String, dynamic>.from(data) : null;
+  }
+
+  Future<void> saveReportDraftData({
+    required int draftId,
+    required Map<String, dynamic> reportData,
+  }) async {
+    final response = await http.put(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/data'),
+      headers: {
+        'Authorization': _authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'reportData': reportData}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+          'Unable to save the report draft.',
+      );
+    }
+  }
+
+  Future<void> saveReportDraftFields({
+    required int draftId,
+    required List<Map<String, dynamic>> fields,
+  }) async {
+    final response = await http.put(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/fields'),
+      headers: {
+        'Authorization': _authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'fields': fields}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+            'Unable to save report template fields.',
+      );
+    }
+  }
+
+  Future<int> addReportDraftField({
+    required int draftId,
+    required String label,
+    required String value,
+    int? templatePageId,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/fields'),
+      headers: {
+        'Authorization': _authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'label': label,
+        'value': value,
+        if (templatePageId != null) 'templatePageId': templatePageId,
+      }),
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to add a report field.',
+      );
+    }
+    return (body['id'] as num).toInt();
+  }
+
+  Future<void> updateReportDraftField({
+    required int draftId,
+    required int fieldId,
+    required String label,
+    required String value,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/fields/$fieldId'),
+      headers: {
+        'Authorization': _authHeader,
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'label': label, 'value': value}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+            'Unable to save a report field.',
+      );
+    }
+  }
+
+  Future<void> deleteReportDraftField({
+    required int draftId,
+    required int fieldId,
+  }) async {
+    final response = await http.delete(
+      Uri.parse('$_apiBaseUrl/report-workflow/drafts/$draftId/fields/$fieldId'),
+      headers: {'Authorization': _authHeader},
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+            'Unable to delete a report field.',
+      );
+    }
+  }
+
   // ---- Approval workflow ---------------------------------------------------
   Future<int> submitForApproval(Map<String, dynamic> payload) async {
     final response = await http.post(
@@ -510,23 +684,11 @@ class FullReportService {
     Uint8List bytes,
     String fileName,
   ) async {
-    final response = await http.put(
-      Uri.parse('$_apiBaseUrl/report-export/template'),
-      headers: {
-        'Authorization': 'Bearer ${AuthSession.requireToken()}',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'bytesBase64': base64Encode(bytes),
-        'fileName': fileName,
-      }),
+    await uploadReportTemplate(
+      bytes: bytes,
+      fileName: fileName,
+      activate: true,
     );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final body = _decodeMap(response.body);
-      throw FullReportException(
-        body['message']?.toString() ?? 'Unable to save the report template.',
-      );
-    }
   }
 
   Future<Map<String, dynamic>?> sharedReportTemplate() async {
@@ -543,6 +705,84 @@ class FullReportService {
     return body['template'] is Map
         ? Map<String, dynamic>.from(body['template'] as Map)
         : null;
+  }
+
+  Future<Map<String, dynamic>?> activeReportTemplate() async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-export/templates/active'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ??
+            'Unable to load the active report template.',
+      );
+    }
+    return body['template'] is Map
+        ? Map<String, dynamic>.from(body['template'] as Map)
+        : null;
+  }
+
+  Future<Uint8List> previewReportTemplateBytes(int id) async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-export/templates/$id/preview.pdf'),
+      headers: {
+        'Authorization': _authHeader,
+        'Accept': 'application/pdf',
+      },
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        _decodeMap(response.body)['message']?.toString() ??
+            'Unable to render the report template.',
+      );
+    }
+    return Uint8List.fromList(response.bodyBytes);
+  }
+
+  Future<void> downloadReportTemplate({
+    required int id,
+    required String fileName,
+  }) async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-export/templates/$id/download'),
+      headers: {'Authorization': _authHeader},
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final body = _decodeMap(response.body);
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to download the report template.',
+      );
+    }
+    final name = fileName.toLowerCase().endsWith('.pptx')
+        ? fileName
+        : '$fileName.pptx';
+    downloadFile(
+      Uint8List.fromList(response.bodyBytes),
+      name,
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> reportTemplateFields(int id) async {
+    final response = await http.get(
+      Uri.parse('$_apiBaseUrl/report-export/templates/$id/fields'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load template fields.',
+      );
+    }
+    return body['fields'] is List
+        ? List<Map<String, dynamic>>.from(
+            (body['fields'] as List).map(
+              (item) => Map<String, dynamic>.from(item as Map),
+            ),
+          )
+        : <Map<String, dynamic>>[];
   }
 
   // ---- Report-module clients & assignments (admin) -------------------------
@@ -739,6 +979,19 @@ class FullReportService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw FullReportException(
         body['message']?.toString() ?? 'Unable to activate the template.',
+      );
+    }
+  }
+
+  Future<void> deactivateReportTemplate(int id) async {
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/report-export/templates/$id/deactivate'),
+      headers: {'Authorization': _authHeader},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to deactivate the template.',
       );
     }
   }

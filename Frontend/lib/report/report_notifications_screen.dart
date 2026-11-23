@@ -150,9 +150,10 @@ class _ReportNotificationsScreenState extends State<ReportNotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return ReportWorkspace(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 22, 24, 16),
           child: ReportHeroHeader(
@@ -293,18 +294,15 @@ class _ReportNotificationsScreenState extends State<ReportNotificationsScreen> {
                           ? Icons.fact_check_rounded
                           : Icons.send_rounded;
 
-                      return Card(
-                        elevation: 0,
-                        color: seen ? Colors.white : const Color(0xffeff6ff),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          side: BorderSide(
-                            color: seen
-                                ? const Color(0xffe2e8f0)
-                                : const Color(0xffbfdbfe),
-                          ),
-                        ),
+                      return ReportPanel(
+                        padding: EdgeInsets.zero,
+                        radius: 17,
+                        highlighted: !seen,
                         child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 6,
+                          ),
                           onTap: isReceived && !seen
                               ? () => _markSeen(row)
                               : null,
@@ -373,7 +371,8 @@ class _ReportNotificationsScreenState extends State<ReportNotificationsScreen> {
                   ),
           ),
         ),
-      ],
+        ],
+      ),
     );
   }
 }

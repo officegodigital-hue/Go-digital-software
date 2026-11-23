@@ -13,6 +13,7 @@ import 'client_report_business_dialog.dart';
 import 'clients_full_report_screen.dart';
 import 'report_approvals_screen.dart';
 import 'data/full_report_service.dart';
+import 'report_brand.dart';
 
 const _navy = Color(0xFF142F61);
 const _accent = Color(0xFF2563EB);
@@ -123,7 +124,7 @@ class _ReportDashboardScreenState extends State<ReportDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
@@ -150,9 +151,10 @@ class _ReportDashboardScreenState extends State<ReportDashboardScreen> {
             ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: FutureBuilder<List<Map<String, dynamic>>>(
+      body: ReportWorkspace(
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: FutureBuilder<List<Map<String, dynamic>>>(
           future: _clientsFuture,
           builder: (context, snapshot) {
             final loading = snapshot.connectionState == ConnectionState.waiting;
@@ -285,6 +287,7 @@ class _ReportDashboardScreenState extends State<ReportDashboardScreen> {
               ],
             );
           },
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(

@@ -171,8 +171,7 @@ class _ReportApprovalsScreenState extends State<ReportApprovalsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: DecoratedBox(
-        decoration: ReportBrand.pageBackground,
+      body: ReportWorkspace(
         child: Column(
           children: [
             Padding(
@@ -400,21 +399,10 @@ class _SubmissionCard extends StatelessWidget {
           ],
         );
 
-        return Container(
+        return ReportPanel(
           margin: const EdgeInsets.only(bottom: 13),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: ReportBrand.cardBorder),
-            boxShadow: const [
-              BoxShadow(
-                color: ReportBrand.cardShadow,
-                blurRadius: 16,
-                offset: Offset(0, 6),
-              ),
-            ],
-          ),
+          padding: const EdgeInsets.all(17),
+          highlighted: status == 'pending',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

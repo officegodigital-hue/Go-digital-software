@@ -45,7 +45,7 @@ const List<ReportProvider> kReportProviders = <ReportProvider>[
     asset: 'assets/report_providers/google_business_profile.svg',
     color: Color(0xff4285F4),
     dashboardPage: 'Google Business Profile Dashboard',
-    aliases: ['google business', 'business profile', 'gbp', 'google my business', 'google maps'],
+    aliases: ['google business', 'business profile', 'gbp', 'gmb', 'google my business', 'google maps'],
   ),
   ReportProvider(
     key: 'google_ads',

@@ -98,16 +98,17 @@ function extractProviderMetrics(text, provider) {
       views: valueAfter('Views'),
       interactions: text.match(/Last\s+90\s+days\s*\n(\d+)\s*\nBy\s+content\s+interactions/i)?.[1] ?? valueAfter('Interactions'),
       accounts_engaged: valueAfter('Accounts engaged'),
-      followers_percentage: text.match(/Followers\\s*\\n?([\\d.]+%)/i)?.[1],
-      non_followers_percentage: text.match(/Non-followers\\s*\\n?([\\d.]+%)/i)?.[1],
+      // "Followers" must not match inside "Non-followers".
+      followers_percentage: text.match(/(?<!Non-)Followers\s*\n?\s*([\d.]+%)/i)?.[1],
+      non_followers_percentage: text.match(/Non-followers\s*\n?\s*([\d.]+%)/i)?.[1],
     };
   }
   if (key === 'FACEBOOK DASHBOARD') {
     return {
-      impressions_reach_views: text.match(/Views[\\s\\S]{0,40}?([\\d,]+)\\s*\\+\\s*[\\d.]+%/i)?.[1],
-      three_second_views: text.match(/([\\d,]+)\\s*\\+\\s*[\\d.]+%\\s*\\n?3-second views/i)?.[1],
-      one_minute_views: text.match(/([\\d,]+)\\s*[+-]\\s*[\\d.]+%\\s*\\n?1-minute views/i)?.[1],
-      watch_time: text.match(/([\\d]+h\\s*[\\d]+m)\\s*\\+\\s*[\\d.]+%\\s*\\n?Watch time/i)?.[1],
+      impressions_reach_views: text.match(/Views[\s\S]{0,40}?([\d,]+)\s*\+\s*[\d.]+%/i)?.[1],
+      three_second_views: text.match(/([\d,]+)\s*\+\s*[\d.]+%\s*\n?3-second views/i)?.[1],
+      one_minute_views: text.match(/([\d,]+)\s*[+-]\s*[\d.]+%\s*\n?1-minute views/i)?.[1],
+      watch_time: text.match(/([\d]+h\s*[\d]+m)\s*\+\s*[\d.]+%\s*\n?Watch time/i)?.[1],
     };
   }
   return {};

@@ -50,7 +50,10 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
     _future = widget.loadBytes();
   }
 
-  void _retry() => setState(() => _future = widget.loadBytes());
+  void _retry() {
+    final nextPreview = widget.loadBytes();
+    setState(() => _future = nextPreview);
+  }
 
   @override
   Widget build(BuildContext context) {

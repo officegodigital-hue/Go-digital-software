@@ -42,6 +42,96 @@ class ReportBrand {
 
   static const cardBorder = Color(0xFFE2EAF7);
   static const cardShadow = Color(0x140B2850);
+
+  static const premiumSurface = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFFFFFFF), Color(0xFFF3F8FF), Color(0xFFEAF3FF)],
+  );
+
+  static const surfaceHighlight = Color(0xFFF8FBFF);
+  static const surfaceBorder = Color(0xFFCFE1FB);
+}
+
+/// A quiet, layered report workspace background. It deliberately belongs to
+/// page bodies only; the application top bar and sidebar keep their existing
+/// layout and behaviour.
+class ReportWorkspace extends StatelessWidget {
+  const ReportWorkspace({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: ReportBrand.pageBackground,
+      child: Stack(
+        children: [
+          const Positioned(
+            right: -110,
+            top: -145,
+            child: _ReportHeaderWave(
+              width: 360,
+              height: 250,
+              color: Color(0x142491FF),
+            ),
+          ),
+          const Positioned(
+            left: -135,
+            bottom: -165,
+            child: _ReportHeaderWave(
+              width: 360,
+              height: 250,
+              color: Color(0x100E63E6),
+            ),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+/// Reusable glass-like white panel for lists, report cards and tables.
+class ReportPanel extends StatelessWidget {
+  const ReportPanel({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(18),
+    this.margin,
+    this.radius = 20,
+    this.highlighted = false,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final EdgeInsetsGeometry? margin;
+  final double radius;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin,
+      padding: padding,
+      decoration: BoxDecoration(
+        gradient: highlighted ? ReportBrand.premiumSurface : null,
+        color: highlighted ? null : Colors.white,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(
+          color: highlighted ? ReportBrand.surfaceBorder : ReportBrand.cardBorder,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: ReportBrand.cardShadow,
+            blurRadius: 18,
+            offset: Offset(0, 7),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
 }
 
 /// A branded white report AppBar: GO DIGITAL logo + title, optional actions,
@@ -284,13 +374,14 @@ class ReportHeroHeader extends StatelessWidget {
 
         return Container(
           decoration: BoxDecoration(
+            gradient: ReportBrand.premiumSurface,
             borderRadius: BorderRadius.circular(23),
-            border: Border.all(color: const Color(0xffd7e6fb)),
+            border: Border.all(color: const Color(0xffcfe1fb)),
             boxShadow: const [
               BoxShadow(
-                color: ReportBrand.cardShadow,
-                blurRadius: 20,
-                offset: Offset(0, 8),
+                color: Color(0x180B2850),
+                blurRadius: 24,
+                offset: Offset(0, 10),
               ),
             ],
           ),

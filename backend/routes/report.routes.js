@@ -12,7 +12,6 @@ const {
   getClientReportHistory,
   downloadClientReportHistory,
   deleteClientReportHistory,
-  saveReportTemplate,
   getReportTemplate,
   submitReportForApproval,
   listSubmissions,
@@ -36,8 +35,13 @@ const {
   listTemplates,
   uploadTemplate,
   activateTemplate,
+  deactivateTemplate,
   deleteTemplate,
+  getActiveTemplate,
+  downloadTemplate,
+  getTemplateFields,
   getTemplatePages,
+  previewTemplate,
 } = require('../controllers/reportTemplates.controller');
 
 // Authentication middleware
@@ -83,7 +87,10 @@ router.delete('/report-export/client-history/:id', deleteClientReportHistory);
 
 // 5. Shared report template
 router.get('/report-export/template', getReportTemplate);
-router.put('/report-export/template', saveReportTemplate);
+router.put('/report-export/template', (req, res) => {
+  req.body = { ...(req.body || {}), activate: true };
+  return uploadTemplate(req, res);
+});
 
 // 6. Approval workflow (employee submits, admin reviews, download gated)
 router.post('/report-export/submit', submitReportForApproval);
@@ -103,9 +110,14 @@ router.delete('/report-export/report-clients/:company', deleteReportClient);
 
 // Admin: multi-template library (upload / list / activate / delete) + pages.
 router.get('/report-export/templates', listTemplates);
+router.get('/report-export/templates/active', getActiveTemplate);
 router.post('/report-export/templates', uploadTemplate);
 router.post('/report-export/templates/:id/activate', activateTemplate);
+router.post('/report-export/templates/:id/deactivate', deactivateTemplate);
 router.delete('/report-export/templates/:id', deleteTemplate);
+router.get('/report-export/templates/:id/preview.pdf', previewTemplate);
+router.get('/report-export/templates/:id/download', downloadTemplate);
+router.get('/report-export/templates/:id/fields', getTemplateFields);
 router.get('/report-export/templates/pages', getTemplatePages);
 router.get('/report-export/templates/:id/pages', getTemplatePages);
 

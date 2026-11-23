@@ -17,6 +17,17 @@ import 'data/full_report_service.dart';
 const _navy = Color(0xFF142F61);
 const _accent = Color(0xFF2563EB);
 const _muted = Color(0xFF64748B);
+const _blue = Color(0xFF0E63E6);
+const _sky = Color(0xFF35A4FF);
+const _lineBlue = Color(0xFFDCE8FB);
+const _paleBlue = Color(0xFFF1F7FF);
+
+const _brandGrad = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [_blue, _sky],
+);
+const _accentBar = LinearGradient(colors: [_navy, _blue, _sky]);
 
 const _months = <String>[
   '',
@@ -358,7 +369,30 @@ class _ClientMonthlyReportsScreenState
                       snapshot.connectionState == ConnectionState.waiting;
                   final reports =
                       snapshot.data ?? const <Map<String, dynamic>>[];
-                  final reportMonths = reports
+                  final reportsByMonth = <String, Map<String, dynamic>>{};
+                  for (final report in reports) {
+                    final monthKey =
+                        '${report['report_year']}-${(int.tryParse('${report['report_month'] ?? ''}') ?? 0).toString().padLeft(2, '0')}';
+                    final current = reportsByMonth[monthKey];
+                    final candidateDate = DateTime.tryParse(
+                          '${report['created_at'] ?? ''}'.replaceFirst(' ', 'T'),
+                        ) ??
+                        DateTime.fromMillisecondsSinceEpoch(0);
+                    final currentDate = DateTime.tryParse(
+                          '${current?['created_at'] ?? ''}'.replaceFirst(' ', 'T'),
+                        ) ??
+                        DateTime.fromMillisecondsSinceEpoch(0);
+                    if (current == null || candidateDate.isAfter(currentDate)) {
+                      reportsByMonth[monthKey] = report;
+                    }
+                  }
+                  final monthlyReports = reportsByMonth.values.toList()
+                    ..sort((left, right) {
+                      final leftKey = '${left['report_year']}-${left['report_month']}';
+                      final rightKey = '${right['report_year']}-${right['report_month']}';
+                      return rightKey.compareTo(leftKey);
+                    });
+                  final reportMonths = monthlyReports
                       .map(
                         (report) =>
                             '${report['report_year']}-${(int.tryParse('${report['report_month'] ?? ''}') ?? 0).toString().padLeft(2, '0')}',
@@ -392,21 +426,25 @@ class _ClientMonthlyReportsScreenState
                           if (loading)
                             const _LoadingCard()
                           else
-                            for (var i = 0; i < reports.length; i++)
+                            for (var i = 0; i < monthlyReports.length; i++)
                               FadeSlideIn(
                                 delay: Duration(milliseconds: 60 * (i + 1)),
                                 child: _MonthReportCard(
                                   title: _monthLabel(
-                                    reports[i]['report_month'],
-                                    reports[i]['report_year'],
+                                    monthlyReports[i]['report_month'],
+                                    monthlyReports[i]['report_year'],
                                   ),
                                   format:
-                                      (reports[i]['file_format']?.toString() ??
+                                      (monthlyReports[i]['file_format']?.toString() ??
                                               'pdf')
                                           .toUpperCase(),
-                                  created: _dateLabel(reports[i]['created_at']),
-                                  tasks: _tasksForReportMonth(reports[i]),
-                                  onTap: () => _openPreview(reports[i]),
+                                  created: _dateLabel(monthlyReports[i]['created_at']),
+                                  tasks: _tasksForReportMonth(monthlyReports[i]),
+                                  onTap: () => _newReport(
+                                    month: int.tryParse('${monthlyReports[i]['report_month']}'),
+                                    year: int.tryParse('${monthlyReports[i]['report_year']}'),
+                                    assignedTasks: _tasksForReportMonth(monthlyReports[i]),
+                                  ),
                                 ),
                               ),
                           if (!loading)
@@ -491,90 +529,108 @@ class _ClientMonthlyReportsScreenState
         .expand((assignment) => assignment.tasks)
         .toList();
     return Container(
-      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Colors.white, Color(0xfff3f8ff)],
+          colors: [Colors.white, Color(0xfff4f8ff), Color(0xffeaf3ff)],
         ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xffd9e7fb)),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _lineBlue),
         boxShadow: const [
           BoxShadow(
             color: Color(0x120b2850),
-            blurRadius: 20,
-            offset: Offset(0, 8),
+            blurRadius: 22,
+            offset: Offset(0, 9),
           ),
         ],
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xffd7e5fb)),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x160866e8),
-                      blurRadius: 14,
-                      offset: Offset(0, 5),
-                    ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: logo != null
-                    ? Image(image: logo, fit: BoxFit.cover)
-                    : Center(
-                        child: Text(
-                          _name.isNotEmpty ? _name[0].toUpperCase() : '?',
-                          style: const TextStyle(
-                            color: _accent,
-                            fontSize: 28,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'CLIENT REPORT WORKSPACE',
-                      style: TextStyle(
-                        color: _accent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _name,
-                      style: const TextStyle(
-                        fontSize: 23,
-                        fontWeight: FontWeight.w900,
-                        color: _navy,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Monthly performance and assigned deliverables',
-                      style: TextStyle(color: _muted, fontSize: 12.5),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          Container(
+            height: 6,
+            decoration: const BoxDecoration(gradient: _accentBar),
           ),
+          Padding(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 74,
+                      height: 74,
+                      decoration: BoxDecoration(
+                        gradient: logo == null ? _brandGrad : null,
+                        color: logo == null ? null : Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: _lineBlue, width: 1.5),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _blue.withValues(alpha: .18),
+                            blurRadius: 14,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: logo != null
+                          ? Image(image: logo, fit: BoxFit.cover)
+                          : Center(
+                              child: Text(
+                                _name.isNotEmpty
+                                    ? _name[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 30,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'CLIENT REPORT WORKSPACE',
+                            style: TextStyle(
+                              color: _blue,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          ShaderMask(
+                            shaderCallback: (bounds) => const LinearGradient(
+                              colors: [_navy, _blue],
+                            ).createShader(bounds),
+                            child: Text(
+                              _name,
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                                letterSpacing: -.5,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Monthly performance and assigned deliverables',
+                            style: TextStyle(color: _muted, fontSize: 12.5),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
           if (providers.isNotEmpty) ...[
             const SizedBox(height: 14),
             const Text(
@@ -648,6 +704,9 @@ class _ClientMonthlyReportsScreenState
             const SizedBox(height: 8),
             _HandlerAssignmentSummary(tasks: handlerTasks, maxRows: 4),
           ],
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -945,100 +1004,146 @@ class _MonthReportCard extends StatelessWidget {
         : const Color(0xFFEA580C);
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE6ECF6)),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _lineBlue),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0d082d61),
+                blurRadius: 20,
+                offset: Offset(0, 8),
+              ),
+            ],
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      format,
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  Icon(
-                    format == 'PDF'
-                        ? Icons.visibility_outlined
-                        : Icons.download_rounded,
-                    color: _muted,
-                    size: 20,
-                  ),
-                ],
+              Container(
+                height: 5,
+                decoration: const BoxDecoration(gradient: _accentBar),
               ),
-              const SizedBox(height: 14),
-              Text(
-                title.isEmpty ? 'Report' : title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: _navy,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                created.isEmpty ? format : '$format  •  $created',
-                style: const TextStyle(color: _muted, fontSize: 12.5),
-              ),
-              if (tasks.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                _HandlerAssignmentSummary(tasks: tasks),
-              ],
-              if (providers.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: providers
-                      .map(
-                        (provider) => Tooltip(
-                          message: provider.label,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              color: provider.color.withValues(alpha: .13),
-                              borderRadius: BorderRadius.circular(10),
+                              color: color.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(13),
                               border: Border.all(
-                                color: provider.color.withValues(alpha: .36),
+                                color: color.withValues(alpha: .25),
                               ),
                             ),
-                            child: ProviderLogo(provider: provider, size: 18),
+                            child: Text(
+                              format,
+                              style: TextStyle(
+                                color: color,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 11,
+                              ),
+                            ),
                           ),
+                          const Spacer(),
+                          Container(
+                            width: 34,
+                            height: 34,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: _paleBlue,
+                              borderRadius: BorderRadius.circular(11),
+                            ),
+                            child: Icon(
+                              format == 'PDF'
+                                  ? Icons.visibility_outlined
+                                  : Icons.download_rounded,
+                              color: _blue,
+                              size: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        title.isEmpty ? 'Report' : title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: _navy,
+                          letterSpacing: -.3,
                         ),
-                      )
-                      .toList(),
-                ),
-              ],
-              const Spacer(),
-              const Text(
-                'View report',
-                style: TextStyle(
-                  color: _accent,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w800,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        created.isEmpty ? format : '$format  •  $created',
+                        style: const TextStyle(color: _muted, fontSize: 12.5),
+                      ),
+                      if (tasks.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        _HandlerAssignmentSummary(tasks: tasks),
+                      ],
+                      if (providers.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: providers
+                              .map(
+                                (provider) => Tooltip(
+                                  message: provider.label,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(5),
+                                    decoration: BoxDecoration(
+                                      color: _paleBlue,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: _lineBlue),
+                                    ),
+                                    child: ProviderLogo(
+                                      provider: provider,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
+                      const Spacer(),
+                      Row(
+                        children: const [
+                          Text(
+                            'Open report for this month',
+                            style: TextStyle(
+                              color: _blue,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Spacer(),
+                          Icon(
+                            Icons.arrow_outward_rounded,
+                            color: _blue,
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -1072,83 +1177,123 @@ class _AssignedMonthCard extends StatelessWidget {
       ),
     );
     return Material(
-      color: _accent.withValues(alpha: .06),
-      borderRadius: BorderRadius.circular(18),
+      color: _paleBlue,
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: _accent.withValues(alpha: .4)),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xffeef5ff), Color(0xffe3effd)],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _blue.withValues(alpha: .28)),
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: _accent.withValues(alpha: .14),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.calendar_month_rounded,
-                      color: _accent,
-                    ),
-                  ),
-                  const Spacer(),
-                  const Icon(Icons.arrow_forward_rounded, color: _accent),
-                ],
+              Container(
+                height: 5,
+                decoration: const BoxDecoration(gradient: _accentBar),
               ),
-              const Spacer(),
-              Text(
-                _monthLabel(month, year),
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: _navy,
-                ),
-              ),
-              const SizedBox(height: 4),
-              const SizedBox(height: 8),
-              _HandlerAssignmentSummary(tasks: tasks),
-              if (providers.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 7,
-                  runSpacing: 6,
-                  children: providers
-                      .map(
-                        (provider) => Tooltip(
-                          message: provider.label,
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              color: provider.color.withValues(alpha: .13),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: provider.color.withValues(alpha: .36),
-                              ),
+                              gradient: _brandGrad,
+                              borderRadius: BorderRadius.circular(13),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _blue.withValues(alpha: .22),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                             ),
-                            child: ProviderLogo(provider: provider, size: 18),
+                            child: const Icon(
+                              Icons.calendar_month_rounded,
+                              color: Colors.white,
+                            ),
                           ),
+                          const Spacer(),
+                          const Icon(
+                            Icons.arrow_forward_rounded,
+                            color: _blue,
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Text(
+                        _monthLabel(month, year),
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: _navy,
+                          letterSpacing: -.3,
                         ),
-                      )
-                      .toList(),
-                ),
-              ],
-              const Spacer(),
-              const Text(
-                'Create report for this month',
-                style: TextStyle(
-                  color: _accent,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w800,
+                      ),
+                      const SizedBox(height: 8),
+                      _HandlerAssignmentSummary(tasks: tasks),
+                      if (providers.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 7,
+                          runSpacing: 6,
+                          children: providers
+                              .map(
+                                (provider) => Tooltip(
+                                  message: provider.label,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: _lineBlue),
+                                    ),
+                                    child: ProviderLogo(
+                                      provider: provider,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
+                      const Spacer(),
+                      Row(
+                        children: const [
+                          Text(
+                            'Create report for this month',
+                            style: TextStyle(
+                              color: _blue,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          Spacer(),
+                          Icon(
+                            Icons.add_circle_outline_rounded,
+                            color: _blue,
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -1166,46 +1311,81 @@ class _NewReportCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: _accent.withValues(alpha: .06),
-      borderRadius: BorderRadius.circular(18),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: _accent.withValues(alpha: .4),
-              width: 1.4,
-            ),
+            gradient: _brandGrad,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: _blue.withValues(alpha: .32),
+                blurRadius: 18,
+                offset: const Offset(0, 9),
+              ),
+            ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: _accent.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.add_rounded, color: _accent),
-              ),
-              const Spacer(),
-              const Text(
-                'Create new report',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: _navy,
+              Positioned(
+                right: -28,
+                top: -28,
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: .10),
+                  ),
                 ),
               ),
-              const SizedBox(height: 4),
-              const Text(
-                'Upload dashboards & build this month',
-                style: TextStyle(color: _muted, fontSize: 12.5),
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .22),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: .35),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.add_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                    const Spacer(),
+                    const Text(
+                      'Create new report',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                        letterSpacing: -.3,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'Upload dashboards & build this month',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .9),
+                        fontSize: 12.5,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

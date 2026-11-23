@@ -36,12 +36,33 @@ async function ensureFullReportExportSchema(db) {
     content_type VARCHAR(150) NOT NULL,
     file_data LONGBLOB NOT NULL,
     downloaded_by_user_id BIGINT UNSIGNED NULL,
+    client_id BIGINT UNSIGNED NULL,
+    template_id BIGINT UNSIGNED NULL,
+    template_version INT UNSIGNED NULL,
+    report_data LONGBLOB NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_client_report_history_company_period
       (company_name, report_year, report_month, created_at),
     KEY idx_client_report_history_created_at (created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  for (const [column, definition] of [
+    ['client_id', 'BIGINT UNSIGNED NULL'],
+    ['template_id', 'BIGINT UNSIGNED NULL'],
+    ['template_version', 'INT UNSIGNED NULL'],
+    ['report_data', 'LONGBLOB NULL'],
+  ]) {
+    const result = await db.query(
+      `SHOW COLUMNS FROM client_full_report_history LIKE '${column}'`,
+    );
+    const columns = Array.isArray(result?.[0]) ? result[0] : [];
+    if (!columns.length) {
+      await db.query(
+        `ALTER TABLE client_full_report_history ADD COLUMN ${column} ${definition}`,
+      );
+    }
+  }
 
   await db.query(`CREATE TABLE IF NOT EXISTS report_submissions (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -63,6 +84,20 @@ async function ensureFullReportExportSchema(db) {
       (company_name, report_year, report_month, created_at),
     KEY idx_report_submissions_submitter (submitted_by_user_id, created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+  const draftTables = await db.query(
+    "SHOW TABLES LIKE 'report_workflow_drafts'",
+  );
+  if (Array.isArray(draftTables?.[0]) && draftTables[0].length) {
+    const draftDataColumn = await db.query(
+      "SHOW COLUMNS FROM report_workflow_drafts LIKE 'report_data'",
+    );
+    if (!Array.isArray(draftDataColumn?.[0]) || !draftDataColumn[0].length) {
+      await db.query(
+        'ALTER TABLE report_workflow_drafts ADD COLUMN report_data LONGBLOB NULL',
+      );
+    }
+  }
 }
 
 module.exports = { ensureFullReportExportSchema };

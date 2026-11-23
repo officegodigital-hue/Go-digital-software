@@ -6,6 +6,7 @@ const test = require('node:test');
 const { detectProvider } = require('../controllers/dashboardOcr.controller');
 const { listAssignedReportClients, canAccessReportClient } = require('../lib/reportTaskAccess');
 const { ensureFullReportExportSchema } = require('../lib/ensureFullReportExportSchema');
+const { ensureReportWorkflowSchema } = require('../lib/ensureReportWorkflowSchema');
 const { buildReportHtml } = require('../services/reportHtml.service');
 
 test('full report schema initializes storage needed by submit and download', async () => {
@@ -19,6 +20,21 @@ test('full report schema initializes storage needed by submit and download', asy
     'report_templates',
     'client_full_report_history',
     'report_submissions',
+  ]) {
+    assert.ok(statements.some((sql) => sql.includes(`CREATE TABLE IF NOT EXISTS ${table}`)));
+  }
+});
+
+test('report workflow schema initializes draft, screenshot, and field storage', async () => {
+  const statements = [];
+  await ensureReportWorkflowSchema({
+    query: async (sql) => statements.push(sql),
+  });
+
+  for (const table of [
+    'report_workflow_drafts',
+    'report_workflow_screenshots',
+    'report_workflow_fields',
   ]) {
     assert.ok(statements.some((sql) => sql.includes(`CREATE TABLE IF NOT EXISTS ${table}`)));
   }

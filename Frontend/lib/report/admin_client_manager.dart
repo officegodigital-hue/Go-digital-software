@@ -194,9 +194,25 @@ class _ReportClientManagerState extends State<ReportClientManager> {
         duration: const Duration(milliseconds: 160),
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? _blue : Colors.white,
+          gradient: selected
+              ? const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [_blue, _sky],
+                )
+              : null,
+          color: selected ? null : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? _blue : _lineBlue),
+          border: Border.all(color: selected ? Colors.transparent : _lineBlue),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: _blue.withValues(alpha: .24),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -389,36 +405,157 @@ class _ReportClientManagerState extends State<ReportClientManager> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.all(22),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [_navy, _blue, Color(0xff278cf5)]),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Colors.white, Color(0xfff4f8ff), Color(0xffeaf3ff)],
+            ),
             borderRadius: BorderRadius.circular(24),
-            boxShadow: [BoxShadow(color: _blue.withValues(alpha: .20), blurRadius: 24, offset: const Offset(0, 10))],
+            border: Border.all(color: const Color(0xffdce8fb)),
+            boxShadow: [
+              BoxShadow(
+                color: _blue.withValues(alpha: .12),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
-          child: Row(
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
             children: [
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: .15), borderRadius: BorderRadius.circular(17), border: Border.all(color: Colors.white.withValues(alpha: .25))),
-                child: const Icon(Icons.business_rounded, color: Colors.white, size: 28),
+              // Soft gradient glow accents (white-dominant surface).
+              Positioned(
+                right: -40,
+                top: -55,
+                child: Container(
+                  width: 180,
+                  height: 180,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [
+                        _sky.withValues(alpha: .18),
+                        _blue.withValues(alpha: .04),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Client workspace', style: TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -.3)),
-                  const SizedBox(height: 5),
-                  Text('Manage clients, report access and platform assignments', style: TextStyle(color: Colors.white.withValues(alpha: .82), fontSize: 12.5, height: 1.4)),
-                ]),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
-                decoration: BoxDecoration(color: Colors.white.withValues(alpha: .14), borderRadius: BorderRadius.circular(13), border: Border.all(color: Colors.white.withValues(alpha: .22))),
-                child: Column(children: [
-                  Text('${_clients.length}', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
-                  Text('CLIENTS', style: TextStyle(color: Colors.white.withValues(alpha: .8), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1)),
-                ]),
+              Padding(
+                padding: const EdgeInsets.all(22),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [_blue, _sky],
+                        ),
+                        borderRadius: BorderRadius.circular(17),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _blue.withValues(alpha: .28),
+                            blurRadius: 14,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.business_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'CLIENT WORKSPACE',
+                            style: TextStyle(
+                              color: _blue,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.3,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          ShaderMask(
+                            shaderCallback: (bounds) => const LinearGradient(
+                              colors: [_navy, _blue],
+                            ).createShader(bounds),
+                            child: const Text(
+                              'Manage clients',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 23,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -.4,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Report access and platform assignments',
+                            style: TextStyle(
+                              color: _mutedBlue,
+                              fontSize: 12.5,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 11,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [_blue, _sky],
+                        ),
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _blue.withValues(alpha: .26),
+                            blurRadius: 12,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            '${_clients.length}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            'CLIENTS',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: .85),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -445,17 +582,41 @@ class _ReportClientManagerState extends State<ReportClientManager> {
               ),
             ),
             const SizedBox(width: 12),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: _blue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 19, vertical: 17),
-                elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [_blue, _sky],
+                ),
+                borderRadius: BorderRadius.circular(15),
+                boxShadow: [
+                  BoxShadow(
+                    color: _blue.withValues(alpha: .30),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
-              onPressed: () => _openEditor(),
-              icon: const Icon(Icons.add_rounded, size: 20),
-              label: const Text('Add client', style: TextStyle(fontWeight: FontWeight.w800)),
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: Colors.white,
+                  shadowColor: Colors.transparent,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 19, vertical: 17),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                ),
+                onPressed: () => _openEditor(),
+                icon: const Icon(Icons.add_rounded, size: 20),
+                label: const Text(
+                  'Add client',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
             ),
           ],
         ),

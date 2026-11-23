@@ -5,12 +5,11 @@ const { buildReportHtml } = require('../services/reportHtml.service');
 const { renderHtmlToPdf, renderHtmlToImages } = require('../services/fullReportRender.service');
 const { buildPptxFromImages } = require('../services/fullReportPpt.service');
 const { buildDocxFromImages } = require('../services/fullReportWord.service');
+const { generateFromPowerPointTemplate } = require('../services/reportTemplate.service');
 const {
-  MAX_TEMPLATE_BYTES,
-  generateFromPowerPointTemplate,
-  validatePowerPointTemplate,
-  templateHasPlaceholders,
-} = require('../services/reportTemplate.service');
+  findActiveReportTemplate,
+  findReportTemplateById,
+} = require('../services/reportTemplateLibrary.service');
 const {
   canAccessReportClient,
   isAdmin: hasReportAdminAccess,
@@ -112,24 +111,95 @@ async function attachLastMonthSnapshots(payload) {
 
 async function generateReportFile(payload, format) {
   await attachLastMonthSnapshots(payload);
-  const [templates] = await db.query(
-    'SELECT template_data FROM report_templates WHERE scope = ? LIMIT 1',
-    ['EMPLOYEE_ADMIN'],
-  );
-  const templateBytes = templates[0]?.template_data;
-  // Only drive the report from the uploaded PowerPoint when it actually has
-  // {{...}} placeholders to fill; otherwise fall back to the built-in report so
-  // a plain design never blocks downloads.
-  if (templateBytes && (await templateHasPlaceholders(Buffer.from(templateBytes)))) {
-    return generateFromPowerPointTemplate(Buffer.from(templateBytes), payload, format);
+  // Always render from the CURRENTLY ACTIVE template so that uploading or
+  // activating a new template immediately governs EVERY report — new and old,
+  // preview, template view and download alike. A report created earlier may
+  // still carry a pinned payload.templateId, but that template can be replaced
+  // or deleted; instead of failing with "the selected report template no longer
+  // exists", we prefer the active template and only fall back to the pinned id
+  // when (and only when) no template is currently active.
+  let template = await findActiveReportTemplate();
+  if (!template && payload.templateId != null) {
+    const templateId = Number(payload.templateId);
+    if (Number.isSafeInteger(templateId) && templateId >= 1) {
+      template = await findReportTemplateById(templateId);
+    }
+  }
+
+  if (template) {
+    return {
+      file: await generateFromPowerPointTemplate(
+        Buffer.from(template.template_data),
+        payload,
+        format,
+      ),
+      template,
+    };
+  }
+  if (payload.reportTemplate === 'EMPLOYEE_ADMIN') {
+    const error = new Error('No active PowerPoint report template is available.');
+    error.status = 409;
+    throw error;
   }
 
   const html = buildReportHtml(payload);
-  if (format === 'pdf') return renderHtmlToPdf(html);
+  if (format === 'pdf') return { file: await renderHtmlToPdf(html), template: null };
   const images = await renderHtmlToImages(html);
-  return format === 'pptx'
-    ? buildPptxFromImages(images)
-    : buildDocxFromImages(images);
+  return {
+    file: format === 'pptx'
+      ? await buildPptxFromImages(images)
+      : await buildDocxFromImages(images),
+    template: null,
+  };
+}
+
+function reportDataSnapshot(payload) {
+  const snapshot = { ...payload };
+  if (Array.isArray(snapshot.screenshots)) {
+    snapshot.screenshots = snapshot.screenshots.map((screenshot) => {
+      const { bytesBase64, ...metadata } = screenshot || {};
+      return metadata;
+    });
+  }
+  return Buffer.from(JSON.stringify(snapshot));
+}
+
+async function saveClientReportHistory({
+  clientName,
+  clientId,
+  month,
+  year,
+  format,
+  fileName,
+  contentType,
+  file,
+  userId,
+  template,
+  payload,
+}) {
+  await db.query(
+    `INSERT INTO client_full_report_history
+       (company_name, report_month, report_year, file_format, file_name,
+        content_type, file_data, downloaded_by_user_id, client_id,
+        template_id, template_version, report_data)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      String(clientName || 'Client').slice(0, 255),
+      month,
+      year,
+      format,
+      fileName.slice(0, 500),
+      contentType,
+      file,
+      userId || null,
+      Number.isSafeInteger(Number(clientId)) && Number(clientId) > 0
+        ? Number(clientId)
+        : null,
+      template ? Number(template.id) : null,
+      template ? Number(template.version) || 1 : null,
+      reportDataSnapshot(payload),
+    ],
+  );
 }
 
 async function downloadFullReportPpt(req, res) {
@@ -171,7 +241,8 @@ async function downloadFullReportPpt(req, res) {
     }
     const payload = applyPreviewOverrides(req.body || {});
     const format = ['pptx', 'docx', 'pdf'].includes(req.params.format) ? req.params.format : 'pdf';
-    let file = await generateReportFile(payload, format);
+    const generated = await generateReportFile(payload, format);
+    let file = generated.file;
     // Puppeteer's page.pdf() can return a Uint8Array; Express res.send() only
     // treats a Buffer as binary (a Uint8Array would be sent as JSON), so coerce.
     if (!Buffer.isBuffer(file)) file = Buffer.from(file);
@@ -188,19 +259,19 @@ async function downloadFullReportPpt(req, res) {
     // later. A history failure must never fail the download itself.
     try {
       const now = new Date();
-      await db.query(
-        'INSERT INTO client_full_report_history (company_name, report_month, report_year, file_format, file_name, content_type, file_data, downloaded_by_user_id) VALUES (?,?,?,?,?,?,?,?)',
-        [
-          String(req.body?.clientName || 'Client').slice(0, 255),
-          Number(req.body?.reportMonth) || now.getMonth() + 1,
-          Number(req.body?.reportYear) || now.getFullYear(),
-          format,
-          fileName.slice(0, 500),
-          contentType,
-          file,
-          req.user?.id || null,
-        ],
-      );
+      await saveClientReportHistory({
+        clientName: req.body?.clientName,
+        clientId: req.body?.clientId ?? req.body?.businessId,
+        month: Number(req.body?.reportMonth) || now.getMonth() + 1,
+        year: Number(req.body?.reportYear) || now.getFullYear(),
+        format,
+        fileName,
+        contentType,
+        file,
+        userId: req.user?.id,
+        template: generated.template,
+        payload,
+      });
     } catch (historyError) {
       console.error('Report history save failed:', historyError.message);
     }
@@ -217,7 +288,7 @@ async function downloadFullReportPpt(req, res) {
     console.error('Full Report export error:', error?.stack || detail);
     // The client needs an actionable message here. Returning a generic error
     // made template/deployment failures impossible to diagnose from the UI.
-    return res.status(500).json({
+    return res.status(error.status || 500).json({
       success: false,
       message: `Unable to generate this report: ${detail}`,
     });
@@ -383,53 +454,21 @@ async function deleteClientReportHistory(req, res) {
   }
 }
 
-// ---- Shared report template ----------------------------------------------
-async function saveReportTemplate(req, res) {
-  try {
-    if (!hasReportAdminAccess(req.user)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Report administrator permission is required to change the shared template.',
-      });
-    }
-    const data = req.body?.bytesBase64 ? Buffer.from(String(req.body.bytesBase64), 'base64') : null;
-    if (!data || !data.length) return res.status(400).json({ success: false, message: 'No template file was provided.' });
-    const fileName = String(req.body?.fileName || 'report-template.pptx').slice(0, 500);
-    if (!/\.pptx$/i.test(fileName)) {
-      return res.status(400).json({ success: false, message: 'The shared report template must be a .pptx file.' });
-    }
-    if (data.length > MAX_TEMPLATE_BYTES) {
-      return res.status(413).json({ success: false, message: 'The shared report template must be 10 MB or smaller.' });
-    }
-    let hasPlaceholders = true;
-    try {
-      hasPlaceholders = await validatePowerPointTemplate(data);
-    } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
-    }
-    await db.query(
-      `INSERT INTO report_templates (scope, file_name, template_data, uploaded_by_user_id)
-       VALUES (?,?,?,?)
-       ON DUPLICATE KEY UPDATE file_name = VALUES(file_name), template_data = VALUES(template_data), uploaded_by_user_id = VALUES(uploaded_by_user_id)`,
-      ['EMPLOYEE_ADMIN', fileName, data, req.user?.id || null],
-    );
-    return res.json({
-      success: true,
-      hasPlaceholders,
-      warning: hasPlaceholders
-        ? undefined
-        : 'Template saved. It has no {{field_key}} placeholders yet, so the built-in report design is used for downloads until you add them.',
-    });
-  } catch (error) {
-    console.error('saveReportTemplate error:', error.message);
-    return res.status(500).json({ success: false, message: 'Unable to save the report template.' });
-  }
-}
-
 async function getReportTemplate(req, res) {
   try {
-    const [rows] = await db.query('SELECT file_name, updated_at FROM report_templates WHERE scope = ? LIMIT 1', ['EMPLOYEE_ADMIN']);
-    return res.json({ success: true, template: rows[0] || null });
+    const template = await findActiveReportTemplate();
+    return res.json({
+      success: true,
+      template: template
+        ? {
+            id: Number(template.id),
+            name: template.name,
+            file_name: template.original_filename,
+            version: Number(template.version) || 1,
+            updated_at: template.created_at,
+          }
+        : null,
+    });
   } catch (error) {
     console.error('getReportTemplate error:', error.message);
     return res.status(500).json({ success: false, message: 'Unable to load the report template.' });
@@ -553,13 +592,13 @@ async function previewSubmission(req, res) {
       });
     }
     const payload = applyPreviewOverrides(JSON.parse(rows[0].payload.toString('utf8')));
-    let file = await generateReportFile(payload, 'pdf');
+    let file = (await generateReportFile(payload, 'pdf')).file;
     if (!Buffer.isBuffer(file)) file = Buffer.from(file);
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="report-preview.pdf"', 'Content-Length': file.length, 'Cache-Control': 'no-store' });
     return res.send(file);
   } catch (error) {
     console.error('previewSubmission error:', error.message);
-    return res.status(500).json({ success: false, message: `Unable to render the preview: ${error.message}` });
+    return res.status(error.status || 500).json({ success: false, message: `Unable to render the preview: ${error.message}` });
   }
 }
 
@@ -580,7 +619,7 @@ async function previewReport(req, res) {
       }
     }
     const payload = applyPreviewOverrides(body);
-    let file = await generateReportFile(payload, 'pdf');
+    let file = (await generateReportFile(payload, 'pdf')).file;
     if (!Buffer.isBuffer(file)) file = Buffer.from(file);
     res.set({
       'Content-Type': 'application/pdf',
@@ -591,7 +630,7 @@ async function previewReport(req, res) {
     return res.send(file);
   } catch (error) {
     console.error('previewReport error:', error?.stack || error.message);
-    return res.status(500).json({
+    return res.status(error.status || 500).json({
       success: false,
       message: `Unable to render the preview: ${error.message}`,
     });
@@ -619,15 +658,25 @@ async function reviewSubmission(req, res, decision) {
     try {
       if (rows[0].payload) {
         const payload = applyPreviewOverrides(JSON.parse(rows[0].payload.toString('utf8')));
-        let file = await generateReportFile(payload, 'pdf');
+        const generated = await generateReportFile(payload, 'pdf');
+        let file = generated.file;
         if (!Buffer.isBuffer(file)) file = Buffer.from(file);
         const safeClient = String(rows[0].company_name || 'Client').replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'Client';
         const period = `${rows[0].report_year}-${String(rows[0].report_month).padStart(2, '0')}`;
         const fileName = `${safeClient}_${decision}_${period}.pdf`.slice(0, 500);
-        await db.query(
-          'INSERT INTO client_full_report_history (company_name, report_month, report_year, file_format, file_name, content_type, file_data, downloaded_by_user_id) VALUES (?,?,?,?,?,?,?,?)',
-          [rows[0].company_name, rows[0].report_month, rows[0].report_year, 'pdf', fileName, 'application/pdf', file, rows[0].submitted_by_user_id || null],
-        );
+        await saveClientReportHistory({
+          clientName: rows[0].company_name,
+          clientId: payload.clientId ?? payload.businessId,
+          month: Number(rows[0].report_month),
+          year: Number(rows[0].report_year),
+          format: 'pdf',
+          fileName,
+          contentType: 'application/pdf',
+          file,
+          userId: rows[0].submitted_by_user_id,
+          template: generated.template,
+          payload,
+        });
       }
     } catch (saveError) {
       console.error('Review report save failed:', saveError.message);
@@ -684,6 +733,5 @@ module.exports = {
   getClientReportHistory,
   downloadClientReportHistory,
   deleteClientReportHistory,
-  saveReportTemplate,
   getReportTemplate,
 };
