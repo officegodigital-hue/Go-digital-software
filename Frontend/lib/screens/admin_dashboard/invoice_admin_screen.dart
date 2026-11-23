@@ -168,6 +168,265 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
     }
   }
 
+  Future<void> _pickAndSaveMaintenanceDate(
+    int id,
+    String currentValue,
+  ) async {
+    DateTime initial = DateTime.now();
+    final trimmed = currentValue.trim();
+    if (trimmed.isNotEmpty && trimmed.toLowerCase() != 'null') {
+      try {
+        initial = DateFormat('dd/MM/yyyy').parse(trimmed);
+      } catch (_) {}
+    }
+
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+    );
+    if (picked != null) {
+      final formatted = DateFormat('dd/MM/yyyy').format(picked);
+      await _updateMaintenanceDateAPI(id, formatted);
+    }
+  }
+
+  Future<void> _updateMaintenanceDateAPI(
+    int id,
+    String maintenanceDate,
+  ) async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+      final response = await http.patch(
+        Uri.parse('$_baseUrl/invoices/$id/maintenance-date'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'maintenanceDate': maintenanceDate}),
+      );
+      if (response.statusCode == 200) {
+        await _fetchInvoices();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Maintenance date updated successfully'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to update maintenance date'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot connect to server'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _editPaidAmount(Map<String, dynamic> row) async {
+    final int id = int.tryParse('${row['id']}') ?? 0;
+    if (id == 0) return;
+
+    final double total = double.tryParse('${row['total_amount'] ?? 0}') ?? 0;
+    final double currentPaid =
+        double.tryParse('${row['paid_amount'] ?? 0}') ?? 0;
+    final double pending = (total - currentPaid) < 0 ? 0 : (total - currentPaid);
+
+    final controller = TextEditingController();
+
+    final double? result = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) {
+        String? errorText;
+        double entered = 0;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final double newTotalPaid = currentPaid + entered;
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              title: const Text(
+                'Add Payment',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF15233C),
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Total Amount: ${_formatCurrency(total)}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF5E7190),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Currently Paid: ${_formatCurrency(currentPaid)}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF5E7190),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pending: ${_formatCurrency(pending)}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFFDC2626),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        entered =
+                            double.tryParse(value.trim().replaceAll(',', '')) ??
+                            0;
+                      });
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Add amount',
+                      hintText: '0.00',
+                      prefixText: '₹ ',
+                      errorText: errorText,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'New Total Paid: ${_formatCurrency(newTotalPaid)}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF15803D),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0052CC),
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () {
+                    final add = double.tryParse(
+                      controller.text.trim().replaceAll(',', ''),
+                    );
+                    if (add == null || add <= 0) {
+                      setDialogState(
+                        () => errorText = 'Enter an amount to add',
+                      );
+                      return;
+                    }
+                    final updatedTotalPaid = currentPaid + add;
+                    if (updatedTotalPaid > total) {
+                      setDialogState(
+                        () => errorText =
+                            'Exceeds total by '
+                            '${_formatCurrency(updatedTotalPaid - total)}',
+                      );
+                      return;
+                    }
+                    Navigator.pop(dialogContext, updatedTotalPaid);
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result != null) {
+      await _updatePaidAmountAPI(id, result);
+    }
+  }
+
+  Future<void> _updatePaidAmountAPI(int id, double paidAmount) async {
+    try {
+      final authService = Provider.of<AuthService>(context, listen: false);
+      final token = authService.token;
+      final response = await http.patch(
+        Uri.parse('$_baseUrl/invoices/$id/payment'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'paidAmount': paidAmount}),
+      );
+      if (response.statusCode == 200) {
+        await _fetchInvoices();
+        await _fetchMetrics();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Paid amount updated successfully'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to update paid amount'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot connect to server'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildReminderCell(Map<String, dynamic> row) {
     final int id = row["id"];
     final dynamic rawReminder = row["reminder_date"] ?? row["reminderDate"];
@@ -2844,9 +3103,32 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                             icon: Icons.event_outlined,
                             label: 'Maintenance Date',
                             width: tileWidth,
-                            value: Text(
-                              maintenance.isEmpty ? '—' : maintenance,
-                              style: valueStyle,
+                            value: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    maintenance.isEmpty ? '—' : maintenance,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: valueStyle,
+                                  ),
+                                ),
+                                InkWell(
+                                  onTap: () => _pickAndSaveMaintenanceDate(
+                                    id,
+                                    maintenance,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(2),
+                                    child: Icon(
+                                      Icons.edit_outlined,
+                                      size: 15,
+                                      color: Color(0xFF0052CC),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           _invoiceDetailTile(
@@ -2859,11 +3141,31 @@ class _InvoiceAdminScreenState extends State<InvoiceAdminScreen> {
                             icon: Icons.payments_outlined,
                             label: 'Paid Amount',
                             width: tileWidth,
-                            value: Text(
-                              _formatCurrency(paid),
-                              style: valueStyle.copyWith(
-                                color: const Color(0xFF15803D),
-                              ),
+                            value: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _formatCurrency(paid),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: valueStyle.copyWith(
+                                      color: const Color(0xFF15803D),
+                                    ),
+                                  ),
+                                ),
+                                InkWell(
+                                  onTap: () => _editPaidAmount(row),
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(2),
+                                    child: Icon(
+                                      Icons.edit_outlined,
+                                      size: 15,
+                                      color: Color(0xFF0052CC),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           _invoiceDetailTile(

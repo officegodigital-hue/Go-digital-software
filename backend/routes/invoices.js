@@ -806,6 +806,212 @@ router.patch(
 
 
 // ============================================================
+// PATCH /api/invoices/:id/maintenance-date
+//
+// Inline edit of the maintenance date from the Invoice History
+// card. Only the maintenance_date column is changed.
+// ============================================================
+
+router.patch(
+  '/:id/maintenance-date',
+  authenticateToken,
+  requireInvoiceOwnership,
+  async (req, res) => {
+    try {
+      const { maintenanceDate } = req.body;
+      const invoiceId = req.params.id;
+
+      const formattedMaintenanceDate =
+        maintenanceDate && String(maintenanceDate).trim() !== ''
+          ? String(maintenanceDate).trim()
+          : '';
+
+      const [result] = await db.query(
+        `
+        UPDATE invoices
+        SET maintenance_date = ?
+        WHERE id = ?
+        `,
+        [formattedMaintenanceDate, invoiceId]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Invoice not found',
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Maintenance date updated successfully',
+      });
+    } catch (err) {
+      console.error('PATCH /invoices/:id/maintenance-date ERROR:', err.message);
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      });
+    }
+  }
+);
+
+
+// ============================================================
+// PATCH /api/invoices/:id/payment
+//
+// Inline edit of the Paid Amount from the Invoice History card.
+//
+// Body:
+//   paidAmount -> the NEW cumulative paid amount for the invoice.
+//
+// Behaviour mirrors PUT /:id:
+//   - total_amount is taken from the DB (frontend is NOT trusted).
+//   - A payment-history row is inserted ONLY for the newly added
+//     amount (newPaid - oldPaid), so the Payment History stays an
+//     accurate ledger of each top-up.
+//   - paid_amount / balance_amount / status are recalculated.
+// ============================================================
+
+router.patch(
+  '/:id/payment',
+  authenticateToken,
+  requireInvoiceOwnership,
+  async (req, res) => {
+    const invoiceId = req.params.id;
+
+    const newPaid = Number(req.body.paidAmount);
+
+    if (Number.isNaN(newPaid) || newPaid < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'paidAmount must be a number greater than or equal to 0',
+      });
+    }
+
+    let connection;
+
+    try {
+      connection = await db.getConnection();
+      await connection.beginTransaction();
+
+      const [[invoice]] = await connection.query(
+        `
+        SELECT
+          id,
+          total_amount,
+          paid_amount,
+          invoice_date
+        FROM invoices
+        WHERE id = ?
+        FOR UPDATE
+        `,
+        [invoiceId]
+      );
+
+      if (!invoice) {
+        await connection.rollback();
+        return res.status(404).json({
+          success: false,
+          message: 'Invoice not found',
+        });
+      }
+
+      const total = Number(invoice.total_amount || 0);
+      const oldPaid = Number(invoice.paid_amount || 0);
+      const addedPayment = newPaid - oldPaid;
+
+      const balance = Math.max(total - newPaid, 0);
+
+      let status;
+      if (newPaid <= 0) {
+        status = 'DRAFT';
+      } else if (newPaid >= total) {
+        status = 'PAID';
+      } else {
+        status = 'PARTIAL';
+      }
+
+      await connection.query(
+        `
+        UPDATE invoices
+        SET
+          paid_amount = ?,
+          balance_amount = ?,
+          status = ?
+        WHERE id = ?
+        `,
+        [newPaid, balance, status, invoiceId]
+      );
+
+      // Record the top-up in the Payment History ledger.
+      if (addedPayment > 0) {
+        await connection.query(
+          `
+          INSERT INTO invoice_payments
+          (
+            invoice_id,
+            paid_date,
+            total_amount,
+            paid_total_amount,
+            paid_amount,
+            balanced_amount
+          )
+          VALUES
+          (
+            ?,
+            ?,
+            ?,
+            ?,
+            ?,
+            ?
+          )
+          `,
+          [
+            invoiceId,
+            formatDDMMYYYY(new Date()),
+            total,
+            newPaid,
+            addedPayment,
+            balance,
+          ]
+        );
+      }
+
+      await connection.commit();
+
+      return res.json({
+        success: true,
+        message: 'Paid amount updated successfully',
+        data: {
+          id: Number(invoiceId),
+          paidAmount: newPaid,
+          balanceAmount: balance,
+          status,
+          addedPayment: addedPayment > 0 ? addedPayment : 0,
+        },
+      });
+    } catch (err) {
+      if (connection) {
+        try {
+          await connection.rollback();
+        } catch (_) {}
+      }
+      console.error('PATCH /invoices/:id/payment ERROR:', err.message);
+      return res.status(500).json({
+        success: false,
+        message: err.message,
+      });
+    } finally {
+      if (connection) {
+        connection.release();
+      }
+    }
+  }
+);
+
+
+// ============================================================
 // GET /api/invoices/export-csv
 //
 // MUST BE BEFORE /:id
