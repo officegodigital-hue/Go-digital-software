@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 
 /// Desktop / mobile fallback: renders the PDF with the `printing` package.
