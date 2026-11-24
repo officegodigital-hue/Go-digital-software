@@ -16,7 +16,10 @@ class DayPlannerScreen extends StatefulWidget {
   /// Opens a row's task in Employee Workspace: {client, due_date, section}.
   final ValueChanged<Map<String, dynamic>>? onOpenWorkspace;
 
-  const DayPlannerScreen({super.key, this.onOpenWorkspace});
+  /// Opens a Tech Workspace row (a tech project/task) in the Tech Workspace.
+  final ValueChanged<Map<String, dynamic>>? onOpenTech;
+
+  const DayPlannerScreen({super.key, this.onOpenWorkspace, this.onOpenTech});
 
   @override
   State<DayPlannerScreen> createState() => _DayPlannerScreenState();
@@ -124,6 +127,9 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   Map<String, Map<String, dynamic>> _planItems = {};
   static final RegExp _taskMarker = RegExp(r'\[Task Row #(\d+)\]');
   static final RegExp _calMarker = RegExp(r'\[Calendar Row #(\d+)\]');
+  // Tech Workspace rows carry a "[Tech Task #5]" (or legacy "[Tech Project #1]")
+  // tag linking them to the Tech Workspace; hide it from the Today Plan cell.
+  static final RegExp _techMarker = RegExp(r'\[Tech (?:Task|Project) #(\d+)\]');
 
   String? _refFor(Map<String, dynamic> row) {
     final plan = (row['today_plan'] ?? '').toString();
@@ -134,8 +140,18 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
     return null;
   }
 
-  String _planText(String value) =>
-      value.replaceAll(_taskMarker, '').replaceAll(_calMarker, '').trim();
+  // A Tech Workspace planner row — its client is a tech project name and its
+  // plan carries a "[Tech …]" marker. Such rows are read-only here and open the
+  // Tech Workspace (never the Employee Workspace) when tapped.
+  bool _isTechRow(Map<String, dynamic> row) =>
+      _techMarker.hasMatch((row['today_plan'] ?? '').toString()) ||
+      '${row['remarks'] ?? ''}'.toLowerCase().contains('tech project');
+
+  String _planText(String value) => value
+      .replaceAll(_taskMarker, '')
+      .replaceAll(_calMarker, '')
+      .replaceAll(_techMarker, '')
+      .trim();
 
   Future<void> _loadPlanItems() async {
     final refs = dayPlanRows.map(_refFor).whereType<String>().toSet();
@@ -735,6 +751,17 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
 
   /// Open this planner row in Employee Workspace (client card + tab).
   void _openInWorkspace(Map<String, dynamic> row) {
+    // Tech rows belong to the Tech Workspace, not the Employee Workspace.
+    if (_isTechRow(row)) {
+      final openTech = widget.onOpenTech;
+      if (openTech == null) return;
+      final m = _techMarker.firstMatch((row['today_plan'] ?? '').toString());
+      openTech({
+        'project': '${row['client'] ?? ''}'.trim(),
+        'task_id': m != null ? m.group(1) : '',
+      });
+      return;
+    }
     final open = widget.onOpenWorkspace;
     if (open == null) return;
     final ref = _refFor(row);
@@ -3134,7 +3161,12 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
 
   Widget _clientCell(Map<String, dynamic> row, bool isTodayView) {
     final currentClient = row['client']?.toString() ?? '';
-    final selected = assignedClients.contains(currentClient);
+    final isTech = _isTechRow(row);
+    // A tech row's client is its project name — always show it (it is never in
+    // the employee's assigned-client list) and do not offer the client picker.
+    final selected = isTech
+        ? currentClient.isNotEmpty
+        : assignedClients.contains(currentClient);
 
     return Container(
       height: 58,
@@ -3150,7 +3182,9 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: isTodayView ? () => _showClientPicker(row, isTodayView) : null,
+          onTap: (isTodayView && !isTech)
+              ? () => _showClientPicker(row, isTodayView)
+              : (isTech ? () => _openInWorkspace(row) : null),
           borderRadius: BorderRadius.circular(10),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
@@ -3189,10 +3223,12 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
                     ),
                   ),
                 ),
-                const Icon(
-                  Icons.keyboard_arrow_down_rounded,
+                Icon(
+                  isTech
+                      ? Icons.open_in_new_rounded
+                      : Icons.keyboard_arrow_down_rounded,
                   color: Colors.white,
-                  size: 19,
+                  size: isTech ? 15 : 19,
                 ),
               ],
             ),
@@ -3233,7 +3269,8 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
     bool rowEditable,
   ) {
     final raw = (row[field] ?? '').toString();
-    final linked = field == 'today_plan' && _refFor(row) != null;
+    final isTech = field == 'today_plan' && _isTechRow(row);
+    final linked = field == 'today_plan' && (_refFor(row) != null || isTech);
     // Linked rows keep their hidden marker, so their plan text is read-only.
     final value = linked ? _planText(raw) : raw;
     const editableFields = ['today_plan', 'remarks'];
@@ -3287,8 +3324,8 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
                 _scheduleAutoSave(row);
               },
             )
-          : linked && widget.onOpenWorkspace != null
-              // Task / category row → tap to open it in Employee Workspace.
+          : linked && (widget.onOpenWorkspace != null || widget.onOpenTech != null)
+              // Task / category / tech row → tap to open it in its workspace.
               ? InkWell(
                   onTap: () => _openInWorkspace(row),
                   child: Row(

@@ -24,6 +24,10 @@ class TaskActions {
   TaskActions._();
 
   static List<String> availableFor(Map<String, dynamic> item) {
+    // Tech Workspace rows are shown read-only on the dashboard — they are driven
+    // from the Tech Workspace, and their ids are not employee tracking items, so
+    // start/hold/complete must never fire the employee endpoints for them.
+    if ('${item['kind'] ?? ''}'.toUpperCase() == 'TECH') return const [];
     final status = '${item['status'] ?? ''}'.toUpperCase();
     return switch (status) {
       'IDLE' => ['start'],

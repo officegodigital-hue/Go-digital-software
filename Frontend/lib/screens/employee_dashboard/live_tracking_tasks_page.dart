@@ -20,10 +20,14 @@ class LiveTrackingTasksPage extends StatefulWidget {
   /// Open a task's client card (and tab) in Employee Workspace.
   final ValueChanged<Map<String, dynamic>>? onOpenWorkspace;
 
+  /// Open a Tech Workspace task in the Tech Workspace.
+  final ValueChanged<Map<String, dynamic>>? onOpenTech;
+
   const LiveTrackingTasksPage({
     super.key,
     this.searchQuery = '',
     this.onOpenWorkspace,
+    this.onOpenTech,
   });
 
   @override
@@ -1599,13 +1603,18 @@ Widget _buildHero(
     );
   }
 
-  // Opens this task's client card on the right tab in Employee Workspace.
+  // Opens this task on the right tab in its workspace (Tech rows → Tech Workspace).
   Widget _openButton(Map<String, dynamic> item) {
-    final canOpen = widget.onOpenWorkspace != null && '${item['client'] ?? ''}'.isNotEmpty;
+    final isTech = '${item['source'] ?? ''}'.toLowerCase() == 'tech';
+    final canOpen = isTech
+        ? widget.onOpenTech != null
+        : widget.onOpenWorkspace != null && '${item['client'] ?? ''}'.isNotEmpty;
     return Tooltip(
-      message: 'Open in Employee Workspace',
+      message: isTech ? 'Open in Tech Workspace' : 'Open in Employee Workspace',
       child: FilledButton.icon(
-        onPressed: canOpen ? () => widget.onOpenWorkspace!(item) : null,
+        onPressed: canOpen
+            ? () => (isTech ? widget.onOpenTech! : widget.onOpenWorkspace!)(item)
+            : null,
         style: FilledButton.styleFrom(
           backgroundColor: _primary,
           foregroundColor: Colors.white,

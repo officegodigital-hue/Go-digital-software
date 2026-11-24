@@ -191,6 +191,14 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
     });
   }
 
+  /// A Tech Workspace row (Day Planner / Live Tracking / Dashboard) → open the
+  /// Tech Workspace section.
+  void _openTechItem([Map<String, dynamic>? item]) {
+    setState(() {
+      selectedMenu = 'Tech Workspace';
+    });
+  }
+
   Widget getDashboardByRole(EmployeeRole loggedInRole) {
     switch (loggedInRole) {
       case EmployeeRole.designer:
@@ -224,11 +232,15 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       case 'Dashboard':
         return getDashboardByRole(loggedInRole);
       case 'Day Planner':
-        return DayPlannerScreen(onOpenWorkspace: _openWorkspaceItem);
+        return DayPlannerScreen(
+          onOpenWorkspace: _openWorkspaceItem,
+          onOpenTech: _openTechItem,
+        );
       case 'Live Tracking Tasks':
         return LiveTrackingTasksPage(
           searchQuery: searchQuery,
           onOpenWorkspace: _openWorkspaceItem,
+          onOpenTech: _openTechItem,
         );
       case 'Chat':
         return const NotificationsScreen();

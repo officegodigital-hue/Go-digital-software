@@ -1769,6 +1769,68 @@ router.get('/actionable', async (req, res) => {
 //   review_pending   Page / Ads Handler: team rows waiting for their decision
 //   calendar_pending Page / Ads Handler: Content Calendar categories not shared yet
 //   cards            hold_list (Hold Task card) + new_clients (New Clients card)
+// Tech Workspace tasks assigned to this developer, shaped like dashboard task
+// items so they flow into the Pending / This Week / Rework tables. They are
+// read-only here (no START/HOLD/COMPLETE buttons — the developer drives them
+// from the Tech Workspace), which the app enforces by kind === 'TECH'.
+// Status maps onto the dashboard vocabulary: ADDED→IDLE, IN PROGRESS, ON HOLD,
+// CORRECTION→REWORK, IN REVIEW, APPROVED. A parent TASK in CORRECTION state is
+// represented by its correction child, so it is skipped to avoid duplicates.
+async function techDashboard(employee, weekFrom, todayKey) {
+  let rows;
+  try {
+    [rows] = await db.query(
+      `SELECT t.id, t.kind, t.status, t.title, t.details,
+              p.name AS project_name,
+              DATE_FORMAT(p.target_date, '%Y-%m-%d') AS target_date,
+              DATE_FORMAT(COALESCE(t.reviewed_at, t.completed_at), '%Y-%m-%d') AS done_date,
+              (SELECT COALESCE(SUM(TIMESTAMPDIFF(SECOND, s.started_at, COALESCE(s.ended_at, NOW()))), 0)
+                 FROM tech_task_sessions s WHERE s.task_id = t.id) AS duration_secs
+         FROM tech_tasks t
+         JOIN tech_projects p ON p.id = t.project_id
+        WHERE LOWER(TRIM(t.assigned_to_name)) = LOWER(TRIM(?))
+          AND ( t.status IN ('ADDED', 'IN PROGRESS', 'ON HOLD', 'CORRECTION', 'IN REVIEW')
+                OR (t.status = 'APPROVED' AND COALESCE(t.reviewed_at, t.completed_at) >= ?) )`,
+      [employee, `${weekFrom} 00:00:00`],
+    );
+  } catch (_) {
+    return []; // tech tables may not exist on this database
+  }
+
+  const STATUS = {
+    ADDED: 'IDLE', 'IN PROGRESS': 'IN PROGRESS', 'ON HOLD': 'ON HOLD',
+    'IN REVIEW': 'IN REVIEW', APPROVED: 'APPROVED', CORRECTION: 'REWORK',
+  };
+  const out = [];
+  for (const r of rows) {
+    if (r.kind === 'TASK' && r.status === 'CORRECTION') continue; // child carries it
+    let status = STATUS[r.status] || 'IDLE';
+    // A correction the developer still has to fix belongs in the Rework table.
+    if (r.kind === 'CORRECTION' && ['IDLE', 'IN PROGRESS', 'ON HOLD'].includes(status)) {
+      status = 'REWORK';
+    }
+    const date = r.target_date || '';
+    out.push({
+      kind: 'TECH',
+      key: `tech:${r.id}`,
+      task_id: r.id,
+      client: r.project_name,
+      deliverable: r.title,
+      title: r.title,
+      heading: '',
+      description: r.details || '',
+      display_no: r.kind === 'CORRECTION' ? 'Correction' : '',
+      status,
+      submit_date: date,
+      due_date: date,
+      completed_at: r.done_date || '',
+      duration_secs: Number(r.duration_secs) || 0,
+      overdue: !!date && date < todayKey && !['IN REVIEW', 'APPROVED'].includes(status),
+    });
+  }
+  return out;
+}
+
 // Task items are the /actionable shape, so START / HOLD / COMPLETE / RESTART
 // work exactly like the Employee Workspace (Day Planner too).
 router.get('/dashboard', async (req, res) => {
@@ -1828,6 +1890,10 @@ router.get('/dashboard', async (req, res) => {
           overdue: !!d && d < todayKey && !['APPROVED', 'IN REVIEW'].includes(row.state),
         };
       });
+
+    // Merge the developer's Tech Workspace tasks so they appear in the same
+    // Pending / This Week / Rework tables as digital-marketing work.
+    tasks.push(...await techDashboard(employee, weekFrom, todayKey));
 
     // Task Review + Content Calendar: Page / Ads Handler only (app sends handler=1).
     const reviewerIds = String(req.query.handler) === '1'
@@ -2099,6 +2165,79 @@ const inDay = (v, from, to) => {
  *  · for today, anything still running from an earlier day is listed too
  *    (flagged stale_running) so it can be put on hold.
  */
+// Tech Workspace time for one day. Mirrors the employee rule: only sessions
+// STARTED that day add seconds; a task left running from an earlier day is
+// listed (stale_running) so it can be held, but adds nothing. tech_task_sessions
+// holds one row per start→stop; tech_tasks carries the live status and assignee.
+async function techDayWork(employee, day, from, to, end, now, today) {
+  const items = [];
+  let totalSecs = 0;
+  let rows;
+  try {
+    [rows] = await db.query(
+      `SELECT s.started_at, s.ended_at, t.id AS task_id, t.title, t.status,
+              p.name AS project_name
+         FROM tech_task_sessions s
+         JOIN tech_tasks t ON t.id = s.task_id
+         JOIN tech_projects p ON p.id = t.project_id
+        WHERE LOWER(TRIM(t.assigned_to_name)) = LOWER(TRIM(?))
+          AND ((s.started_at >= ? AND s.started_at < ?)
+               OR (s.ended_at >= ? AND s.ended_at < ?)
+               OR s.ended_at IS NULL)`,
+      [employee, from, to, from, to],
+    );
+  } catch (_) {
+    return { items, totalSecs }; // tech tables may not exist on this database
+  }
+
+  const byTask = new Map();
+  for (const r of rows) {
+    const started = r.started_at ? new Date(r.started_at) : null;
+    if (!started) continue;
+    const ended = r.ended_at ? new Date(r.ended_at) : null;
+    let g = byTask.get(Number(r.task_id));
+    if (!g) {
+      g = {
+        task_id: Number(r.task_id), title: r.title, status: r.status,
+        client: r.project_name, secs: 0, today_running: false,
+        stale_running: false, running_since: null, session_started_at: null,
+      };
+      byTask.set(Number(r.task_id), g);
+    }
+    const startedToday = started >= from && started < to;
+    if (startedToday) {
+      const sEnd = ended || end;
+      g.secs += Math.max(Math.floor((Math.min(sEnd, end) - started) / 1000), 0);
+    }
+    if (!ended && r.status === 'IN PROGRESS') {
+      g.session_started_at = started;
+      if (day === today && startedToday) g.today_running = true;
+      else if (day === today) { g.stale_running = true; g.running_since = dateKey(started); }
+    }
+  }
+
+  for (const g of byTask.values()) {
+    totalSecs += g.secs;
+    const liveElapsed = g.today_running && g.session_started_at
+      ? Math.max(Math.floor((now - g.session_started_at) / 1000), 0)
+      : g.secs;
+    items.push({
+      task_id: g.task_id,
+      title: g.title,
+      client: g.client,
+      status: g.status,
+      seconds_on_date: g.secs,
+      duration_secs: liveElapsed,
+      today_running: g.today_running,
+      stale_running: g.stale_running,
+      running_since: g.running_since,
+      session_started_at: g.session_started_at ? g.session_started_at.toISOString() : null,
+      source: 'tech',
+    });
+  }
+  return { items, totalSecs };
+}
+
 async function dayWork(employee, day) {
   const now = new Date();
   const today = appDay(now);
@@ -2146,6 +2285,12 @@ async function dayWork(employee, day) {
       running_since: stale ? dateKey(started) : null,
     });
   }
+
+  // Tech Workspace tasks count toward the same daily total and running task,
+  // so the top-bar timer ticks for a running tech task too.
+  const tech = await techDayWork(employee, day, from, to, end, now, today);
+  totalSecs += tech.totalSecs;
+  items.push(...tech.items);
 
   const rank = (i) => (i.status === 'IN PROGRESS' ? 0 : ['ON HOLD', 'REWORK'].includes(i.status) ? 1 : 2);
   items.sort((a, b) => rank(a) - rank(b) || String(a.client).localeCompare(String(b.client)));

@@ -209,6 +209,16 @@ async function notify(sender, recipient, preview, payload = {}) {
 async function plannerAdd(task, status = 'PROCESSING') {
   try {
     const marker = `[Tech Task #${task.id}]`;
+    // The Day Planner "Client" column shows the tech PROJECT NAME (task.project_name
+    // is p.name), and the "Submit Date" shows the project's target date.
+    const [[project]] = await db.query(
+      `SELECT name, DATE_FORMAT(target_date, '%Y-%m-%d') AS target_date
+       FROM tech_projects WHERE id = ? LIMIT 1`,
+      [task.project_id],
+    );
+    const projectName = project?.name || task.project_name;
+    const targetDate = project?.target_date || null;
+
     const [existing] = await db.query(
       `SELECT id FROM day_plan_rows
        WHERE LOWER(TRIM(employee_name)) = LOWER(TRIM(?)) AND plan_date = CURDATE()
@@ -216,7 +226,10 @@ async function plannerAdd(task, status = 'PROCESSING') {
       [task.assigned_to_name, `%${marker}%`],
     );
     if (existing.length) {
-      await db.query('UPDATE day_plan_rows SET status = ? WHERE id = ?', [status, existing[0].id]);
+      await db.query(
+        'UPDATE day_plan_rows SET status = ?, client_name = ?, maintenance_date = ? WHERE id = ?',
+        [status, projectName, targetDate, existing[0].id],
+      );
       return 'updated';
     }
     const [[u]] = await db.query(
@@ -227,8 +240,8 @@ async function plannerAdd(task, status = 'PROCESSING') {
       `INSERT INTO day_plan_rows
          (employee_name, employee_role, plan_date, report_type, client_name,
           maintenance_date, today_plan, status, remarks, is_submitted)
-       VALUES (?, ?, CURDATE(), 'Morning', ?, NULL, ?, ?, 'Tech project task', 0)`,
-      [task.assigned_to_name, u?.role || null, task.project_name,
+       VALUES (?, ?, CURDATE(), 'Morning', ?, ?, ?, ?, 'Tech project task', 0)`,
+      [task.assigned_to_name, u?.role || null, projectName, targetDate,
         `${marker} ${task.kind === 'CORRECTION' ? 'Correction · ' : ''}${task.title}`, status],
     );
     return 'added';
@@ -753,7 +766,7 @@ async function workAction(req, res, action) {
       if (task.status !== 'IN PROGRESS') return res.status(409).json({ success: false, message: 'Start the task before completing it' });
       await closeSessions(task.id, 'completed');
       await db.query("UPDATE tech_tasks SET status = 'IN REVIEW', completed_at = NOW() WHERE id = ?", [task.id]);
-      await plannerStatus(task, 'COMPLETED');
+      await plannerStatus(task, 'COMPLETE');
       await history(task.project_id, task.id, 'TASK_COMPLETED', acc.me, task.title);
       const [[project]] = await db.query('SELECT incharge_name FROM tech_projects WHERE id = ?', [task.project_id]);
       const reviewer = norm(project?.incharge_name) === norm(acc.me) ? null : project?.incharge_name;
