@@ -14,6 +14,42 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(keystorePropertiesFile.inputStream())
 }
 
+// Google Maps SDK for Android key. Resolved at build time from (in order):
+//   1. a -P project property or ~/.gradle/gradle.properties / gradle.properties
+//   2. GOOGLE_MAPS_API_KEY in android/local.properties (gitignored)
+//   3. the GOOGLE_MAPS_API_KEY environment variable
+// If none is set the APK ships with an empty key and the map renders blank.
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
+}
+val googleMapsApiKey: String =
+    (project.findProperty("GOOGLE_MAPS_API_KEY") as String?)
+        ?: localProperties.getProperty("GOOGLE_MAPS_API_KEY")
+        ?: System.getenv("GOOGLE_MAPS_API_KEY")
+        ?: ""
+
+// Fail fast on a keyless RELEASE build so a blank-map APK can never ship.
+// Debug/`flutter run` is left alone so day-to-day development isn't blocked.
+gradle.taskGraph.whenReady {
+    val buildingRelease = allTasks.any { task ->
+        val name = task.name
+        name.contains("Release") && (
+            name.startsWith("assemble") ||
+            name.startsWith("bundle") ||
+            name.startsWith("package")
+        )
+    }
+    if (buildingRelease && googleMapsApiKey.isBlank()) {
+        throw GradleException(
+            "GOOGLE_MAPS_API_KEY is not set — the release build would ship with a blank Google Map. " +
+            "Add 'GOOGLE_MAPS_API_KEY=<your Maps SDK for Android key>' to android/local.properties, " +
+            "or pass -PGOOGLE_MAPS_API_KEY=<key> to the build."
+        )
+    }
+}
+
 android {
     namespace = "in.godigitalindia.portal"
     compileSdk = 36
@@ -34,8 +70,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] =
-            (project.findProperty("GOOGLE_MAPS_API_KEY") as String?) ?: ""
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey
     }
 
     signingConfigs {
