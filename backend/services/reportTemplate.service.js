@@ -23,6 +23,7 @@ function canonicalProviderKey(value) {
   if (['GMB', 'GBP', 'GOOGLE_MY_BUSINESS', 'GOOGLE_BUSINESS_PROFILE_DASHBOARD'].includes(key)) {
     return 'GOOGLE_BUSINESS_PROFILE';
   }
+  if (key === 'LINKEDIN_ORGANIC') return 'LINKEDIN';
   if (['TWITTER', 'X'].includes(key)) return 'TWITTER_X';
   return key;
 }
@@ -220,13 +221,15 @@ function isSharedReportSlide(xml) {
 }
 
 function slideHasFilledTemplateField(xml, fields) {
-  const tokens = [...String(xml).matchAll(/\{\{\s*(?!screenshot:)([a-z0-9_.-]+)\s*\}\}/gi)];
-  return tokens.some((match) => {
-    const value = fields.get(match[1].toLowerCase());
-    return value != null && String(value).trim().isNotEmpty;
-  });
+  for (const [paragraph] of xml.matchAll(/<a:p\b[^>]*>[\s\S]*?<\/a:p>/g)) {
+    const text = [...paragraph.matchAll(/<a:t\b[^>]*>([\s\S]*?)<\/a:t>/g)]
+      .map((match) => decodeXml(match[1])).join('');
+    for (const [, key] of text.matchAll(/\{\{\s*([a-z0-9_.-]+)\s*\}\}/gi)) {
+      if (fields.get(key.toLowerCase())?.trim()) return true;
+    }
+  }
+  return false;
 }
-
 async function extractPowerPointTemplatePages(templateBytes) {
   const zip = await loadPowerPointTemplate(templateBytes);
   const presentation = await zip.file('ppt/presentation.xml')?.async('string');
@@ -395,6 +398,9 @@ function applyConditionalShapes(xml, fields) {
 function platformForReportLabel(label) {
   const text = decodeXml(String(label || '')).replace(/^\s*[●•]\s*/, '').trim().toLowerCase();
   if (/^gmb\s*\/\s*gbp$/.test(text)) return 'GOOGLE_BUSINESS_PROFILE';
+  if (text === 'google analytics') return 'GOOGLE_ANALYTICS';
+  if (text === 'google search console') return 'GOOGLE_SEARCH_CONSOLE';
+  if (text === 'local seo') return 'LOCAL_SEO';
   if (text === 'google ads') return 'GOOGLE_ADS';
   if (text === 'meta ads') return 'META_ADS';
   if (text === 'linkedin ads') return 'LINKEDIN_ADS';
@@ -403,7 +409,7 @@ function platformForReportLabel(label) {
   if (text === 'facebook') return 'FACEBOOK';
   if (text === 'youtube') return 'YOUTUBE';
   if (text === 'twitter / x') return 'TWITTER_X';
-  if (text === 'posters & videos' || text === 'creatives') return 'CREATIVES';
+  if (text === 'posters & videos' || text === 'creatives' || text === 'creative showcase') return 'CREATIVES';
   return null;
 }
 
@@ -435,7 +441,9 @@ function setPowerPointText(xml, value) {
       return `<a:t${attrs}>${text}</a:t>`;
     });
   }
-  return xml.replace(/<\/a:p>/, `<a:r><a:t>${text}</a:t></a:r></a:p>`);
+  if (!text) return xml;
+  return xml.replace(/<a:endParaRPr\b[^>]*>|<\/a:p>/, (end) =>
+    '<a:r><a:t>' + text + '</a:t></a:r>' + end);
 }
 
 function tableCells(rowXml) {
@@ -447,6 +455,14 @@ function cellText(cellXml) {
     .map((match) => decodeXml(match[1]))
     .join(' ')
     .trim();
+}
+
+function setTableRowValues(row, values) {
+  let column = 0;
+  return row.replace(/<a:tc\b[\s\S]*?<\/a:tc>/g, (cell) => {
+    const value = values[column++];
+    return value == null ? cell : setPowerPointText(cell, value);
+  });
 }
 
 function providerFieldPrefixes(provider) {
@@ -461,27 +477,32 @@ function providerFieldPrefixes(provider) {
 function providerMetric(fields, provider, metricNames) {
   for (const prefix of providerFieldPrefixes(provider)) {
     for (const metric of metricNames) {
-      const value = fields.get(`${prefix}_${metric}`) ?? fields.get(metric);
+      const value = fields.get(`${prefix}_${metric}`);
       if (value != null && String(value).trim() !== '') return value;
     }
   }
   return '';
 }
 
-function hasProviderContent(fields, provider) {
-  return providerFieldPrefixes(provider).some((prefix) => (
-    [...fields.entries()].some(([key, value]) => key.startsWith(`${prefix}_`)
-      && !/_vs_last_month$|_percentage_change$/.test(key)
-      && value != null && String(value).trim() !== '')
-  ));
+const ADDITIONAL_REPORT_CHANNELS = {
+  GOOGLE_ANALYTICS: 'Google Analytics',
+  GOOGLE_SEARCH_CONSOLE: 'Google Search Console',
+  LOCAL_SEO: 'Local SEO',
+};
+
+function addMissingChannelRows(rows, activeProviders) {
+  const providers = new Set(rows.map((row) => platformForReportLabel(cellText(tableCells(row)[0]))));
+  return [...rows, ...Object.entries(ADDITIONAL_REPORT_CHANNELS)
+    .filter(([key]) => activeProviders.has(key) && !providers.has(key))
+    .map(([, label]) => setTableRowValues(rows[0], [label]))];
 }
 
 function populateChannelSummaryTable(tableXml, fields, activeProviders) {
   const rows = [...tableXml.matchAll(/<a:tr\b[\s\S]*?<\/a:tr>/g)].map((match) => match[0]);
   if (rows.length < 2 || !/channel/i.test(cellText(tableCells(rows[0])[0]))) return tableXml;
-  const activeRows = rows.slice(1).filter((row) => {
+  const activeRows = addMissingChannelRows(rows.slice(1), activeProviders).filter((row) => {
     const provider = platformForReportLabel(cellText(tableCells(row)[0]));
-    return provider && (activeProviders.has(provider) || hasProviderContent(fields, provider));
+    return provider && activeProviders.has(provider);
   }).sort((left, right) => (
     reportProviderPosition(platformForReportLabel(cellText(tableCells(left)[0])))
     - reportProviderPosition(platformForReportLabel(cellText(tableCells(right)[0])))
@@ -496,7 +517,7 @@ function populateChannelSummaryTable(tableXml, fields, activeProviders) {
       providerMetric(fields, provider, ['spend', 'cost']),
       providerMetric(fields, provider, ['estimated_conversion_leads', 'est_conversion_leads', 'leads', 'conversions']),
     ];
-    return cells.reduce((result, cell, index) => result + (index ? setPowerPointText(cell, values[index]) : cell), '');
+    return setTableRowValues(row, values);
   });
   return tableXml.replace(rows.join(''), `${rows[0]}${activeRows.join('')}`);
 }
@@ -505,9 +526,9 @@ function populateNextMonthPlanTable(tableXml, fields, activeProviders) {
   const rows = [...tableXml.matchAll(/<a:tr\b[\s\S]*?<\/a:tr>/g)].map((match) => match[0]);
   if (rows.length < 2 || !/channel/i.test(cellText(tableCells(rows[0])[0]))
       || !/action planned/i.test(cellText(tableCells(rows[0])[1]))) return tableXml;
-  const activeRows = rows.slice(1).filter((row) => {
+  const activeRows = addMissingChannelRows(rows.slice(1), activeProviders).filter((row) => {
     const provider = platformForReportLabel(cellText(tableCells(row)[0]));
-    return provider && (activeProviders.has(provider) || hasProviderContent(fields, provider));
+    return provider && activeProviders.has(provider);
   }).sort((left, right) => (
     reportProviderPosition(platformForReportLabel(cellText(tableCells(left)[0])))
     - reportProviderPosition(platformForReportLabel(cellText(tableCells(right)[0])))
@@ -524,13 +545,145 @@ function populateNextMonthPlanTable(tableXml, fields, activeProviders) {
       planValue('owner'),
       planValue('due'),
     ];
-    return cells.reduce((result, cell, index) => result + (index ? setPowerPointText(cell, values[index]) : cell), '');
+    return setTableRowValues(row, values);
   });
   return tableXml.replace(rows.join(''), `${rows[0]}${activeRows.join('')}`);
 }
 
+function fillLegacyNotes(xml, fields, labels) {
+  const shapes = [...xml.matchAll(/<p:sp\b[\s\S]*?<\/p:sp>/g)].map(([shape]) => shape);
+  for (const [label, key] of labels) {
+    const index = shapes.findIndex((shape) => cellText(shape) === label);
+    const target = index >= 0 ? shapes[index + 1] : null;
+    const value = fields.get(key);
+    if (target && !cellText(target) && value?.trim()) {
+      xml = xml.replace(target, () => setPowerPointText(target, value));
+    }
+  }
+  return xml;
+}
+
+function populateBestCreatives(xml, fields) {
+  return xml.replace(/<a:tbl>[\s\S]*?<\/a:tbl>/g, (table) => {
+    const rows = [...table.matchAll(/<a:tr\b[\s\S]*?<\/a:tr>/g)].map(([row]) => row);
+    if (!/best creative/i.test(cellText(tableCells(rows[0])[0]))) return table;
+    const columns = ['best_creative', 'platform', 'reach_views', 'engagement'];
+    const populated = rows.slice(1).map((row, index) => {
+      const values = columns.map((column) => fields.get('creatives_published_' + column + '_' + (index + 1)) || '');
+      if (!values.some((value) => value.trim())) return '';
+      return setTableRowValues(row, values);
+    });
+    return table.replace(rows.join(''), () => rows[0] + populated.join(''));
+  });
+}
+
+function elementBounds(xml) {
+  const origin = xml.match(/<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/);
+  const extent = xml.match(/<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/);
+  if (!origin || !extent) return null;
+  return { x: Number(origin[1]), y: Number(origin[2]), w: Number(extent[1]), h: Number(extent[2]) };
+}
+
+function legacyImageSlots(xml, provider) {
+  return [...xml.matchAll(/<p:sp\b[\s\S]*?<\/p:sp>/g)].flatMap(([shape]) => {
+    const name = shape.match(/<p:cNvPr\b[^>]*\bname="([^"]+)"/)?.[1];
+    const slot = name?.match(/^((?:Poster|Video) [1-4]) frame$/i)?.[1];
+    const key = slot ? 'CREATIVE_SHOWCASE_' + providerKey(slot)
+      : name === 'Screenshot placeholder' ? provider : null;
+    const bounds = elementBounds(shape);
+    return key && bounds ? [{ shape, key, bounds }] : [];
+  });
+}
+
+function removeLegacySlotDecorations(xml, frame, bounds, key, picture) {
+  return xml.replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, (shape) => {
+    if (shape === frame) return picture;
+    const point = elementBounds(shape);
+    if (!point || point.x < bounds.x || point.x >= bounds.x + bounds.w
+      || point.y < bounds.y || point.y >= bounds.y + bounds.h) return shape;
+    if (picture && key.startsWith('CREATIVE_SHOWCASE_') && /^(poster|video) [1-4]$/i.test(cellText(shape))) {
+      return shape;
+    }
+    return '';
+  });
+}
+
+function visitSlideElements(xml, slide, visit) {
+  return xml.replace(/<p:(sp|graphicFrame)\b[\s\S]*?<\/p:\1>/g, (element, kind) => {
+    const id = element.match(/<p:cNvPr\b[^>]*\bid="(\d+)"/)?.[1];
+    const bounds = elementBounds(element);
+    if (!id || !bounds) return element;
+    const key = slide + ':' + id;
+    if (kind === 'sp') {
+      if (!/<p:txBody>/.test(element)) return element;
+      return visit(element, key, bounds);
+    }
+    const widths = [...element.matchAll(/<a:gridCol\b[^>]*\bw="(\d+)"/g)].map((match) => Number(match[1]));
+    let y = bounds.y;
+    let rowIndex = 0;
+    const firstRow = element.match(/<a:tr\b[\s\S]*?<\/a:tr>/)?.[0];
+    const namedRows = firstRow && /^channel$/i.test(cellText(tableCells(firstRow)[0]));
+    return element.replace(/<a:tr\b[^>]*\bh="(\d+)"[^>]*>[\s\S]*?<\/a:tr>/g, (row, height) => {
+      const originalName = namedRows && rowIndex > 0 ? platformForReportLabel(cellText(tableCells(row)[0])) : null;
+      const rowKey = originalName || rowIndex;
+      let x = bounds.x;
+      let column = 0;
+      const result = row.replace(/<a:tc\b[\s\S]*?<\/a:tc>/g, (cell) => {
+        const w = widths[column] || 0;
+        const edited = namedRows && (rowIndex === 0 || (originalName && column === 0)) ? cell
+          : visit(cell, key + ':' + rowKey + ':' + column, { x, y, w, h: Number(height) });
+        x += w;
+        column += 1;
+        return edited;
+      });
+      rowIndex += 1;
+      y += Number(height);
+      return result;
+    });
+  });
+}
+
+function editSlideElements(xml, slide, edits) {
+  if (!edits || typeof edits !== 'object') return xml;
+  return visitSlideElements(xml, slide, (element, key) => (
+    typeof edits[key] === 'string' ? setPowerPointText(element, edits[key].slice(0, 4000)) : element
+  ));
+}
+
+async function describeEditableSlides(bytes) {
+  const zip = await JSZip.loadAsync(bytes);
+  const [presentation, relationships] = await Promise.all([
+    zip.file('ppt/presentation.xml').async('string'),
+    zip.file('ppt/_rels/presentation.xml.rels').async('string'),
+  ]);
+  const size = presentation.match(/<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/);
+  const width = Number(size?.[1] || 9144000);
+  const height = Number(size?.[2] || 6858000);
+  return Promise.all(presentationSlides(presentation, relationships).map(async ({ slidePath }) => {
+    const xml = await zip.file(slidePath).async('string');
+    const slide = slidePath.match(/slide(\d+)\.xml$/)?.[1];
+    const elements = [];
+    visitSlideElements(xml, slide, (element, key, bounds) => {
+      if (bounds.w > 0 && bounds.h > 0) {
+        elements.push({ key, value: cellText(element),
+          x: bounds.x / width, y: bounds.y / height, w: bounds.w / width, h: bounds.h / height });
+      }
+      return element;
+    });
+    for (const [picture] of xml.matchAll(/<p:pic\b[\s\S]*?<\/p:pic>/g)) {
+      const target = picture.match(/\bname="Report screenshot ([A-Z0-9_]+)"/)?.[1];
+      const bounds = elementBounds(picture);
+      if (target && bounds) {
+        elements.push({ target, x: bounds.x / width, y: bounds.y / height,
+          w: bounds.w / width, h: bounds.h / height });
+      }
+    }
+    return { elements, title: slideTitle(xml) };
+  }));
+}
 function applyReportTableData(xml, fields, activeProviders) {
   const title = slideTitle(xml).toLowerCase();
+  if (/creatives published/.test(title)) return populateBestCreatives(xml, fields);
   if (!/channel summary|next month plan/.test(title)) return xml;
   return xml.replace(/<a:tbl>[\s\S]*?<\/a:tbl>/g, (table) => (
     /channel summary/.test(title)
@@ -543,7 +696,8 @@ function applyReportTableData(xml, fields, activeProviders) {
 // sometimes an image for each channel chip. Remove all parts of a chip as one
 // unit so an inactive channel cannot leave behind an empty pill or icon.
 function applyCoverPlatformFilter(xml, activeProviders) {
-  if (!/client monthly report/.test(slideTitle(xml).toLowerCase())) return xml;
+  if (!/client monthly report/.test(slideTitle(xml).toLowerCase())
+    || !/channels covered/i.test(slideText(xml))) return xml;
   const slots = [
     ['GOOGLE_BUSINESS_PROFILE', 457200, 5376672],
     ['GOOGLE_ADS', 1865376, 5376672],
@@ -565,8 +719,8 @@ function applyCoverPlatformFilter(xml, activeProviders) {
     if (!position) return null;
     const x = Number(position[1]);
     const y = Number(position[2]);
-    return slots.find(([, slotX, slotY]) => x >= slotX - 250000 && x < slotX + 1500000
-      && y >= slotY - 120000 && y < slotY + 900000) || null;
+    return slots.find(([, slotX, slotY]) => x >= slotX - 50000 && x < slotX + 1000000
+      && y >= slotY - 40000 && y < slotY + 490000) || null;
   };
   const transformElement = (element) => {
     const slot = slotForElement(element);
@@ -579,9 +733,23 @@ function applyCoverPlatformFilter(xml, activeProviders) {
     return element.replace(/<a:off x="(\d+)" y="(\d+)"/, (_match, x, y) =>
       `<a:off x="${Number(x) + deltaX}" y="${Number(y) + deltaY}"`);
   };
-  return xml
+  const filtered = xml
     .replace(/<p:sp\b[\s\S]*?<\/p:sp>/g, transformElement)
     .replace(/<p:pic\b[\s\S]*?<\/p:pic>/g, transformElement);
+  const additional = Object.entries(ADDITIONAL_REPORT_CHANNELS)
+    .filter(([key]) => activeProviders.has(key));
+  if (!additional.length) return filtered;
+  let id = Math.max(0, ...[...filtered.matchAll(/<p:cNvPr\b[^>]*\bid="(\d+)"/g)].map((match) => Number(match[1])));
+  const labels = additional.map(([, label], index) => {
+    const slot = slots[activeSlots.length + index];
+    const x = slot?.[1] || 457200 + (index * 2500000);
+    const y = slot?.[2] || 6320000;
+    return '<p:sp><p:nvSpPr><p:cNvPr id="' + (++id) + '" name="Channel label"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>'
+      + '<p:spPr><a:xfrm><a:off x="' + x + '" y="' + y + '"/><a:ext cx="1360000" cy="480000"/></a:xfrm></p:spPr>'
+      + '<p:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="900" b="1"/><a:t>' + label
+      + '</a:t></a:r></a:p></p:txBody></p:sp>';
+  });
+  return filtered.replace('</p:spTree>', () => labels.join('') + '</p:spTree>');
 }
 
 // Older GoDigital templates use a visible `[Enter]` prompt on the cover rather
@@ -633,6 +801,11 @@ function applyLegacyReportFields(xml, fields) {
 }
 
 const CARD_METRIC_KEYS = {
+  CREATIVES_PUBLISHED: {
+    'posters / static posts': ['posters_static_posts'], carousels: ['carousels'],
+    'reels / short videos': ['reels_short_videos'], 'long videos': ['long_videos'],
+    'ad creatives': ['ad_creatives'], stories: ['stories'],
+  },
   GOOGLE_BUSINESS_PROFILE: {
     'search impressions': ['search_impressions', 'total_impressions'],
     'maps impressions': ['maps_impressions'], calls: ['calls'],
@@ -712,7 +885,7 @@ function cardData(fields, provider, label) {
 }
 
 function applyMetricCards(xml, fields) {
-  const provider = slideProvider(xml);
+  const provider = /creatives published/i.test(slideTitle(xml)) ? 'CREATIVES_PUBLISHED' : slideProvider(xml);
   if (!provider || !CARD_METRIC_KEYS[provider]) return xml;
   const cards = [...xml.matchAll(/<p:sp\b[\s\S]*?<\/p:sp>/g)].map((match) => match[0])
     .map((shape) => {
@@ -822,10 +995,15 @@ function imageDimensions(bytes, extension) {
 }
 
 async function normalizeScreenshot(image) {
-  const mimeType = String(image.mimeType || 'image/jpeg').toLowerCase();
+  const bytes = screenshotBytes(image);
+  if (!bytes) return null;
+  let mimeType = String(image.mimeType || 'image/jpeg').toLowerCase();
+  if (bytes.subarray(0, 8).toString('hex') === '89504e470d0a1a0a') mimeType = 'image/png';
+  if (bytes.subarray(0, 3).toString('hex') === 'ffd8ff') mimeType = 'image/jpeg';
+  if (bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP') {
+    mimeType = 'image/webp';
+  }
   if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
-    const bytes = screenshotBytes(image);
-    if (!bytes) return null;
     const extension = mimeType === 'image/png' ? 'png' : 'jpg';
     const dimensions = imageDimensions(bytes, extension);
     return { bytes, extension, contentType: mimeType, ...dimensions };
@@ -834,8 +1012,6 @@ async function normalizeScreenshot(image) {
     throw new Error(`Unsupported screenshot type for the PowerPoint template: ${mimeType}`);
   }
 
-  const bytes = screenshotBytes(image);
-  if (!bytes) return null;
   const puppeteer = require('puppeteer');
   const browser = await puppeteer.launch({
     headless: 'new',
@@ -942,44 +1118,23 @@ async function fillPowerPointTemplate(templateBytes, payload = {}) {
     }
     imagesByProvider.set(key, [...(imagesByProvider.get(key) || []), item]);
   }
-  const usedImageCount = new Map();
-  const slotCount = new Map();
+  const placedImages = new Set();
+  const creativeSlots = ['POSTER_1', 'POSTER_2', 'POSTER_3', 'POSTER_4',
+    'VIDEO_1', 'VIDEO_2', 'VIDEO_3', 'VIDEO_4'];
+  const creativeImages = imagesByProvider.get('CREATIVE_SHOWCASE') || [];
+  let creativeSlotIndex = 0;
   const slides = presentationSlides(presentationXml, presentationRels);
-  for (const slide of slides) {
-    const xml = await zip.file(slide.slidePath).async('string');
-    for (const shape of xml.matchAll(/<p:sp\b[\s\S]*?<\/p:sp>/g)) {
-      const key = screenshotToken(shape[0]);
-      if (key) slotCount.set(key, (slotCount.get(key) || 0) + 1);
-    }
-  }
-  for (const key of slotCount.keys()) fields.set(`screenshot:${key}`, '');
-  // Previously this threw when the active template had fewer
-  // {{SCREENSHOT:PROVIDER}} placeholders than uploaded images, which blocked the
-  // whole report from rendering just because the template design lacked a slot.
-  // Render gracefully instead: the slot-filling loop below places as many images
-  // as there are placeholders and simply ignores any extras, so a template with
-  // no screenshot slots still produces a report (the extra screenshots are just
-  // not shown). We only log the mismatch so admins can add slots if they want
-  // those screenshots to appear.
-  for (const [key, images] of imagesByProvider) {
-    const slots = slotCount.get(key) || 0;
-    if (slots < images.length) {
-      console.warn(
-        `Report template has ${slots} {{SCREENSHOT:${key}}} placeholder(s) but ${images.length} ${key} screenshot(s) were uploaded; ${images.length - slots} will not be shown.`,
-      );
-    }
-  }
-
   let contentTypes = initialContentTypes;
-  const normalizedImages = new Map();
   let imageNumber = 0;
-  // "Assigned AND uploaded" page rule. Upload areas are already limited to the
-  // client's assigned providers, so an uploaded screenshot implies the provider
-  // is assigned. We therefore drop any provider dashboard slide that has no
-  // uploaded screenshot, keeping only pages for providers that are both assigned
-  // and uploaded. Shared slides (cover, channel summary, next-month plan) have no
-  // {{SCREENSHOT:...}} placeholder and are always kept.
-  const uploadedProviders = new Set(imagesByProvider.keys());
+  async function placeImage(source, slideNumber, provider, box) {
+    const image = await normalizeScreenshot(source);
+    if (!image?.bytes) throw new Error('An uploaded report image could not be decoded.');
+    const picture = await addSlideImage(zip, slideNumber, image, provider, box, ++imageNumber);
+    contentTypes = ensureImageContentType(contentTypes, image.extension, image.contentType);
+    placedImages.add(source);
+    return picture;
+  }
+  const uploadedProviders = new Set([...imagesByProvider.keys()].map(canonicalProviderKey));
   const providersWithContent = new Set([
     ...(Array.isArray(payload.selectedProviders) ? payload.selectedProviders : [])
       .map((provider) => canonicalProviderKey(typeof provider === 'string' ? provider : provider?.provider))
@@ -999,11 +1154,21 @@ async function fillPowerPointTemplate(templateBytes, payload = {}) {
       .map((provider) => canonicalProviderKey(typeof provider === 'string' ? provider : provider?.provider))
       .filter(Boolean),
   );
-  const activeProviders = selectedProviders.size
+  const activeProviders = Array.isArray(payload.selectedProviders)
     ? selectedProviders
     : (uploadedProviders.size
       ? new Set([...uploadedProviders].map(canonicalProviderKey))
       : providersWithContent);
+  for (const provider of uploadedProviders) activeProviders.add(provider);
+  if (!Array.isArray(payload.selectedProviders)) {
+    for (const provider of REPORT_PROVIDER_ORDER) {
+      if (providerFieldPrefixes(provider).some((prefix) => [...fields].some(([key, value]) =>
+        key.startsWith(prefix + '_') && value.trim()))) activeProviders.add(provider);
+    }
+  }
+  if (activeProviders.has('CREATIVE_SHOWCASE') || activeProviders.has('CREATIVES_PUBLISHED')) {
+    activeProviders.add('CREATIVES');
+  }
   const providerAliases = {
     GOOGLE_BUSINESS_PROFILE: ['GOOGLE_BUSINESS_PROFILE', 'GMB', 'GBP'],
     TWITTER_X: ['TWITTER_X', 'TWITTER', 'X'],
@@ -1021,53 +1186,75 @@ async function fillPowerPointTemplate(templateBytes, payload = {}) {
     const hasActiveProvider = provider != null
       && matchingProviderKeys.some((key) => activeProviders.has(key));
     const hasFilledTemplateField = slideHasFilledTemplateField(xml, fields);
+    const title = slideTitle(xml);
+    const legacySlots = legacyImageSlots(xml, provider);
+    const hasLegacyImages = legacySlots.some(({ key }) => key.startsWith('CREATIVE_SHOWCASE_')
+      ? creativeImages.some((image) => key.endsWith('_' + providerKey(image.slot)))
+      : imagesByProvider.has(key));
+    const hasEmptyMetricCards = /name="Card [^"]+"/.test(xml) && provider && CARD_METRIC_KEYS[provider]
+      && !legacySlots.length && !/<a:tbl>/.test(xml)
+      && !Object.keys(CARD_METRIC_KEYS[provider]).some((label) => cardData(fields, provider, label));
+    const creativeData = [...fields].some(([key, value]) => key.startsWith('creatives_published_') && value.trim());
     const sharedSlide = isSharedReportSlide(xml);
-    if ((provider != null && !hasActiveProvider)
-        || (provider == null && slideScreenshotProviders.length
-          && !slideScreenshotProviders.some((key) => uploadedProviders.has(key)))
+    if ((!title && !slideScreenshotProviders.length && !hasFilledTemplateField)
+        || (provider != null && !hasActiveProvider)
+        || (hasEmptyMetricCards && !hasFilledTemplateField)
+        || (/creatives published/i.test(title) && !creativeData && !hasFilledTemplateField)
+        || (/creative showcase/i.test(title) && !creativeImages.length && !hasFilledTemplateField
+          && !slideScreenshotProviders.some((key) => imagesByProvider.has(key)))
+        || (legacySlots.length && provider && !hasLegacyImages && !hasFilledTemplateField
+          && !slideScreenshotProviders.length)
+        || (provider == null && !hasFilledTemplateField && slideScreenshotProviders.length
+          && !slideScreenshotProviders.some((key) => uploadedProviders.has(key)
+            || (creativeImages.length && creativeSlots.includes(key.replace(/^CREATIVE_SHOWCASE_/, '')))))
         || (provider == null && !sharedSlide && !hasFilledTemplateField
           && slideScreenshotProviders.isEmpty)) {
       removedSlideNodes.push(slide.node);
       continue;
+    }
+    for (const { shape, key, bounds } of legacySlots) {
+      const slot = key.replace(/^CREATIVE_SHOWCASE_/, '');
+      const source = key === slot
+        ? imagesByProvider.get(key)?.find((image) => !placedImages.has(image))
+        : creativeImages.find((image) => providerKey(image.slot) === slot && !placedImages.has(image));
+      const picture = source ? await placeImage(source, slideNumber, key, shape) : '';
+      xml = removeLegacySlotDecorations(xml, shape, bounds, key, picture);
     }
     const shapePattern = /<p:sp\b[\s\S]*?<\/p:sp>/g;
     const shapes = [...xml.matchAll(shapePattern)];
     for (const shapeMatch of shapes) {
       const provider = screenshotToken(shapeMatch[0]);
       if (!provider) continue;
-      const imageIndex = usedImageCount.get(provider) || 0;
-      const sourceImage = imagesByProvider.get(provider)?.[imageIndex];
-      if (!sourceImage) continue;
-      let normalized = normalizedImages.get(sourceImage);
-      if (!normalized) {
-        normalized = await normalizeScreenshot(sourceImage);
-        if (!normalized?.bytes) throw new Error('A dashboard screenshot could not be decoded.');
-        normalizedImages.set(sourceImage, normalized);
+      const namedSlot = provider.replace(/^CREATIVE_SHOWCASE_/, '');
+      const slot = provider === 'CREATIVE_SHOWCASE'
+        ? creativeSlots[creativeSlotIndex++]
+        : creativeSlots.includes(namedSlot) ? namedSlot : null;
+      const sourceImage = slot
+        ? creativeImages.find((image) => !placedImages.has(image) && providerKey(image.slot) === slot)
+          || creativeImages.find((image) => !placedImages.has(image) && !image.slot)
+          || imagesByProvider.get(provider)?.find((image) => !placedImages.has(image) && !image.slot)
+        : imagesByProvider.get(provider)?.find((image) => !placedImages.has(image));
+      if (!sourceImage) {
+        xml = xml.replace(shapeMatch[0], '');
+        continue;
       }
-      imageNumber += 1;
-      const picture = await addSlideImage(
-        zip,
-        slideNumber,
-        normalized,
-        provider,
-        shapeMatch[0],
-        imageNumber,
-      );
+      const imageLabel = sourceImage.slot ? 'CREATIVE_SHOWCASE_' + providerKey(sourceImage.slot) : provider;
+      const picture = await placeImage(sourceImage, slideNumber, imageLabel, shapeMatch[0]);
       xml = xml.replace(shapeMatch[0], picture);
-      usedImageCount.set(provider, imageIndex + 1);
-      contentTypes = ensureImageContentType(
-        contentTypes,
-        normalized.extension,
-        normalized.contentType,
-      );
     }
     xml = applyCoverPlatformFilter(xml, activeProviders);
     xml = applyLegacyCoverFields(xml, fields);
     xml = applyLegacyReportFields(xml, fields);
     xml = applyReportTableData(xml, fields, activeProviders);
+    if (/next month plan/i.test(title)) {
+      xml = fillLegacyNotes(xml, fields, [
+        ['Approvals & inputs needed', 'approvals_inputs_needed'], ['Remarks', 'remarks'],
+      ]);
+    }
     xml = applyMetricCards(xml, fields);
     xml = applyConditionalShapes(xml, fields);
-    zip.file(slide.slidePath, xmlTextTokenReplacement(xml, fields));
+    xml = xmlTextTokenReplacement(xml, fields);
+    zip.file(slide.slidePath, editSlideElements(xml, slideNumber, payload.powerPointEdits));
   }
   // Drop the removed provider slides from the presentation's slide list. Only
   // the <p:sldId> reference is removed; the orphaned slide part is harmless and
@@ -1075,6 +1262,57 @@ async function fillPowerPointTemplate(templateBytes, payload = {}) {
   let finalPresentationXml = presentationXml;
   for (const node of removedSlideNodes) {
     finalPresentationXml = finalPresentationXml.replace(node, '');
+  }
+  let finalPresentationRels = presentationRels;
+  const fallbackImages = [
+    ...(imagesByProvider.get('INSTAGRAM') || []).map((image) => ({ image, title: 'Instagram Dashboard' })),
+    ...creativeImages.map((image) => ({ image, title: 'Creative Showcase' })),
+  ].filter(({ image }) => !placedImages.has(image));
+  if (fallbackImages.length) {
+    const size = presentationXml.match(/<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/);
+    const width = Number(size?.[1] || 9144000);
+    const height = Number(size?.[2] || 6858000);
+    const margin = Math.round(width * 0.04);
+    const headingHeight = Math.round(height * 0.13);
+    const sourceRels = slides.length && zip.file(slides[0].slidePath.replace(/([^/]+)$/, '_rels/$1.rels'));
+    const layout = sourceRels && (await sourceRels.async('string'))
+      .match(/<Relationship\b[^>]*Type="[^"]*\/slideLayout"[^>]*\/>/)?.[0];
+    let number = Math.max(0, ...Object.keys(zip.files)
+      .map((name) => Number(name.match(/^ppt\/slides\/slide(\d+)\.xml$/)?.[1] || 0)));
+    let id = Math.max(255, ...slides.map(({ node }) => Number(node.match(/\sid="(\d+)"/)?.[1] || 0)));
+    const relationshipType = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    for (const { image, title } of fallbackImages) {
+      const name = 'slide' + (++number) + '.xml';
+      const relation = imageRelationshipId(finalPresentationRels);
+      finalPresentationRels = finalPresentationRels.replace('</Relationships>',
+        '<Relationship Id="' + relation + '" Type="' + relationshipType
+          + '/slide" Target="slides/' + name + '"/></Relationships>');
+      finalPresentationXml = finalPresentationXml.replace('</p:sldIdLst>',
+        '<p:sldId id="' + (++id) + '" r:id="' + relation + '"/></p:sldIdLst>');
+      contentTypes = contentTypes.replace('</Types>',
+        '<Override PartName="/ppt/slides/' + name
+          + '" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
+      zip.file('ppt/slides/_rels/' + name + '.rels',
+        '<Relationships xmlns="' + RELATIONSHIPS_NS + '">' + (layout || '') + '</Relationships>');
+      const label = escapeXml(image.slot ? title + ' - ' + image.slot : title);
+      const heading = '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>'
+        + '<p:spPr><a:xfrm><a:off x="' + margin + '" y="0"/><a:ext cx="' + (width - 2 * margin)
+        + '" cy="' + headingHeight + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>'
+        + '<p:txBody><a:bodyPr anchor="ctr"/><a:lstStyle/><a:p><a:r><a:rPr sz="2800" b="1"/>'
+        + '<a:t>' + label + '</a:t></a:r></a:p></p:txBody></p:sp>';
+      const box = '<p:cNvPr id="3"/><a:xfrm><a:off x="' + margin + '" y="' + headingHeight
+        + '"/><a:ext cx="' + (width - 2 * margin) + '" cy="' + (height - headingHeight - Math.round(height * 0.04))
+        + '"/></a:xfrm>';
+      const imageLabel = image.slot ? 'CREATIVE_SHOWCASE_' + providerKey(image.slot) : image.provider;
+      const picture = await placeImage(image, number, imageLabel, box);
+      zip.file('ppt/slides/' + name,
+        '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+        + ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="' + relationshipType
+        + '" showMasterSp="0"><p:cSld><p:bg><p:bgPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>'
+        + '<a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/>'
+        + '<p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>' + heading + picture
+        + '</p:spTree></p:cSld></p:sld>');
+    }
   }
   // Footer prompts live on the shared slide layout rather than individual
   // slides in the supplied template. Apply the same client/month replacement
@@ -1084,7 +1322,7 @@ async function fillPowerPointTemplate(templateBytes, payload = {}) {
     zip.file(path, applyLegacyReportFields(layout, fields));
   }
   zip.file(presentationPath, finalPresentationXml);
-  zip.file(relationsPath, presentationRels);
+  zip.file(relationsPath, finalPresentationRels);
   zip.file(contentTypesPath, contentTypes);
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
@@ -1179,12 +1417,16 @@ async function generateFromPowerPointTemplate(templateBytes, payload, format) {
         - Number(right.match(/-(\d+)\.png$/i)?.[1]),
       );
     if (!pageFiles.length) {
-      throw new Error('The report template did not produce any pages for Word export.');
+      throw new Error('The report template did not produce any slide images.');
     }
     const images = await Promise.all(
       pageFiles.map((name) => fs.readFile(path.join(directory, name))),
     );
-    return buildDocxFromImages(images);
+    if (format === 'editor') {
+      const descriptions = await describeEditableSlides(filledTemplate);
+      return images.map((image, index) => ({ ...descriptions[index], image: image.toString('base64') }));
+    }
+    return format === 'slides' ? images : buildDocxFromImages(images);
   });
 }
 

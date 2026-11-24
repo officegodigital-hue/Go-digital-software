@@ -18,13 +18,15 @@ class DashboardImageValidationResult {
 }
 
 class DashboardImageValidation {
-  /// Validates that the image is between 1 MB and 10 MB and has a valid image header[cite: 5].
-  static DashboardImageValidationResult check(Uint8List bytes) {
+  static DashboardImageValidationResult check(
+    Uint8List bytes, {
+    bool requireMinimumSize = true,
+  }) {
     // 1 MB = 1,000,000 bytes, 10 MB = 10,000,000 bytes
     const int minBytes = 50 * 1024;
     const int maxBytes = 10 * 1024 * 1024;
 
-    if (bytes.length < minBytes) {
+    if (requireMinimumSize && bytes.length < minBytes) {
       return const DashboardImageValidationResult(
         isValid: false,
         issue: DashboardImageValidationIssue.tooSmall,

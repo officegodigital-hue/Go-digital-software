@@ -168,18 +168,20 @@ test('shared summary and plan tables retain only uploaded platforms and populate
       google_ads_action_planned: 'Optimise campaign',
       linkedin_ads_owner: 'Alex',
     },
+    powerPointEdits: { '2:3:GOOGLE_ADS:1': 'Review campaign' },
   });
   const zip = await JSZip.loadAsync(output);
   const summaryXml = await zip.file('ppt/slides/slide1.xml').async('string');
   const planXml = await zip.file('ppt/slides/slide2.xml').async('string');
 
   assert.match(summaryXml, /5,000/);
+  assert.match(summaryXml, /<a:tr\b[^>]*>(?:(?!<\/a:tr>)[\s\S])*5,000(?:(?!<\/a:tr>)[\s\S])*<\/a:tr>/);
   assert.match(summaryXml, /1,250/);
   assert.ok(summaryXml.indexOf('Google Ads') < summaryXml.indexOf('GMB / GBP'));
   assert.match(summaryXml, /900/);
   assert.doesNotMatch(summaryXml, />Meta Ads</);
   assert.match(planXml, /Update profile/);
-  assert.match(planXml, /Optimise campaign/);
+  assert.match(planXml, /Review campaign/);
   assert.match(planXml, /Alex/);
   assert.doesNotMatch(planXml, />Meta Ads</);
 });
@@ -253,4 +255,36 @@ test('shared-template PDF export reports a missing Office runtime explicitly', a
       process.env.REPORT_OFFICE_CONVERTER_PATH = previous;
     }
   }
+});
+
+test('PowerPoint includes Instagram screenshots and keeps named poster slots', async () => {
+  const source = new PptxGenJS();
+  source.addSlide().addText('Client Monthly Report');
+  const instagram = source.addSlide();
+  instagram.addText('Instagram Dashboard');
+  instagram.addText('{{SCREENSHOT:INSTAGRAM}}', { x: 1, y: 1, w: 6, h: 3 });
+  const showcase = source.addSlide();
+  showcase.addText('Creative Showcase');
+  showcase.addText('{{SCREENSHOT:CREATIVE_SHOWCASE}}', { x: 1, y: 1, w: 3, h: 3 });
+  showcase.addText('{{SCREENSHOT:CREATIVE_SHOWCASE}}', { x: 5, y: 1, w: 3, h: 3 });
+  const image = { bytesBase64: onePixelPng, mimeType: 'image/png' };
+  const deck = await fillPowerPointTemplate(await source.write('nodebuffer'), {
+    selectedProviders: ['CREATIVE_SHOWCASE'],
+    screenshots: [
+      { ...image, provider: 'INSTAGRAM' },
+      { ...image, provider: 'INSTAGRAM' },
+      { ...image, provider: 'CREATIVE_SHOWCASE', slot: 'Poster 2' },
+      { ...image, provider: 'CREATIVE_SHOWCASE', slot: 'Poster 4' },
+    ],
+  });
+  const zip = await JSZip.loadAsync(deck);
+  const presentation = await zip.file('ppt/presentation.xml').async('string');
+  assert.equal([...presentation.matchAll(/<p:sldId\b/g)].length, 5);
+  const readSlide = (number) => zip.file('ppt/slides/slide' + number + '.xml').async('string');
+  assert.match(await readSlide(2), /<p:pic>/);
+  const creative = await readSlide(3);
+  assert.equal([...creative.matchAll(/<p:pic>/g)].length, 1);
+  assert.match(creative, /<a:off x="4572000" y="914400"\/>/);
+  assert.match(await readSlide(4), /Instagram Dashboard.*<p:pic>/);
+  assert.match(await readSlide(5), /Creative Showcase - Poster 4.*<p:pic>/);
 });

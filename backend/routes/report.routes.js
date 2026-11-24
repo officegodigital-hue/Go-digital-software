@@ -89,6 +89,7 @@ router.post('/dashboard-ocr/read', readDashboardOcr);
 router.post('/report-export/full-report/:format', downloadFullReportPpt);
 // Render the current payload to a PDF for on-screen preview (no approval gate).
 router.post('/report-export/preview', previewReport);
+router.post('/report-export/preview/slides', previewReport);
 
 // 3. Client profile (logo) + saved clients
 router.put('/report-export/client-profile', saveClientProfile);

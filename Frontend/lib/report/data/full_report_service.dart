@@ -173,26 +173,28 @@ class FullReportService {
     downloadFile(Uint8List.fromList(response.bodyBytes), name, contentType);
   }
 
-  /// Renders the current (unsaved) report payload to a PDF for on-screen
-  /// preview, without downloading or requiring admin approval.
-  Future<Uint8List> previewReportBytes(Map<String, dynamic> payload) async {
+  Future<List<Map<String, dynamic>>> previewReportSlides(Map<String, dynamic> payload) async {
     final token = AuthSession.requireToken();
     final response = await http.post(
-      Uri.parse('$_apiBaseUrl/report-export/preview'),
+      Uri.parse('$_apiBaseUrl/report-export/preview/slides'),
       headers: <String, String>{
         'Authorization': 'Bearer $token',
         'Content-Type': 'application/json',
-        'Accept': 'application/pdf',
+        'Accept': 'application/json',
       },
       body: jsonEncode(payload),
     );
+    final body = _decodeMap(utf8.decode(response.bodyBytes));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw FullReportException(
-        _decodeMap(response.body)['message']?.toString() ??
-            'Unable to generate the report preview.',
+        body['message']?.toString() ?? 'Unable to render the PowerPoint slides.',
       );
     }
-    return Uint8List.fromList(response.bodyBytes);
+    return (body['slides'] as List).map((raw) {
+      final slide = Map<String, dynamic>.from(raw as Map);
+      slide['image'] = base64Decode(slide['image'] as String);
+      return slide;
+    }).toList();
   }
 
   Future<void> downloadDraft({

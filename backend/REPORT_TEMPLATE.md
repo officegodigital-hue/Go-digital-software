@@ -11,13 +11,13 @@ Before enabling the employee screenshot workflow, run `sql/migrations/report_wor
 - Text fields use `{{field_key}}`, for example `{{client_name}}`, `{{report_month}}`, `{{google_ads_clicks}}`, or `{{active_users}}`.
 - Placeholders are optional. Without placeholders, the uploaded slides are still used as the report design.
 - Provider-specific keys are prefixed with the normalized provider name to avoid collisions, such as `{{meta_ads_clicks}}` or `{{google_search_console_average_position}}`.
-- Screenshot placeholders use `{{SCREENSHOT:provider}}`, such as `{{SCREENSHOT:GOOGLE_ADS}}`. Add one positioned text box placeholder for every screenshot the report should show. Repeat the placeholder for multiple screenshots from the same provider. Uploading more images than there are matching placeholders returns a validation error.
-- The uploaded deck's slides, order, dimensions, and layout are retained; the renderer does not filter slides based on hardcoded provider names. Use text placeholders or explicit slide edits to populate values in the relevant pages.
+- Screenshot placeholders use `{{SCREENSHOT:provider}}`, such as `{{SCREENSHOT:GOOGLE_ADS}}`. Add one positioned text box placeholder for every screenshot the report should show. Repeat the placeholder for multiple screenshots from the same provider. Instagram screenshots and Creative Showcase images without a matching slot get their own slides in the report. Creative Showcase can use ordered {{SCREENSHOT:CREATIVE_SHOWCASE}} placeholders or named placeholders such as {{SCREENSHOT:POSTER_2}}.
+- The generated report retains the template’s layout and slide order for included pages. The cover, Channel Summary, and Next Month Plan use the selected channels. Dashboard screenshots and Creative Showcase images also fill the named frames in the GoDigital template.
 - Text placeholders can span multiple PowerPoint text runs. Missing report values are replaced with empty text.
 
 ## Server requirements
 
-PowerPoint output uses the populated uploaded deck directly. PDF and Word output render that same deck through LibreOffice and Poppler. Monthly reports return a clear error if there is no active PPTX template; generic legacy report endpoints retain the built-in renderer for compatibility. Install both conversion tools on the backend host, or configure:
+PowerPoint output uses the populated uploaded deck directly. PowerPoint view renders the deck through LibreOffice and Poppler and uses the slide objects to locate editable text, table cells, and uploaded images. Saved edits are applied to the same PowerPoint used for preview and export. PDF and Word output also use the generated deck. Monthly reports return a clear error if there is no active PPTX template; generic legacy report endpoints retain the built-in renderer for compatibility. Install both conversion tools on the backend host, or configure:
 
 - `REPORT_OFFICE_CONVERTER_PATH` to the LibreOffice `soffice` executable.
 - `REPORT_PDF_RENDERER_PATH` to Poppler's `pdftoppm` executable.

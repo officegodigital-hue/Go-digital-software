@@ -130,7 +130,9 @@ async function generateReportFile(payload, format) {
     return {
       file: await generateFromPowerPointTemplate(
         Buffer.from(template.template_data),
-        payload,
+        payload.powerPointEditTemplateId != null && Number(payload.powerPointEditTemplateId) !== Number(template.id)
+          ? { ...payload, powerPointEdits: {} }
+          : payload,
         format,
       ),
       template,
@@ -145,6 +147,9 @@ async function generateReportFile(payload, format) {
   const html = buildReportHtml(payload);
   if (format === 'pdf') return { file: await renderHtmlToPdf(html), template: null };
   const images = await renderHtmlToImages(html);
+  if (format === 'editor') {
+    return { file: images.map((image) => ({ image: Buffer.from(image).toString('base64'), elements: [] })), template: null };
+  }
   return {
     file: format === 'pptx'
       ? await buildPptxFromImages(images)
@@ -619,6 +624,11 @@ async function previewReport(req, res) {
       }
     }
     const payload = applyPreviewOverrides(body);
+    if (req.path.endsWith('/slides')) {
+      const { file } = await generateReportFile(payload, 'editor');
+      res.set('Cache-Control', 'no-store');
+      return res.json({ slides: file });
+    }
     let file = (await generateReportFile(payload, 'pdf')).file;
     if (!Buffer.isBuffer(file)) file = Buffer.from(file);
     res.set({

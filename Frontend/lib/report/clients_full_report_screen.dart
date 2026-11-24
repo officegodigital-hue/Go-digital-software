@@ -12,8 +12,6 @@ import '../../services/api_config.dart';
 import 'package:godigital_portal/report/data/full_report_service.dart';
 import 'package:godigital_portal/report/report_providers.dart';
 import 'package:godigital_portal/report/report_brand.dart';
-import 'package:godigital_portal/report/report_preview_screen.dart';
-import '../screens/widgets/pdf_inline_view.dart';
 
 class ClientsFullReportScreen extends StatefulWidget {
   const ClientsFullReportScreen({super.key, required this.business});
@@ -100,6 +98,10 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
       }
 
       if (!mounted || templateFuture != _activeTemplateFuture) return;
+      if (_reportDraftId != draftId) {
+        _powerPointEdits.clear();
+        _powerPointProviderSelection = null;
+      }
       if (reportDraftData != null) {
         _restoreReportDraftData(reportDraftData);
       }
@@ -127,7 +129,12 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     if (snapshots is List) {
       for (final rawSnapshot in snapshots.whereType<Map>()) {
         final snapshot = Map<String, dynamic>.from(rawSnapshot);
-        final section = _providerForDetection(snapshot['provider']) ??
+        final sharedSection = const {
+          'CHANNEL_SUMMARY': 'Channel Summary',
+          'CREATIVES_PUBLISHED': 'Creatives Published',
+          'NEXT_MONTH_PLAN': 'Next Month Plan',
+        }[snapshot['provider']?.toString().toUpperCase()];
+        final section = sharedSection ?? _providerForDetection(snapshot['provider']) ??
             (snapshot['provider']?.toString().toUpperCase() == 'LOCAL_SEO'
                 ? 'Google Business Profile Ranking by GMB Dashboard'
                 : null);
@@ -145,6 +152,14 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
       }
     }
 
+    final savedEdits = reportData['powerPointEdits'];
+    if (savedEdits is Map) {
+      _powerPointEdits.addAll(Map<String, String>.from(savedEdits));
+    }
+    final savedSelection = reportData['powerPointProviderSelection'];
+    if (savedSelection is List) {
+      _powerPointProviderSelection = savedSelection.whereType<String>().toSet();
+    }
     final rawCoverEdits = reportData['cover_edits'];
     if (rawCoverEdits is Map) {
       coverEdits
@@ -605,7 +620,10 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
   bool review = false, extracting = false;
   // Preview/Edit view mode: false = form fields, true = the rendered PPTX template.
   bool _templateView = true;
-  Future<Uint8List>? _templatePreviewFuture;
+  Future<List<Map<String, dynamic>>>? _templatePreviewFuture;
+  final _powerPointEdits = <String, String>{};
+  Set<String>? _powerPointProviderSelection;
+  bool _savingPowerPoint = false;
   String? extractingProvider;
   String _selectedCreativeShowcaseSlot = 'Poster 1';
 
@@ -964,10 +982,13 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     }
     final file = await picker.pickImage(source: ImageSource.gallery);
     if (!mounted || file == null) return;
-    final validation = DashboardImageValidation.check(await file.readAsBytes());
+    final validation = DashboardImageValidation.check(
+      await file.readAsBytes(),
+      requireMinimumSize: false,
+    );
     final message = switch (validation.issue) {
       DashboardImageValidationIssue.tooSmall =>
-        'Please re-upload an image that is at least 1 MB.',
+        'Upload a JPEG, PNG, or WebP image.',
       DashboardImageValidationIssue.tooLarge =>
         'Each creative showcase image must be 10 MB or smaller.',
       DashboardImageValidationIssue.unsupported =>
@@ -1559,6 +1580,18 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     }
   }
 
+  String _reportProviderKey(String value) {
+    final name = value.toUpperCase().replaceAll(' DASHBOARD', '');
+    if (name.contains('RANKING BY GMB')) return 'LOCAL_SEO';
+    if (name.contains('GOOGLE ANALYTICS')) return 'GOOGLE_ANALYTICS';
+    if (name.contains('GOOGLE SEARCH CONSOLE'))
+      return 'GOOGLE_SEARCH_CONSOLE';
+    if (name == 'META ADS') return 'META_ADS';
+    if (name == 'LINKEDIN ADS') return 'LINKEDIN_ADS';
+    if (name == 'TWITTER' || name == 'TWITTER / X') return 'TWITTER_X';
+    return name.replaceAll(' ', '_');
+  }
+
   /// Validates and assembles the full report payload shared by download and
   /// "Pass report" (approval submission). Returns null if the user aborts.
   Future<Map<String, dynamic>?> _assembleReportPayload({
@@ -1630,17 +1663,6 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     final reportYear =
         int.tryParse(widget.business['reportYear']?.toString() ?? '') ??
         now.year;
-    String providerName(String value) {
-      final name = value.toUpperCase().replaceAll(' DASHBOARD', '');
-      if (name.contains('RANKING BY GMB')) return 'LOCAL_SEO';
-      if (name.contains('GOOGLE ANALYTICS')) return 'GOOGLE_ANALYTICS';
-      if (name.contains('GOOGLE SEARCH CONSOLE'))
-        return 'GOOGLE_SEARCH_CONSOLE';
-      if (name == 'META ADS') return 'META_ADS';
-      if (name == 'LINKEDIN ADS') return 'LINKEDIN_ADS';
-      return name.replaceAll(' ', '_');
-    }
-
     final populated = metrics.entries
         .where(
           (entry) => entry.value.values.any((value) => value.trim().isNotEmpty),
@@ -1648,8 +1670,10 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         .toList();
     if (requireReportContent &&
         populated.isEmpty &&
+        _powerPointEdits.isEmpty &&
         uploads.values.every((images) => images.isEmpty) &&
-        creativeShowcaseUploads.isEmpty) {
+        creativeShowcaseUploads.isEmpty &&
+        _templateScreenshotValues.isEmpty) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1668,7 +1692,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
         continue;
       for (final image in entry.value) {
         screenshots.add(<String, String>{
-          'provider': providerName(entry.key),
+          'provider': _reportProviderKey(entry.key),
           'bytesBase64': base64Encode(await image.readAsBytes()),
           'mimeType': image.mimeType ?? 'image/jpeg',
         });
@@ -1698,7 +1722,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     // otherwise the template filter would remove the dashboard page before
     // the image can be placed on it.
     final includedProviders = <String>{
-      ...populated.map((entry) => providerName(entry.key)),
+      ...populated.map((entry) => _reportProviderKey(entry.key)),
       ...uploads.entries
           .where(
             (entry) =>
@@ -1706,12 +1730,22 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                 entry.key != 'Next Month Plan' &&
                 entry.value.isNotEmpty,
           )
-          .map((entry) => providerName(entry.key)),
+          .map((entry) => _reportProviderKey(entry.key)),
       if (creativeShowcaseUploads.isNotEmpty) 'CREATIVE_SHOWCASE',
       ..._templateScreenshotValues.keys
           .map((key) => key.replaceFirst(RegExp(r'^screenshot:'), '').toUpperCase())
           .where((provider) => provider.isNotEmpty),
     };
+    final chosenProviders = _powerPointProviderSelection;
+    if (chosenProviders != null) {
+      final dashboardKeys = providers.map(_reportProviderKey).toSet();
+      final contentSections = _alwaysShownSections.map(_reportProviderKey).toSet();
+      bool excluded(String key) => dashboardKeys.contains(key) &&
+          !contentSections.contains(key) && !chosenProviders.contains(key);
+      includedProviders.removeWhere(excluded);
+      includedProviders.addAll(chosenProviders);
+      screenshots.removeWhere((image) => excluded(image['provider']!.toUpperCase()));
+    }
     const insightSlides = <String, int>{
       'YouTube Dashboard': 11,
       'Facebook Dashboard': 13,
@@ -1904,6 +1938,9 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
       // Keep the user's platform selection even when every metric field is
       // blank, so the summary and next-month-plan tables still show its row.
       'selectedProviders': includedProviders.toList(),
+      'powerPointEdits': Map<String, String>.from(_powerPointEdits),
+      'powerPointEditTemplateId': templateId,
+      if (chosenProviders != null) 'powerPointProviderSelection': chosenProviders.toList(),
       // A provider can be reviewed on screen without being exported. Only
       // providers with at least one entered value get report pages.
       'providers': includedProviders
@@ -1918,9 +1955,10 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
       // exporter applies these after OCR/source metrics, so an employee edit
       // can never be replaced by an older extracted value.
       'snapshots': populated
+          .where((entry) => includedProviders.contains(_reportProviderKey(entry.key)))
           .map(
             (entry) => {
-              'provider': providerName(entry.key),
+              'provider': _reportProviderKey(entry.key),
               'metrics': {
                 ...entry.value,
                 'export_overrides': Map<String, String>.from(entry.value),
@@ -1929,7 +1967,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
           )
           .toList(),
       'templateFields': <String, String>{
-        ..._channelSummaryValues(),
+        ...channelSummaryValues,
         if (profileName.isNotEmpty) 'profile_name': profileName,
         if (location.isNotEmpty) 'location': location,
         ..._templateFieldValues,
@@ -1946,7 +1984,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     return payload;
   }
 
-  Future<Uint8List> _loadTemplatePreview() async {
+  Future<List<Map<String, dynamic>>> _loadTemplatePreview() async {
     final payload = await _assembleReportPayload(
       confirmOcrChanges: false,
       requireReportContent: false,
@@ -1954,7 +1992,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     if (payload == null) {
       throw StateError('Unable to prepare the report template preview.');
     }
-    return reportService.previewReportBytes(payload);
+    return reportService.previewReportSlides(payload);
   }
 
   void _refreshTemplatePreview() {
@@ -2132,35 +2170,23 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     }
   }
 
-  /// Renders the current report to a PDF and shows it inline in the shared
-  /// template format, so the values/screenshots can be reviewed before passing
-  /// for approval or downloading. Nothing is saved.
-  Future<void> previewReport() async {
-    final payload = await _assembleReportPayload();
-    if (payload == null || !mounted) return;
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute<void>(
-        builder: (_) => ReportPreviewScreen(
-          title: widget.business['name']?.toString() ?? 'Report preview',
-          subtitle: 'Template preview',
-          loadBytes: () => reportService.previewReportBytes(payload),
-        ),
-      ),
-    );
+  void previewReport() {
+    setState(() => _templateView = true);
+    _refreshTemplatePreview();
   }
 
-  Future<void> downloadReport(String format) async {
+  Future<void> downloadReport(String format, {bool keepReview = false}) async {
     final payload = await _assembleReportPayload();
     if (payload == null || !mounted) return;
     try {
       await reportService.downloadDocument(payload: payload, format: format);
       await _refreshHistory();
-      if (mounted)
+      if (mounted && !keepReview) {
         setState(() {
           review = false;
           _continueFromHistory = false;
         });
+      }
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2902,7 +2928,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                                 ),
                               ),
                               subtitle: Text(
-                                '${creativeShowcaseUploads.length} of 8 template slots filled • Upload JPEG, PNG, or WebP images between 1 MB and 10 MB',
+                                '${creativeShowcaseUploads.length} of 8 template slots filled • Upload JPEG, PNG, or WebP images up to 10 MB',
                               ),
                               trailing: Wrap(
                                 spacing: 8,
@@ -3333,7 +3359,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
           border: Border.all(color: const Color(0xffD6E5FB)),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          chip('Template view', Icons.dashboard_customize_rounded, _templateView,
+          chip('PowerPoint view', Icons.dashboard_customize_rounded, _templateView,
               () {
             setState(() => _templateView = true);
             _refreshTemplatePreview();
@@ -3345,6 +3371,197 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
     );
   }
 
+  Future<void> _savePowerPoint() async {
+    final draftId = _reportDraftId;
+    if (draftId == null || _savingPowerPoint) return;
+    setState(() => _savingPowerPoint = true);
+    try {
+      final data = await _assembleReportPayload(
+        confirmOcrChanges: false,
+        requireReportContent: false,
+      );
+      if (data == null) return;
+      await reportService.saveReportDraftData(draftId: draftId, reportData: data);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report draft saved.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    } finally {
+      if (mounted) setState(() => _savingPowerPoint = false);
+    }
+  }
+
+  Future<void> _choosePowerPointPlatforms() async {
+    final options = <String, String>{
+      for (final dashboard in _dashboardProviders)
+        _reportProviderKey(dashboard): dashboard.replaceFirst(' Dashboard', ''),
+    };
+    final selected = <String>{
+      ...?_powerPointProviderSelection,
+      if (_powerPointProviderSelection == null)
+        for (final name in {...uploads.keys, ...metrics.keys})
+          if ((uploads[name]?.isNotEmpty ?? false) ||
+              (metrics[name]?.values.any((value) => value.trim().isNotEmpty) ?? false))
+            _reportProviderKey(name),
+    }..retainAll(options.keys);
+    final updated = await showDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, updateDialog) => AlertDialog(
+          title: const Text('Report platforms'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final platform in options.entries)
+                  CheckboxListTile(
+                    title: Text(platform.value),
+                    value: selected.contains(platform.key),
+                    onChanged: (checked) => updateDialog(() {
+                      if (checked == true) {
+                        selected.add(platform.key);
+                      } else {
+                        selected.remove(platform.key);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, selected), child: const Text('Apply')),
+          ],
+        ),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    _powerPointProviderSelection = updated;
+    _refreshTemplatePreview();
+  }
+
+  Future<void> _powerPointImages() async {
+    final target = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Add or replace a report image'),
+        children: [
+          for (final dashboard in _dashboardProviders)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, dashboard),
+              child: Text(dashboard),
+            ),
+          for (final slot in creativeShowcaseSlots)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, slot),
+              child: Text(slot),
+            ),
+        ],
+      ),
+    );
+    if (target == null || !mounted) return;
+    await _replacePowerPointImage(target);
+  }
+
+  Future<void> _replacePowerPointImage(String target) async {
+    if (creativeShowcaseSlots.contains(target)) {
+      await addCreativeShowcaseImage(target);
+    } else {
+      final file = await picker.pickImage(source: ImageSource.gallery);
+      if (file == null || !mounted) return;
+      final valid = DashboardImageValidation.check(
+        await file.readAsBytes(),
+        requireMinimumSize: false,
+      ).isValid;
+      if (!mounted) return;
+      if (!valid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose a JPEG, PNG, or WebP image up to 10 MB.')),
+        );
+        return;
+      }
+      uploads[target] = [file, ...?uploads[target]?.skip(1)];
+      _powerPointProviderSelection?.add(_reportProviderKey(target));
+    }
+    _refreshTemplatePreview();
+  }
+
+  Future<void> _editPowerPointElement(Map<String, dynamic> element) async {
+    final imageProvider = element['target'] as String?;
+    if (imageProvider != null) {
+      final slot = creativeShowcaseSlots.where((name) =>
+          'CREATIVE_SHOWCASE_' + _reportProviderKey(name) == imageProvider).firstOrNull;
+      final dashboard = _providerForDetection(imageProvider);
+      final target = slot ?? dashboard;
+      if (target != null) await _replacePowerPointImage(target);
+      return;
+    }
+    final key = element['key'] as String;
+    final value = _powerPointEdits[key] ?? element['value']?.toString() ?? '';
+    var changed = value;
+    final updated = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit slide text'),
+        content: TextFormField(
+          autofocus: true,
+          initialValue: value,
+          maxLength: 4000,
+          maxLines: 4,
+          onChanged: (text) => changed = text,
+          decoration: const InputDecoration(labelText: 'Text', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, changed), child: const Text('Apply')),
+        ],
+      ),
+    );
+    if (updated == null || updated == value || !mounted) return;
+    _powerPointEdits[key] = updated;
+    _refreshTemplatePreview();
+  }
+
+  Widget _editablePowerPointSlide(Map<String, dynamic> slide) {
+    final bytes = slide['image'] as Uint8List;
+    final png = ByteData.sublistView(bytes);
+    final aspect = png.getUint32(16) / png.getUint32(20);
+    final elements = (slide['elements'] as List).cast<Map<String, dynamic>>();
+    return AspectRatio(
+      aspectRatio: aspect,
+      child: LayoutBuilder(
+        builder: (context, size) => Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.memory(bytes, semanticLabel: slide['title']?.toString()),
+            for (final element in elements)
+              Positioned(
+                left: (element['x'] as num) * size.maxWidth,
+                top: (element['y'] as num) * size.maxHeight,
+                width: (element['w'] as num) * size.maxWidth,
+                height: (element['h'] as num) * size.maxHeight,
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: InkWell(
+                    onTap: () => _editPowerPointElement(element),
+                    hoverColor: const Color(0x330866E8),
+                    child: Semantics(
+                      label: element['target'] != null
+                          ? 'Replace report image'
+                          : 'Edit ' + (element['value']?.toString().isNotEmpty == true
+                              ? element['value'] as String : 'empty cell'),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
   Widget _templatePreview() => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3354,8 +3571,7 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'This preview uses the active PowerPoint template. Switch to Form '
-            'view to edit report values.',
+            'Tap text or a table cell to edit it, or an uploaded image to replace it.',
             style: TextStyle(color: Color(0xff5c6f93)),
           ),
           const SizedBox(height: 16),
@@ -3363,25 +3579,38 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
             spacing: 10,
             runSpacing: 8,
             children: [
+              if (_templateFields.isNotEmpty)
+                TextButton(onPressed: _editTemplateFields, child: const Text('Template fields')),
               FilledButton.icon(
-                onPressed: _editTemplateFields,
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Edit template fields'),
+                onPressed: _savingPowerPoint || _reportDraftId == null ? null : _savePowerPoint,
+                icon: const Icon(Icons.save_outlined),
+                label: Text(_savingPowerPoint ? 'Saving…' : 'Save report'),
               ),
               OutlinedButton.icon(
-                onPressed: previewReport,
-                icon: const Icon(Icons.open_in_new_rounded),
-                label: const Text('Open preview'),
+                onPressed: _refreshTemplatePreview,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Refresh slides'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _choosePowerPointPlatforms,
+                icon: const Icon(Icons.tune_outlined),
+                label: const Text('Platforms'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _powerPointImages,
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+                label: const Text('Report images'),
               ),
             ],
           ),
           const SizedBox(height: 12),
           SizedBox(
             height: 760,
-            child: FutureBuilder<Uint8List>(
+            child: FutureBuilder<List<Map<String, dynamic>>>(
               future: _templatePreviewFuture,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
@@ -3404,8 +3633,8 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                     ),
                   );
                 }
-                final bytes = snapshot.data;
-                if (bytes == null || bytes.isEmpty) {
+                final slides = snapshot.data;
+                if (slides == null || slides.isEmpty) {
                   return Center(
                     child: OutlinedButton.icon(
                       onPressed: _refreshTemplatePreview,
@@ -3414,7 +3643,12 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                     ),
                   );
                 }
-                return buildPdfInlineView(bytes);
+                return ListView.separated(
+                  primary: false,
+                  itemCount: slides.length,
+                  separatorBuilder: (context, index) => const SizedBox(height: 16),
+                  itemBuilder: (context, index) => _editablePowerPointSlide(slides[index]),
+                );
               },
             ),
           ),
@@ -3817,23 +4051,33 @@ class _ClientsFullReportScreenState extends State<ClientsFullReportScreen> {
                   Wrap(
                     spacing: 10,
                     runSpacing: 10,
-                    children: creativeShowcaseSlots
-                        .map(
-                          (slot) => SizedBox(
-                            width: 190,
-                            child: Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Text(
-                                  creativeShowcaseUploads.containsKey(slot)
-                                      ? '$slot — image selected'
-                                      : '$slot — no image selected',
-                                ),
-                              ),
+                    children: [
+                      for (final slot in creativeShowcaseSlots)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () => addCreativeShowcaseImage(slot),
+                              icon: const Icon(Icons.add_photo_alternate_outlined),
+                              label: Text(creativeShowcaseUploads.containsKey(slot)
+                                  ? 'Replace $slot'
+                                  : 'Upload $slot'),
                             ),
-                          ),
-                        )
-                        .toList(),
+                            if (creativeShowcaseUploads.containsKey(slot)) ...[
+                              IconButton(
+                                tooltip: 'View $slot',
+                                onPressed: () => _viewScreenshot(creativeShowcaseUploads[slot]!),
+                                icon: const Icon(Icons.visibility_outlined),
+                              ),
+                              IconButton(
+                                tooltip: 'Remove $slot',
+                                onPressed: () => setState(() => creativeShowcaseUploads.remove(slot)),
+                                icon: const Icon(Icons.delete_outline),
+                              ),
+                            ],
+                          ],
+                        ),
+                    ],
                   ),
                 ],
                 Wrap(
