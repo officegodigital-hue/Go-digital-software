@@ -99,6 +99,7 @@ String _me(AuthService a) =>
       _ => (s == 'ADDED' ? 'ADDED' : s, const Color(0xFFF1F5F9), _muted),
     };
 
+
 Widget _chip(String text, Color bg, Color fg, {IconData? icon}) => Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
       decoration: BoxDecoration(
@@ -106,6 +107,7 @@ Widget _chip(String text, Color bg, Color fg, {IconData? icon}) => Container(
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: fg.withValues(alpha: 0.14)),
       ),
+
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
