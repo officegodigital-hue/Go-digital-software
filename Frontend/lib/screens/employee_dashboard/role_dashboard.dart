@@ -36,6 +36,9 @@ class RoleDashboard extends StatefulWidget {
   /// Open a task in Employee Workspace: {client, due_date, section}.
   final ValueChanged<Map<String, dynamic>>? onOpenWorkspace;
 
+  /// Open a Tech Workspace task in the Tech Workspace.
+  final ValueChanged<Map<String, dynamic>>? onOpenTech;
+
   const RoleDashboard({
     super.key,
     this.roleLabel,
@@ -44,6 +47,7 @@ class RoleDashboard extends StatefulWidget {
     this.onOpenAssignedTask,
     this.onViewAllNotifications,
     this.onOpenWorkspace,
+    this.onOpenTech,
   });
 
   @override
@@ -229,6 +233,7 @@ padding: EdgeInsets.fromLTRB(mobile ? 12 : 22, mobile ? 12 : 16, mobile ? 12 : 2
             token: auth.token ?? '',
             isHandler: widget.isHandler,
             onOpenWorkspace: widget.onOpenWorkspace,
+            onOpenTech: widget.onOpenTech,
             filter: globalFilterMode,
             onCards: _applyCards,
           ),

@@ -39,6 +39,10 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
   /// Open a client card + tab inside Employee Workspace (from the top-bar chip).
   Map<String, dynamic>? _workspaceFocus;
 
+  /// Deep-link into the Tech Workspace: open this project directly (from the
+  /// Day Planner / Live Tracking / Dashboard / top-bar running chip).
+  Map<String, dynamic>? _techFocus;
+
   /// Old pages that must never show in the employee sidebar.
   static const Set<String> _hiddenMenus = {
     'Content Assigned',
@@ -136,6 +140,9 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
       selectedMenu = menu;
       searchQuery = "";
       if (menu != 'Employee Workspace') _workspaceFocus = null;
+      // A plain sidebar tap on "Tech Workspace" shows the projects home, not a
+      // previously deep-linked project.
+      if (menu != 'Tech Workspace') _techFocus = null;
     });
   }
 
@@ -191,10 +198,11 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
     });
   }
 
-  /// A Tech Workspace row (Day Planner / Live Tracking / Dashboard) → open the
-  /// Tech Workspace section.
+  /// A Tech Workspace row (Day Planner / Live Tracking / Dashboard / top-bar) →
+  /// open that project directly in the Tech Workspace.
   void _openTechItem([Map<String, dynamic>? item]) {
     setState(() {
+      _techFocus = item;
       selectedMenu = 'Tech Workspace';
     });
   }
@@ -205,21 +213,25 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
         return DesignerDashboardPage(
           onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
           onOpenWorkspace: _openWorkspaceItem,
+          onOpenTech: _openTechItem,
         );
       case EmployeeRole.pageHandler:
         return PageHandlerDashboardPage(
           onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
           onOpenWorkspace: _openWorkspaceItem,
+          onOpenTech: _openTechItem,
         );
       case EmployeeRole.adsHandler:
         return AdsHandlerDashboardPage(
           onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
           onOpenWorkspace: _openWorkspaceItem,
+          onOpenTech: _openTechItem,
         );
       case EmployeeRole.videographer:
         return VideographerDashboardPage(
           onViewAllNotifications: () => setState(() => selectedMenu = 'Notifications'),
           onOpenWorkspace: _openWorkspaceItem,
+          onOpenTech: _openTechItem,
         );
     }
   }
@@ -258,7 +270,10 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
           searchQuery: searchQuery,
         );
       case 'Tech Workspace':
-        return const TechWorkspacePage();
+        return TechWorkspacePage(
+          key: ValueKey('tech-${_techFocus?['project'] ?? 'home'}'),
+          initialProjectName: '${_techFocus?['project'] ?? ''}',
+        );
       default:
         return getDashboardByRole(loggedInRole);
     }
@@ -334,11 +349,20 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
                                     selectedMenu = 'Assigned Task';
                                   });
                                 },
-                                // Running chip → open that client card + tab in Employee Workspace
+                                // Running chip → open the task where it lives:
+                                // a tech task opens its Tech Workspace project,
+                                // everything else opens the Employee Workspace.
                                 onOpenRunningItem: (item) {
+                                  final isTech =
+                                      '${item['source'] ?? ''}'.toLowerCase() == 'tech';
                                   setState(() {
-                                    _workspaceFocus = item;
-                                    selectedMenu = 'Employee Workspace';
+                                    if (isTech) {
+                                      _techFocus = {'project': '${item['client'] ?? ''}'};
+                                      selectedMenu = 'Tech Workspace';
+                                    } else {
+                                      _workspaceFocus = item;
+                                      selectedMenu = 'Employee Workspace';
+                                    }
                                   });
                                 },
                                 onSearch: (value) {

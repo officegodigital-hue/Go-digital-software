@@ -12,11 +12,15 @@ class PageHandlerDashboardPage extends StatelessWidget {
   /// Opens a task in Employee Workspace: {client, due_date, section}.
   final ValueChanged<Map<String, dynamic>>? onOpenWorkspace;
 
+  /// Opens a Tech Workspace task in the Tech Workspace.
+  final ValueChanged<Map<String, dynamic>>? onOpenTech;
+
   const PageHandlerDashboardPage({
     super.key,
     this.onOpenAssignedTask,
     this.onViewAllNotifications,
     this.onOpenWorkspace,
+    this.onOpenTech,
   });
 
   @override
@@ -27,5 +31,6 @@ class PageHandlerDashboardPage extends StatelessWidget {
         onOpenAssignedTask: onOpenAssignedTask,
         onViewAllNotifications: onViewAllNotifications,
         onOpenWorkspace: onOpenWorkspace,
+        onOpenTech: onOpenTech,
       );
 }

@@ -45,12 +45,16 @@ class DashboardWorkTables extends StatefulWidget {
   /// Opens the task in Employee Workspace: {client, due_date, section}.
   final ValueChanged<Map<String, dynamic>>? onOpenWorkspace;
 
+  /// Opens a Tech Workspace task (kind == 'TECH') in the Tech Workspace.
+  final ValueChanged<Map<String, dynamic>>? onOpenTech;
+
   const DashboardWorkTables({
     super.key,
     required this.employeeName,
     this.token = '',
     this.isHandler = false,
     this.onOpenWorkspace,
+    this.onOpenTech,
     this.filter = 'Today',
     this.onCards,
   });
@@ -251,6 +255,11 @@ class _DashboardWorkTablesState extends State<DashboardWorkTables> {
   }
 
   void _openWorkspace(Map<String, dynamic> item) {
+    // Tech Workspace rows open their project in the Tech Workspace.
+    if ('${item['kind'] ?? ''}'.toUpperCase() == 'TECH') {
+      widget.onOpenTech?.call({'project': '${item['client'] ?? ''}'});
+      return;
+    }
     widget.onOpenWorkspace?.call({
       'client': item['client'],
       'due_date': item['due_date'] ?? item['submit_date'],
@@ -795,7 +804,9 @@ class _QueueTable extends StatelessWidget {
               ? const Color(0xFFF0F6FF)
               : (index.isOdd ? const Color(0xFFFBFCFE) : Colors.white),
       child: InkWell(
-        onTap: () => shared ? state._openWorkspace(item) : state._showDetails(item),
+        onTap: () => (shared || '${item['kind'] ?? ''}'.toUpperCase() == 'TECH')
+            ? state._openWorkspace(item)
+            : state._showDetails(item),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEFF3F8)))),

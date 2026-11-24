@@ -361,17 +361,24 @@ class TechProjectsAdminScreen extends StatelessWidget {
 
 /// Employee sidebar page: "Tech Workspace".
 class TechWorkspacePage extends StatelessWidget {
-  const TechWorkspacePage({super.key});
+  /// When set, open this project directly (deep-link from Day Planner / Live
+  /// Tracking / Dashboard / top-bar running chip).
+  final String? initialProjectName;
+  const TechWorkspacePage({super.key, this.initialProjectName});
 
   @override
   Widget build(BuildContext context) {
-    return Container(color: _canvas, child: const _TechHome(admin: false));
+    return Container(
+      color: _canvas,
+      child: _TechHome(admin: false, initialProjectName: initialProjectName),
+    );
   }
 }
 
 class _TechHome extends StatefulWidget {
   final bool admin;
-  const _TechHome({required this.admin});
+  final String? initialProjectName;
+  const _TechHome({required this.admin, this.initialProjectName});
 
   @override
   State<_TechHome> createState() => _TechHomeState();
@@ -399,6 +406,30 @@ class _TechHomeState extends State<_TechHome> {
       _debounce?.cancel();
       _debounce = Timer(const Duration(milliseconds: 350), () => _tick.value++);
     });
+    // Deep-link: open the given project directly once the page is mounted.
+    final target = widget.initialProjectName?.trim() ?? '';
+    if (target.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _openByName(target));
+    }
+  }
+
+  // Resolve a project name to its id and open its workspace. Used when another
+  // screen navigates straight to a specific tech project.
+  Future<void> _openByName(String name) async {
+    try {
+      final auth = context.read<AuthService>();
+      final api = _Api(auth.token ?? '', _me(auth));
+      final r = await api.get('/projects');
+      final key = name.toLowerCase().trim();
+      final match = _maps(r['data']).firstWhere(
+        (p) => _s(p['name']).toLowerCase().trim() == key,
+        orElse: () => const {},
+      );
+      final id = _i(match['id']);
+      if (id > 0 && mounted) setState(() => _openId = id);
+    } catch (_) {
+      // Fall back to the projects list if the lookup fails.
+    }
   }
 
   @override
