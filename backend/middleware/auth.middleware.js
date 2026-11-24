@@ -15,7 +15,11 @@ function authenticateToken(req, res, next) {
     });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret', (err, user) => {
+  // Must match the secret used to SIGN tokens in routes/auth.js. When
+  // process.env.JWT_SECRET is unset, both sides must fall back to the SAME
+  // default, otherwise every token this middleware checks fails verification
+  // and returns 403 "Invalid or expired access token."
+  jwt.verify(token, process.env.JWT_SECRET || 'change-this-in-production-to-random-key', (err, user) => {
     if (err) {
       return res.status(403).json({
         success: false,

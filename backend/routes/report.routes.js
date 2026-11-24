@@ -44,8 +44,14 @@ const {
   previewTemplate,
 } = require('../controllers/reportTemplates.controller');
 
-// Authentication middleware
-const { authenticateToken } = require('../middleware/auth.middleware');
+// Authentication is handled once, globally, in server.js (the `/api` gate uses
+// routes/auth.authenticateToken). Re-authenticating here with a different module
+// (middleware/auth.middleware) is both redundant and unsafe: that module falls
+// back to a different default JWT secret ('your_jwt_secret') than the signer in
+// routes/auth ('change-this-in-production-...'), so when process.env.JWT_SECRET
+// is unset its verify fails and every report request 403s with "Invalid or
+// expired access token" — for admins and handlers too. We rely on the req.user
+// the global gate already populated instead.
 const db = require('../config/db');
 const { reportAccessType } = require('../lib/reportTaskAccess');
 
@@ -65,7 +71,6 @@ router.use((req, res, next) => {
   return next();
 });
 
-router.use(authenticateToken);
 router.use(async (req, res, next) => {
   try {
     const accessType = await reportAccessType(db, req.user);
