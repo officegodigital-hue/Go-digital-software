@@ -153,6 +153,18 @@ class EmployeeSopDashboardScreen extends StatelessWidget {
     );
   }
 
+  Widget _cardFor(BuildContext context, Map<String, dynamic> document) {
+    final roleName = '${document['role_name'] ?? 'Assigned role'}';
+    final title = '${document['title'] ?? document['role_name'] ?? 'SOP'}';
+    return _SopViewCard(
+      icon: _iconFor(roleName),
+      title: title,
+      roleName: roleName,
+      fileName: '${document['file_name'] ?? 'PDF document'}',
+      onView: () => _view(context, document),
+    );
+  }
+
   Widget _buildGrid(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -178,31 +190,35 @@ class EmployeeSopDashboardScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: documents.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: columns == 1 ? 2.1 : 1.5,
+                  if (columns == 1)
+                    // Phone: let each card size to its own content so nothing is
+                    // clipped and there is no wasted vertical space from a fixed
+                    // aspect ratio.
+                    Column(
+                      children: [
+                        for (var index = 0; index < documents.length; index++)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: index == documents.length - 1 ? 0 : 14,
+                            ),
+                            child: _cardFor(context, documents[index]),
+                          ),
+                      ],
+                    )
+                  else
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: documents.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 1.5,
+                      ),
+                      itemBuilder: (context, index) =>
+                          _cardFor(context, documents[index]),
                     ),
-                    itemBuilder: (context, index) {
-                      final document = documents[index];
-                      final roleName =
-                          '${document['role_name'] ?? 'Assigned role'}';
-                      final title =
-                          '${document['title'] ?? document['role_name'] ?? 'SOP'}';
-                      return _SopViewCard(
-                        icon: _iconFor(roleName),
-                        title: title,
-                        roleName: roleName,
-                        fileName: '${document['file_name'] ?? 'PDF document'}',
-                        onView: () => _view(context, document),
-                      );
-                    },
-                  ),
                 ],
               ),
             ),
@@ -336,7 +352,7 @@ class _SopViewCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: _slate, fontSize: 11.5),
           ),
-          const Spacer(),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
