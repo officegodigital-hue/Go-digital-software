@@ -49,6 +49,22 @@ const { authenticateToken } = require('../middleware/auth.middleware');
 const db = require('../config/db');
 const { reportAccessType } = require('../lib/reportTaskAccess');
 
+// This router is mounted at the bare `/api` prefix (see server.js) so its routes
+// resolve to `/api/report-export/...` and `/api/dashboard-ocr/...`. A side effect
+// of that mount is that Express enters this router for EVERY `/api/*` request.
+// Without the guard below, the report-access gate would run for unrelated
+// endpoints (chat, attendance, payslips, tracking, workspace-tasks, ...) and
+// return 403 "Report access has not been granted" for every employee who lacks
+// report access — leaving only report-enabled roles (e.g. Ads / Page Handler and
+// admins) able to use the rest of the app. Skip the entire router for any path
+// that is not a report path, so those requests fall through to their own routes.
+router.use((req, res, next) => {
+  if (!req.path.startsWith('/report-export') && !req.path.startsWith('/dashboard-ocr')) {
+    return next('router');
+  }
+  return next();
+});
+
 router.use(authenticateToken);
 router.use(async (req, res, next) => {
   try {
