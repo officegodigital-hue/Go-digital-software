@@ -22,13 +22,28 @@ import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
 import '../../services/socket_auth.dart';
 
-const _blue = Color(0xFF0757D5);
-const _deep = Color(0xFF0A3D91);
-const _ink = Color(0xFF14213D);
-const _muted = Color(0xFF64748B);
-const _line = Color(0xFFE2E8F0);
+const _blue = Color(0xFF2563EB);
+const _deep = Color(0xFF101B35);
+const _sky = Color(0xFF06B6D4);
+const _ink = Color(0xFF111827);
+const _muted = Color(0xFF667085);
+const _line = Color(0xFFE4E7EC);
 const _green = Color(0xFF15803D);
 const _red = Color(0xFFB91C1C);
+const _canvas = Color(0xFFF6F8FC);
+
+// Soft, premium elevation used across the workspace surfaces.
+const List<BoxShadow> _softShadow = [];
+const List<BoxShadow> _cardShadow = [];
+
+// Unified, low-elevation surface: crisp borders, no floating-card clutter.
+BoxDecoration _surface({Color color = Colors.white, Color? border, double radius = 12}) =>
+    BoxDecoration(
+      color: color,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: border ?? _line),
+      boxShadow: _cardShadow,
+    );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Small helpers
@@ -85,13 +100,25 @@ String _me(AuthService a) =>
     };
 
 Widget _chip(String text, Color bg, Color fg, {IconData? icon}) => Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withValues(alpha: 0.14)),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[Icon(icon, size: 12, color: fg), const SizedBox(width: 4)],
-          Text(text, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: fg)),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              color: fg,
+              letterSpacing: 0.2,
+            ),
+          ),
         ],
       ),
     );
@@ -118,6 +145,48 @@ void _snack(BuildContext c, String m, {bool ok = false}) {
     SnackBar(content: Text(m), backgroundColor: ok ? _green : null, behavior: SnackBarBehavior.floating),
   );
 }
+
+// A consistent section header: tinted icon tile + title (+ optional trailing).
+Widget _sectionHeader(IconData icon, String title, {Widget? trailing}) => Padding(
+      padding: const EdgeInsets.only(bottom: 11),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: _blue.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: _blue),
+          ),
+          const SizedBox(width: 9),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900, color: _ink, letterSpacing: 0.2),
+          ),
+          if (trailing != null) ...[const Spacer(), trailing],
+        ],
+      ),
+    );
+
+// A friendly, centered empty state used across the tabs.
+Widget _emptyState(IconData icon, String title, String subtitle) => Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: _cardShadow),
+            child: Icon(icon, size: 34, color: _blue),
+          ),
+          const SizedBox(height: 14),
+          Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _ink)),
+          const SizedBox(height: 4),
+          Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(color: _muted, fontSize: 12.5)),
+        ],
+      ),
+    );
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API
@@ -296,7 +365,7 @@ class TechWorkspacePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(color: const Color(0xFFF4F7FC), child: const _TechHome(admin: false));
+    return Container(color: _canvas, child: const _TechHome(admin: false));
   }
 }
 
@@ -385,16 +454,33 @@ class _ProjectsList extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Container(
-              margin: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+              margin: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [_deep, _blue, Color(0xFF1E88E5)]),
-                borderRadius: BorderRadius.circular(18),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [_deep, _blue, _sky],
+                  stops: [0.0, 0.58, 1.0],
+                ),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: const [
+                  BoxShadow(color: Color(0x1A2563EB), blurRadius: 14, offset: Offset(0, 5)),
+                ],
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.terminal_rounded, color: Colors.white, size: 26),
-                  const SizedBox(width: 12),
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+                    ),
+                    child: const Icon(Icons.terminal_rounded, color: Colors.white, size: 26),
+                  ),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -435,21 +521,43 @@ class _ProjectsList extends StatelessWidget {
             Expanded(
               child: projects.isEmpty
                   ? Center(
-                      child: Text(
-                        admin ? 'No projects yet. Create the first one.' : 'You are not in any project yet.',
-                        style: const TextStyle(color: _muted),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(22),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: _cardShadow,
+                            ),
+                            child: const Icon(Icons.rocket_launch_rounded, size: 40, color: _blue),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            admin ? 'No projects yet' : 'No projects assigned',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: _ink),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            admin
+                                ? 'Create the first project to get started.'
+                                : 'You are not in any project yet.',
+                            style: const TextStyle(color: _muted, fontSize: 12.5),
+                          ),
+                        ],
                       ),
                     )
                   : LayoutBuilder(
                       builder: (context, c) {
                         final cols = c.maxWidth >= 1200 ? 3 : (c.maxWidth >= 760 ? 2 : 1);
                         return GridView.builder(
-                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+                          padding: const EdgeInsets.fromLTRB(14, 2, 14, 16),
                           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: cols,
-                            crossAxisSpacing: 16,
-                            mainAxisSpacing: 16,
-                            mainAxisExtent: 292,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                            mainAxisExtent: 286,
                           ),
                           itemCount: projects.length,
                           itemBuilder: (context, i) => _projectCard(context, projects[i], canAdd, () => onOpen(_i(projects[i]['id'])), () async {
@@ -483,17 +591,27 @@ class _ProjectsList extends StatelessWidget {
       left = diff > 0 ? '$diff days left' : diff == 0 ? 'Due today' : '${-diff} days overdue';
     }
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _line),
-      ),
+      padding: const EdgeInsets.all(12),
+      decoration: _surface(radius: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
+              Container(
+                width: 38,
+                height: 38,
+                margin: const EdgeInsets.only(right: 10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [_blue, _deep],
+                  ),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: const Icon(Icons.folder_special_rounded, color: Colors.white, size: 19),
+              ),
               Expanded(
                 child: Text(
                   _s(p['name']),
@@ -516,7 +634,7 @@ class _ProjectsList extends StatelessWidget {
             Text(_s(p['client_name']), style: const TextStyle(fontSize: 12, color: _muted)),
           const SizedBox(height: 6),
           _meta(Icons.workspace_premium_rounded, 'In-charge: ${_s(p['incharge_name']).isEmpty ? '—' : _s(p['incharge_name'])}'),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Row(
             children: [
               Text('${_i(p['progress'])}% approved',
@@ -535,7 +653,7 @@ class _ProjectsList extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -587,13 +705,18 @@ class _ProjectsList extends StatelessWidget {
                 Text(left, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: left.contains('overdue') ? _red : _muted)),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
-            child: FilledButton(
+            child: FilledButton.icon(
               onPressed: onOpen,
-              style: FilledButton.styleFrom(backgroundColor: _blue, minimumSize: const Size.fromHeight(38)),
-              child: const Text('Open project'),
+              style: FilledButton.styleFrom(
+                backgroundColor: _blue,
+                minimumSize: const Size.fromHeight(40),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              icon: const Icon(Icons.arrow_forward_rounded, size: 17),
+              label: const Text('Open project', style: TextStyle(fontWeight: FontWeight.w800)),
             ),
           ),
         ],
@@ -744,19 +867,19 @@ class _ProjectEditorState extends State<_ProjectEditor> {
                       controller: _name,
                       decoration: const InputDecoration(labelText: 'Project name *', border: OutlineInputBorder(), isDense: true),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     TextField(
                       controller: _client,
                       decoration: const InputDecoration(labelText: 'Client (optional)', border: OutlineInputBorder(), isDense: true),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     TextField(
                       controller: _desc,
                       minLines: 2,
                       maxLines: 4,
                       decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder(), isDense: true),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
@@ -787,7 +910,7 @@ class _ProjectEditorState extends State<_ProjectEditor> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
                     const Text('TEAM — pick persons (their profile role is used automatically)',
                         style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: _muted)),
                     const SizedBox(height: 6),
@@ -906,13 +1029,9 @@ class _ProjectView extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
-                margin: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _line),
-                ),
+                margin: const EdgeInsets.fromLTRB(14, 10, 14, 8),
+                padding: const EdgeInsets.all(18),
+                decoration: _surface(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -932,7 +1051,7 @@ class _ProjectView extends StatelessWidget {
                             const Color(0xFFFEF3C7), const Color(0xFF92400E), icon: Icons.star_rounded),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Text('${_i(p['progress'])}% approved',
@@ -960,33 +1079,42 @@ class _ProjectView extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
                 child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: _line),
-                  ),
+                  padding: const EdgeInsets.all(6),
+                  decoration: _surface(radius: 14),
                   child: TabBar(
                     isScrollable: true,
                     tabAlignment: TabAlignment.start,
-                    labelColor: _blue,
+                    labelColor: Colors.white,
                     unselectedLabelColor: _muted,
-                    indicatorColor: _blue,
+                    dividerColor: Colors.transparent,
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+                    splashBorderRadius: BorderRadius.circular(10),
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 14),
+                    indicator: BoxDecoration(
+                      gradient: const LinearGradient(colors: [_blue, _deep]),
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: const [
+                        BoxShadow(color: Color(0x330757D5), blurRadius: 10, offset: Offset(0, 4)),
+                      ],
+                    ),
                     tabs: [
                       for (final t in tabs)
                         Tab(
+                          height: 38,
                           child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(t.$2, size: 17),
+                            Icon(t.$2, size: 16),
                             const SizedBox(width: 6),
-                            Text(t.$1, style: const TextStyle(fontWeight: FontWeight.w700)),
+                            Text(t.$1, style: const TextStyle(fontWeight: FontWeight.w800)),
                           ]),
                         ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               Expanded(
                 child: TabBarView(
                   children: [
@@ -1017,24 +1145,33 @@ class _OverviewTab extends StatelessWidget {
     final counts = Map<String, dynamic>.from(project['counts'] as Map? ?? {});
     final members = _maps(project['members']);
     Widget tile(String label, String value, IconData icon, {Color color = _blue}) => Container(
-          width: 200,
+          width: 208,
           padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: _line)),
+          decoration: _surface(radius: 14),
           child: Row(children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 10),
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 11),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(label, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: _muted)),
+                Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: _muted, letterSpacing: 0.3)),
                 const SizedBox(height: 3),
-                Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _ink)),
+                Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: _ink)),
               ]),
             ),
           ]),
         );
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       children: [
+        _sectionHeader(Icons.insights_rounded, 'PROJECT SNAPSHOT'),
         Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -1048,50 +1185,63 @@ class _OverviewTab extends StatelessWidget {
           ],
         ),
         if (_s(project['description']).isNotEmpty) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: _line)),
+            decoration: _surface(radius: 14),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('ABOUT THIS PROJECT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: _muted)),
-              const SizedBox(height: 8),
-              SelectableText(_s(project['description']), style: const TextStyle(fontSize: 13, color: _ink, height: 1.4)),
+              _sectionHeader(Icons.info_outline_rounded, 'ABOUT THIS PROJECT'),
+              SelectableText(_s(project['description']), style: const TextStyle(fontSize: 13, color: Color(0xFF334155), height: 1.45)),
             ]),
           ),
         ],
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: _line)),
+          decoration: _surface(radius: 14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('TEAM', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: _muted)),
-            const SizedBox(height: 8),
-            for (final m in members)
+            _sectionHeader(Icons.groups_rounded, 'TEAM',
+                trailing: Text('${members.length}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: _muted))),
+            for (int i = 0; i < members.length; i++) ...[
+              if (i > 0) const Divider(height: 1, color: _line),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 5),
+                padding: const EdgeInsets.symmetric(vertical: 9),
                 child: Row(children: [
-                  CircleAvatar(
-                    radius: 16,
-                    backgroundColor: const Color(0xFFEAF2FF),
-                    child: Text(_initials(_s(m['employee_name'])),
-                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _blue)),
+                  Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: members[i]['working'] == true
+                            ? _green
+                            : (members[i]['is_incharge'] == true ? const Color(0xFFF59E0B) : Colors.transparent),
+                        width: 2,
+                      ),
+                    ),
+                    child: CircleAvatar(
+                      radius: 16,
+                      backgroundColor: const Color(0xFFEAF2FF),
+                      child: Text(_initials(_s(members[i]['employee_name'])),
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _blue)),
+                    ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 11),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(_s(m['employee_name']), style: const TextStyle(fontWeight: FontWeight.w800, color: _ink)),
-                      if (_s(m['role_label']).isNotEmpty)
-                        Text(_s(m['role_label']), style: const TextStyle(fontSize: 11.5, color: _muted)),
+                      Text(_s(members[i]['employee_name']), style: const TextStyle(fontWeight: FontWeight.w800, color: _ink)),
+                      if (_s(members[i]['role_label']).isNotEmpty)
+                        Text(_s(members[i]['role_label']), style: const TextStyle(fontSize: 11.5, color: _muted)),
                     ]),
                   ),
-                  if (m['is_incharge'] == true)
+                  if (members[i]['is_incharge'] == true)
                     _chip('IN-CHARGE', const Color(0xFFFEF3C7), const Color(0xFF92400E), icon: Icons.star_rounded),
-                  if (m['working'] == true) ...[
+                  if (members[i]['working'] == true) ...[
                     const SizedBox(width: 6),
                     _chip('WORKING NOW', const Color(0xFFDCFCE7), _green, icon: Icons.circle),
                   ],
                 ]),
               ),
+            ],
           ]),
         ),
       ],
@@ -1130,8 +1280,10 @@ class _DailyTabState extends State<_DailyTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+        Container(
+          margin: const EdgeInsets.fromLTRB(18, 10, 18, 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: _surface(radius: 14),
           child: Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -1182,11 +1334,10 @@ class _DailyTabState extends State<_DailyTab> {
             builder: (context, data, reload) {
               final tasks = _maps(data['data']);
               if (tasks.isEmpty) {
-                return Center(
-                  child: Text(
-                    _scope == 'open' ? 'No open tasks.' : 'No tasks on this day yet. Add what you do today.',
-                    style: const TextStyle(color: _muted),
-                  ),
+                return _emptyState(
+                  Icons.event_available_rounded,
+                  _scope == 'open' ? 'No open tasks' : 'Nothing planned yet',
+                  _scope == 'open' ? 'There are no open tasks right now.' : 'Add what you are working on today.',
                 );
               }
               final tags = (widget.project['correction_tags'] as List? ?? []).map((e) => '$e').toList();
@@ -1196,22 +1347,32 @@ class _DailyTabState extends State<_DailyTab> {
                 final who = _s(t['assigned_to_name']);
                 if (_scope != 'mine' && who != last) {
                   children.add(Padding(
-                    padding: const EdgeInsets.only(top: 8, bottom: 8),
+                    padding: const EdgeInsets.only(top: 10, bottom: 8),
                     child: Row(children: [
-                      CircleAvatar(
-                        radius: 13,
-                        backgroundColor: _blue,
-                        child: Text(_initials(who), style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white)),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(5, 5, 12, 5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF4FB),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: _line),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          CircleAvatar(
+                            radius: 12,
+                            backgroundColor: _blue,
+                            child: Text(_initials(who), style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white)),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(who, style: const TextStyle(fontWeight: FontWeight.w900, color: _ink, fontSize: 12.5)),
+                        ]),
                       ),
-                      const SizedBox(width: 8),
-                      Text(who, style: const TextStyle(fontWeight: FontWeight.w900, color: _ink)),
                     ]),
                   ));
                   last = who;
                 }
                 children.add(_TaskCard(task: t, api: widget.api, project: widget.project, correctionTags: tags, onChanged: reload));
               }
-              return ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 24), children: children);
+              return ListView(padding: const EdgeInsets.fromLTRB(14, 2, 14, 16), children: children);
             },
           ),
         ),
@@ -1236,11 +1397,13 @@ class _CorrectionsTab extends StatelessWidget {
       builder: (context, data, reload) {
         final rows = _maps(data['data']);
         if (rows.isEmpty) {
-          return const Center(child: Text('No open corrections. 🎉', style: TextStyle(color: _muted)));
+          return _emptyState(Icons.task_alt_rounded, 'No open corrections', 'Every task is clean — nothing to fix right now.');
         }
         return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
           children: [
+            _sectionHeader(Icons.build_circle_rounded, 'OPEN CORRECTIONS',
+                trailing: _chip('${rows.length}', const Color(0xFFFFEDD5), const Color(0xFFC2410C))),
             for (final c in rows)
               _TaskCard(task: c, api: api, project: project, correctionTags: tags, onChanged: reload, showParent: true),
           ],
@@ -1267,24 +1430,28 @@ class _ReviewTab extends StatelessWidget {
         final pending = _maps(data['pending']);
         final decided = _maps(data['decided']);
         return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
           children: [
-            Text('Waiting for review (${pending.length})',
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: _ink)),
-            const SizedBox(height: 8),
+            _sectionHeader(Icons.fact_check_rounded, 'WAITING FOR REVIEW',
+                trailing: _chip('${pending.length}', const Color(0xFFEDE9FE), const Color(0xFF6D28D9))),
             if (pending.isEmpty)
-              const Padding(padding: EdgeInsets.all(16), child: Text('Nothing is waiting for review.', style: TextStyle(color: _muted)))
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 28),
+                alignment: Alignment.center,
+                child: _emptyState(Icons.inbox_rounded, 'All caught up', 'Nothing is waiting for your review.'),
+              )
             else
               for (final t in pending)
                 _TaskCard(task: t, api: api, project: project, correctionTags: tags, onChanged: reload, showAssignee: true),
-            const SizedBox(height: 16),
-            const Text('Recently reviewed', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: _ink)),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
+            _sectionHeader(Icons.history_toggle_off_rounded, 'RECENTLY REVIEWED'),
+            if (decided.isEmpty)
+              const Padding(padding: EdgeInsets.all(8), child: Text('No reviews yet.', style: TextStyle(color: _muted, fontSize: 12.5))),
             for (final t in decided)
               Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: _line)),
+                decoration: _surface(radius: 12),
                 child: Row(children: [
                   _chip(_s(t['review_result']) == 'APPROVED' ? 'APPROVED' : 'CORRECTION',
                       _s(t['review_result']) == 'APPROVED' ? const Color(0xFFDCFCE7) : const Color(0xFFFFEDD5),
@@ -1324,11 +1491,14 @@ class _LiveTab extends StatelessWidget {
       builder: (context, data, reload) {
         final rows = _maps(data['data']);
         if (rows.isEmpty) {
-          return const Center(child: Text('Nobody is working on this project right now.', style: TextStyle(color: _muted)));
+          return _emptyState(Icons.bolt_rounded, 'No live activity', 'Nobody is working on this project right now.');
         }
+        final activeNow = rows.where((t) => t['running'] == true).length;
         return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
           children: [
+            _sectionHeader(Icons.sensors_rounded, 'LIVE TRACKING',
+                trailing: _chip('$activeNow working now', const Color(0xFFDCFCE7), _green, icon: Icons.circle)),
             for (final t in rows)
               Container(
                 margin: const EdgeInsets.only(bottom: 8),
@@ -1424,13 +1594,14 @@ class _HistoryTab extends StatelessWidget {
       load: () => api.get('/projects/${project['id']}/history'),
       builder: (context, data, reload) {
         final rows = _maps(data['data']);
-        if (rows.isEmpty) return const Center(child: Text('No activity yet.', style: TextStyle(color: _muted)));
+        if (rows.isEmpty) return _emptyState(Icons.history_rounded, 'No activity yet', 'Project activity will show up here as work happens.');
         return ListView(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
           children: [
+            _sectionHeader(Icons.history_rounded, 'ACTIVITY TIMELINE'),
             Container(
               padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: _line)),
+              decoration: _surface(radius: 14),
               child: Column(children: [for (final h in rows) _historyTile(h, showTask: true)]),
             ),
           ],
@@ -1548,11 +1719,14 @@ class _TaskCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: nested ? const Color(0xFFFFFBF5) : Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(15),
         border: Border.all(
-          color: running ? const Color(0xFFBBF7D0) : (nested ? const Color(0xFFFED7AA) : _line),
+          color: running ? const Color(0xFF86EFAC) : (nested ? const Color(0xFFFED7AA) : _line),
           width: running ? 1.5 : 1,
         ),
+        boxShadow: running
+            ? const [BoxShadow(color: Color(0x2622C55E), blurRadius: 18, offset: Offset(0, 8))]
+            : _cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1616,10 +1790,10 @@ class _TaskCard extends StatelessWidget {
               child: Text('${_s(task['reviewed_by_name'])}: ${_s(task['review_comment'])}',
                   style: const TextStyle(fontSize: 12, color: Color(0xFF334155))),
             ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 6, children: buttons),
           if (corrections.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             for (final c in corrections)
               _TaskCard(task: c, api: api, project: project, correctionTags: correctionTags, onChanged: onChanged, nested: true, showAssignee: showAssignee),
           ],
@@ -1740,7 +1914,7 @@ Future<bool> _reviewDialog(BuildContext context, _Api api, Map<String, dynamic> 
             children: [
               Text('By ${_s(t['assigned_to_name'])} · completed ${_stamp(t['completed_at'])}',
                   style: const TextStyle(color: _muted, fontSize: 12)),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               SegmentedButton<String>(
                 segments: const [
                   ButtonSegment(value: 'APPROVED', icon: Icon(Icons.verified_rounded), label: Text('Approve')),
@@ -1750,7 +1924,7 @@ Future<bool> _reviewDialog(BuildContext context, _Api api, Map<String, dynamic> 
                 onSelectionChanged: (v) => set(() => mode = v.first),
               ),
               if (mode == 'CORRECTION') ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   initialValue: tag,
                   decoration: const InputDecoration(labelText: 'Correction type', border: OutlineInputBorder(), isDense: true),
@@ -1758,7 +1932,7 @@ Future<bool> _reviewDialog(BuildContext context, _Api api, Map<String, dynamic> 
                   onChanged: (v) => set(() => tag = v ?? tag),
                 ),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               TextField(
                 controller: c,
                 minLines: 2,
@@ -1837,14 +2011,14 @@ Future<bool> _taskForm(
                   autofocus: true,
                   decoration: const InputDecoration(labelText: 'What are you working on? *', border: OutlineInputBorder(), isDense: true),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 TextField(
                   controller: details,
                   minLines: 2,
                   maxLines: 5,
                   decoration: const InputDecoration(labelText: 'Details', border: OutlineInputBorder(), isDense: true),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Row(children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
@@ -1865,7 +2039,7 @@ Future<bool> _taskForm(
                   ),
                 ]),
                 if (manager) ...[
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   DropdownButtonFormField<int>(
                     initialValue: assignee,
                     decoration: const InputDecoration(labelText: 'Assign to', border: OutlineInputBorder(), isDense: true),
