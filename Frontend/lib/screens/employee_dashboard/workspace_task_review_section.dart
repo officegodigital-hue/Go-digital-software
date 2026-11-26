@@ -18,6 +18,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../services/api_config.dart';
 import '../../services/app_notification_center.dart';
+import '../../core/keyboard/keyboard_shortcuts.dart';
 
 const _kPrimary = Color(0xFF004AAD);
 const _kInk = Color(0xFF0F172A);
@@ -180,13 +181,18 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
     if (action == 'PENDING') {
       final ok = await showDialog<bool>(
         context: context,
-        builder: (c) => AlertDialog(
+        builder: (c) => KeyboardSubmit(
+          autofocus: true,
+          onSubmit: () => Navigator.pop(c, true),
+          onCancel: () => Navigator.pop(c, false),
+          child: AlertDialog(
           title: const Text('Move back to pending?'),
           content: const Text('The previous decision is cleared and the task waits for review again.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
             FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Set pending')),
           ],
+        ),
         ),
       );
       if (ok != true) return;
@@ -197,7 +203,11 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
     } else {
       final ok = await showDialog<bool>(
         context: context,
-        builder: (c) => AlertDialog(
+        builder: (c) => KeyboardSubmit(
+          autofocus: true,
+          onSubmit: () => Navigator.pop(c, true),
+          onCancel: () => Navigator.pop(c, false),
+          child: AlertDialog(
           title: const Text('Approve this task?'),
           content: Text(
             '${_str(row['deliverable'])} · Row ${_str(row['display_no'])} by '
@@ -207,6 +217,7 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
             FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Approve')),
           ],
+        ),
         ),
       );
       if (ok != true) return;
@@ -257,7 +268,9 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
     final result = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (c) => StatefulBuilder(
+      builder: (c) => KeyboardSubmit(
+        onCancel: () => Navigator.pop(c),
+        child: StatefulBuilder(
         builder: (c, setD) => AlertDialog(
           title: Text(action == 'REWORK' ? 'Request rework' : 'Reject task'),
           content: SizedBox(
@@ -292,6 +305,7 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
             ),
           ],
         ),
+      ),
       ),
     );
     controller.dispose();

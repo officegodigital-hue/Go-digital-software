@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../services/api_config.dart';
 import '../../services/auth_service.dart';
+import '../../core/keyboard/keyboard_shortcuts.dart';
 import '../shared/employee_ui.dart';
 
 List<String> _attendanceBaseUrls() {
@@ -968,7 +969,9 @@ class _LeaveFormState extends State<_LeaveForm> {
     final fromStr = DateFormat('dd/MM/yyyy').format(fromDate);
     final toStr = DateFormat('dd/MM/yyyy').format(toDate);
 
-    return EmployeeCard(
+    return KeyboardSubmit(
+      onSubmit: _submitting ? null : _submit,
+      child: EmployeeCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1118,6 +1121,7 @@ class _LeaveFormState extends State<_LeaveForm> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

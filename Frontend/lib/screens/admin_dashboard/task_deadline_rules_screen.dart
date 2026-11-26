@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
 
 import 'package:godigital_portal/layouts/admin_layout.dart';
+import 'package:godigital_portal/core/keyboard/keyboard_shortcuts.dart';
 import 'package:godigital_portal/services/api_config.dart';
 
 const _kBlue = Color(0xFF0052CC);
@@ -200,17 +201,22 @@ class _TaskDeadlineRulesScreenState extends State<TaskDeadlineRulesScreen> {
   Future<void> _delete(Map<String, dynamic> r) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete rule?'),
-        content: Text('${_roleLabel('${r['role_key']}')} · ${r['task_name']}'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
-          ),
-        ],
+      builder: (ctx) => KeyboardSubmit(
+        autofocus: true,
+        onSubmit: () => Navigator.pop(ctx, true),
+        onCancel: () => Navigator.pop(ctx, false),
+        child: AlertDialog(
+          title: const Text('Delete rule?'),
+          content: Text('${_roleLabel('${r['role_key']}')} · ${r['task_name']}'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
       ),
     );
     if (ok != true) return;
@@ -249,7 +255,11 @@ class _TaskDeadlineRulesScreenState extends State<TaskDeadlineRulesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AdminLayout(
+    return KeyboardSaveScope(
+      onSave: () {
+        if (!_saving) _save();
+      },
+      child: AdminLayout(
       pageTitle: 'Task Deadline Rules',
       currentRoute: '/task-deadline-rules',
       child: LayoutBuilder(
@@ -276,6 +286,7 @@ class _TaskDeadlineRulesScreenState extends State<TaskDeadlineRulesScreen> {
             ],
           );
         },
+      ),
       ),
     );
   }

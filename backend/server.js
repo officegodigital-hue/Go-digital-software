@@ -234,6 +234,12 @@ io.use(async (socket, next) => {
 app.set('io', io);
 const { runReminders } = require('./jobs/attendance-chat');
 cron.schedule('* * * * *', () => runReminders(io));
+
+// Meeting tracking: close organizer-started sessions at their scheduled end.
+const { runMeetingScheduler } = require('./jobs/meeting-scheduler');
+cron.schedule('*/5 * * * * *', () => runMeetingScheduler(io));
+runMeetingScheduler(io);
+
 push.attachIo(io); // chat + group socket messages also go to phones as push
 
 io.on('connection', (socket) => {

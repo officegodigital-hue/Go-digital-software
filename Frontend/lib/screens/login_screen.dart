@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:godigital_portal/core/keyboard/keyboard_shortcuts.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/shared/branding_assets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -526,7 +527,10 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _buildFormContent() {
     return Consumer<AuthService>(
       builder: (context, authService, _) {
-        return Column(
+        return KeyboardSubmit(
+          autofocus: true,
+          onSubmit: authService.isLoading ? null : _handleLogin,
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Center(
@@ -683,6 +687,7 @@ class _LoginScreenState extends State<LoginScreen>
 
             _buildSignInButton(authService),
           ],
+          ),
         );
       },
     );

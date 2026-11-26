@@ -4,6 +4,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
 
+const meetingSync = require('../lib/meetingSync');
+const { refreshMeetingSchedules } = require('../jobs/meeting-scheduler');
+
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
@@ -331,13 +334,12 @@ router.get('/:employeeName', async (req, res) => {
       `
     );
 
-    // MEETINGS
     let meetings = [];
     try {
-      const [meetingRows] = await db.query(`SELECT * FROM scheduled_meetings`);
-      meetings = meetingRows;
-    } catch (_) {
-      meetings = [];
+      await refreshMeetingSchedules(req.app.get('io'));
+      meetings = await meetingsFor(req.user);
+    } catch (err) {
+      console.error('Could not load meetings:', err.message);
     }
 
     // UNREAD COUNT
@@ -777,73 +779,69 @@ router.post('/groups', async (req, res) => {
 
 // 7. PATCH /api/chat/groups/:id
 router.patch('/groups/:id', async (req, res) => {
-  const { groupName, members, admins, requesterName } = req.body;
+  const { groupName, members, admins } = req.body;
 
+  const requesterName = req.user.fullName;
   try {
-    const [groupRows] = await db.query(
-      `SELECT * FROM chat_groups WHERE id = ?`,
-      [req.params.id]
-    );
-
-    if (groupRows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Group not found'
-      });
+    if (groupName !== undefined || members !== undefined) {
+      await refreshMeetingSchedules(req.app.get('io'));
     }
+    const changed = await meetingSync.transaction(async (conn) => {
+      const [groupRows] = await conn.query(
+        `SELECT * FROM chat_groups WHERE id = ? FOR UPDATE`,
+        [req.params.id]
+      );
 
-    const group = groupRows[0];
-    let currentAdmins = [];
+      if (groupRows.length === 0) {
+        throw meetingSync.error(404, 'Group not found');
+      }
 
-    try {
-      currentAdmins = JSON.parse(group.admins || '[]');
-    } catch (_) {
-      currentAdmins = [group.created_by];
-    }
+      const group = groupRows[0];
+      const currentAdmins = meetingSync.safeJsonArray(group.admins);
 
-    if (!currentAdmins.includes(requesterName) && group.created_by !== requesterName) {
-      return res.status(403).json({
-        success: false,
-        message: 'Only group admins can edit this group.'
-      });
-    }
+      if (!currentAdmins.includes(requesterName) && group.created_by !== requesterName) {
+        throw meetingSync.error(403, 'Only group admins can edit this group.');
+      }
 
-    const updates = [];
-    const values = [];
+      const updates = [];
+      const values = [];
 
-    if (groupName !== undefined) {
-      updates.push('group_name = ?');
-      values.push(groupName);
-    }
+      const newGroupName = groupName === undefined ? group.group_name : meetingText(groupName, 'group name', 255);
+      if (groupName !== undefined) {
+        updates.push('group_name = ?');
+        values.push(newGroupName);
+      }
 
-    if (members !== undefined) {
-      updates.push('members = ?');
-      values.push(JSON.stringify(members));
-    }
+      if (members !== undefined) {
+        meetingSync.selection(members);
+        updates.push('members = ?');
+        values.push(JSON.stringify(members));
+      }
 
-    if (admins !== undefined) {
-      updates.push('admins = ?');
-      values.push(JSON.stringify(admins));
-    }
+      if (admins !== undefined) {
+        updates.push('admins = ?');
+        values.push(JSON.stringify(admins));
+      }
 
-    if (updates.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Nothing to update'
-      });
-    }
+      if (updates.length === 0) {
+        throw meetingSync.error(400, 'Nothing to update');
+      }
 
-    values.push(req.params.id);
+      values.push(req.params.id);
 
-    await db.query(
-      `
-        UPDATE chat_groups
-        SET ${updates.join(', ')}
-        WHERE id = ?
-      `,
-      values
-    );
+      await conn.query(
+        `
+          UPDATE chat_groups
+          SET ${updates.join(', ')}
+          WHERE id = ?
+        `,
+        values
+      );
 
+      return (groupName !== undefined || members !== undefined) &&
+        meetingSync.updateGroupMeetings(conn, group.group_name, newGroupName);
+    });
+    if (changed) req.app.get('io')?.emit('meeting_tracking_updated', { action: 'group_updated' });
     return res.json({
       success: true,
       message: 'Group updated successfully'
@@ -851,347 +849,224 @@ router.patch('/groups/:id', async (req, res) => {
 
   } catch (err) {
     console.error('PATCH /chat/groups/:id ERROR:', err.message);
-    return res.status(500).json({
+    return res.status(err.statusCode || 500).json({
       success: false,
       message: err.message
     });
   }
 });
 
-// 8. POST /api/chat/meetings
-// 8. POST /api/chat/meetings
-router.post('/meetings', async (req, res) => {
-  const {
-    title,
-    meetingTime,
-    meetingLink,
-    hostName,
-    selectedPersons,
-    selectedGroups
-  } = req.body;
+function isOrganizer(meeting, user) {
+  return meeting.organizer_id == null
+    ? meetingSync.nameKey(meeting.host_name) === meetingSync.nameKey(user.fullName)
+    : Number(meeting.organizer_id) === Number(user.id);
+}
 
-  try {
-    const attendees = Array.isArray(selectedPersons)
-      ? selectedPersons
-      : [];
-
-    const groups = Array.isArray(selectedGroups)
-      ? selectedGroups
-      : [];
-
-    // ============================================================
-    // VALIDATION
-    // ============================================================
-
-    if (!title || !meetingTime || !meetingLink) {
-      return res.status(400).json({
-        success: false,
-        message: 'Title, meetingTime, and meetingLink are required.'
-      });
+async function meetingsFor(user) {
+  const [rows] = await db.query(
+    `SELECT m.*, p.employee_name AS participant_name,
+            DATE_FORMAT(m.start_at, '%Y-%m-%d %H:%i:%s') AS start_at,
+            DATE_FORMAT(m.end_at, '%Y-%m-%d %H:%i:%s') AS end_at,
+            DATE_FORMAT(m.started_at, '%Y-%m-%d %H:%i:%s') AS started_at,
+            DATE_FORMAT(m.completed_at, '%Y-%m-%d %H:%i:%s') AS completed_at
+     FROM scheduled_meetings m
+     LEFT JOIN meeting_participants p ON p.meeting_id = m.id AND LOWER(TRIM(p.employee_name)) = ?
+     ORDER BY m.id DESC`, [meetingSync.nameKey(user.fullName)],
+  );
+  const visible = [];
+  for (const row of rows) {
+    const canManage = isOrganizer(row, user);
+    if (!canManage && !row.participant_name) {
+      if (row.organizer_id != null || row.start_at || meetingSync.open(row)) continue;
+      if (!(await meetingSync.expandParticipants(db, row)).has(meetingSync.nameKey(user.fullName))) continue;
     }
-
-    const finalHostName =
-      hostName && hostName.toString().trim()
-        ? hostName.toString().trim()
-        : 'Admin';
-
-    console.log('==============================================');
-    console.log('📅 NEW MEETING REQUEST');
-    console.log('Title:', title);
-    console.log('Meeting Time:', meetingTime);
-    console.log('Meeting Link:', meetingLink);
-    console.log('Host:', finalHostName);
-    console.log('Attendees:', attendees);
-    console.log('Groups:', groups);
-    console.log('==============================================');
-
-    // ============================================================
-    // SAVE MEETING
-    // IMPORTANT:
-    // `groups` is wrapped in backticks because GROUPS can
-    // conflict with MySQL SQL syntax/reserved keywords.
-    // ============================================================
-
-    const [meetingResult] = await db.query(
-      `
-        INSERT INTO scheduled_meetings
-        (
-          title,
-          meeting_time,
-          meeting_link,
-          host_name,
-          attendees,
-          \`groups\`,
-          status
-        )
-        VALUES (?, ?, ?, ?, ?, ?, 'Active')
-      `,
-      [
-        title.toString().trim(),
-        meetingTime.toString().trim(),
-        meetingLink.toString().trim(),
-        finalHostName,
-        JSON.stringify(attendees),
-        JSON.stringify(groups)
-      ]
-    );
-
-    const meetingId = meetingResult.insertId;
-
-    console.log(
-      `✅ Meeting saved successfully. Meeting ID: ${meetingId}`
-    );
-
-    // ============================================================
-    // SOCKET.IO
-    // ============================================================
-
-    const io = req.app.get('io');
-
-    // ============================================================
-    // SEND NOTIFICATION TO SELECTED EMPLOYEES
-    // ============================================================
-
-    for (const attendee of attendees) {
-      const meetingMessage =
-        `📅 Meeting Scheduled: ${title}\n` +
-        `🕒 Time: ${meetingTime}\n` +
-        `🔗 Link: ${meetingLink}`;
-
-      const [notificationResult] = await db.query(
-        `
-          INSERT INTO notifications
-          (
-            sender_name,
-            recipient_name,
-            message,
-            is_group,
-            is_seen
-          )
-          VALUES (?, ?, ?, 0, 0)
-        `,
-        [
-          finalHostName,
-          attendee,
-          meetingMessage
-        ]
-      );
-
-      if (io) {
-        io.emit('new_notification', {
-          recipient: attendee,
-          sender: finalHostName,
-          message: meetingMessage,
-          isGroup: false,
-          messageId: notificationResult.insertId,
-          type: 'meeting'
-        });
-      }
-    }
-
-    // ============================================================
-    // SEND NOTIFICATION TO SELECTED GROUPS
-    // ============================================================
-
-    for (const groupName of groups) {
-      const meetingMessage =
-        `📅 Group Meeting Scheduled: ${title}\n` +
-        `🕒 Time: ${meetingTime}\n` +
-        `🔗 Link: ${meetingLink}`;
-
-      const [notificationResult] = await db.query(
-        `
-          INSERT INTO notifications
-          (
-            sender_name,
-            recipient_name,
-            message,
-            is_group,
-            is_seen
-          )
-          VALUES (?, ?, ?, 1, 0)
-        `,
-        [
-          finalHostName,
-          groupName,
-          meetingMessage
-        ]
-      );
-
-      if (io) {
-        io.emit('new_notification', {
-          recipient: groupName,
-          sender: finalHostName,
-          message: meetingMessage,
-          isGroup: true,
-          messageId: notificationResult.insertId,
-          type: 'meeting'
-        });
-      }
-    }
-
-    // ============================================================
-    // SUCCESS
-    // ============================================================
-
-    return res.status(201).json({
-      success: true,
-      meetingId: meetingId,
-      message: 'Meeting scheduled & broadcasted successfully!'
-    });
-
-  } catch (err) {
-    // ============================================================
-    // EXACT DATABASE ERROR
-    // ============================================================
-
-    console.error(
-      '❌ POST /chat/meetings CRITICAL ERROR:',
-      err
-    );
-
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-      code: err.code || null
-    });
+    const { participant_name, organizer_id, ...meeting } = row;
+    visible.push({ ...meeting, can_manage: canManage });
   }
-});
+  return visible;
+}
 
+function meetingText(value, label, maxLength = Infinity) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > maxLength) {
+    throw meetingSync.error(400, 'Enter a valid meeting ' + label + '.');
+  }
+  return value.trim();
+}
 
-// ================================================================
-// 9. PATCH /api/chat/meetings/:id/status
-// ================================================================
-
-router.patch('/meetings/:id/status', async (req, res) => {
-  const { status, actionBy } = req.body;
-
-  try {
-    const [meetingRows] = await db.query(
-      `
-        SELECT *
-        FROM scheduled_meetings
-        WHERE id = ?
-      `,
-      [req.params.id]
-    );
-
-    if (meetingRows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Meeting not found'
-      });
-    }
-
-    const meeting = meetingRows[0];
-
-    await db.query(
-      `
-        UPDATE scheduled_meetings
-        SET status = ?
-        WHERE id = ?
-      `,
-      [status, req.params.id]
-    );
-
-    let attendees = [];
-
+function meetingEndpoint(handler) {
+  return async (req, res) => {
     try {
-      attendees = JSON.parse(
-        meeting.attendees || '[]'
-      );
-    } catch (_) {
-      attendees = [];
+      await handler(req, res);
+    } catch (err) {
+      if (!err.statusCode) console.error('Meeting request failed:', err);
+      res.status(err.statusCode || 500).json({
+        success: false, message: err.statusCode ? err.message : 'Could not process the meeting request.',
+      });
     }
+  };
+}
 
-    const io = req.app.get('io');
+async function meetingNotification(conn, sender, recipient, message, isGroup, type) {
+  const [result] = await conn.query(
+    'INSERT INTO notifications (sender_name, recipient_name, message, is_group, is_seen) VALUES (?, ?, ?, ?, 0)',
+    [sender, recipient, message, Number(isGroup)],
+  );
+  return { recipient, sender, message, isGroup, messageId: result.insertId, type };
+}
 
+function publishMeeting(req, id, action, notifications = []) {
+  const io = req.app.get('io');
+  for (const payload of notifications) io?.emit('new_notification', payload);
+  io?.emit('meeting_tracking_updated', { meetingId: Number(id), action });
+}
+
+router.post('/meetings', meetingEndpoint(async (req, res) => {
+  const body = req.body || {};
+  const title = meetingText(body.title, 'title', 255);
+  const link = meetingText(body.meetingLink, 'link');
+  const attendees = meetingSync.selection(body.selectedPersons) || [];
+  const groups = meetingSync.selection(body.selectedGroups) || [];
+  const schedule = meetingSync.resolveSchedule(body);
+  const host = req.user.fullName;
+  const { id, notifications } = await meetingSync.transaction(async (conn) => {
+    const now = meetingSync.istNowString();
+    if (schedule.endAt && schedule.endAt <= now) {
+      throw meetingSync.error(400, 'The meeting end time must be in the future.');
+    }
+    const [result] = await conn.query(
+      `INSERT INTO scheduled_meetings
+        (title, meeting_time, meeting_link, host_name, organizer_id, attendees, \`groups\`,
+         status, start_at, end_at, duration_mins, meeting_details)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Scheduled', ?, ?, ?, ?)`,
+      [title, schedule.startAt, link, host, req.user.id, JSON.stringify(attendees), JSON.stringify(groups),
+        schedule.startAt, schedule.endAt, schedule.durationMins, body.details == null ? null : String(body.details)],
+    );
+    const meeting = await meetingSync.lockMeeting(conn, result.insertId);
+    await meetingSync.syncParticipants(conn, meeting, now, { validateGroups: true });
+
+    const notifications = [];
+    const info = `\n🕒 Time: ${schedule.startAt} IST\n🔗 Link: ${link}`;
     for (const attendee of attendees) {
-      const notificationMessage =
-        `🔔 Meeting "${meeting.title}" has been marked as ${status} by ${
-          actionBy || meeting.host_name
-        }.`;
-
-      const [result] = await db.query(
-        `
-          INSERT INTO notifications
-          (
-            sender_name,
-            recipient_name,
-            message,
-            is_group
-          )
-          VALUES (?, ?, ?, 0)
-        `,
-        [
-          actionBy || meeting.host_name,
-          attendee,
-          notificationMessage
-        ]
-      );
-
-      if (io) {
-        io.emit('new_notification', {
-          recipient: attendee,
-          sender: actionBy || meeting.host_name,
-          message: notificationMessage,
-          messageId: result.insertId,
-          type: 'meeting_status'
-        });
-      }
+      notifications.push(await meetingNotification(conn, host, attendee, '📅 Meeting Scheduled: ' + title + info, false, 'meeting'));
     }
+    for (const group of groups) {
+      notifications.push(await meetingNotification(conn, host, group, '📅 Group Meeting Scheduled: ' + title + info, true, 'meeting'));
+    }
+    return { id: meeting.id, notifications };
+  });
+  publishMeeting(req, id, 'created', notifications);
+  res.status(201).json({ success: true, meetingId: id, message: 'Meeting scheduled & broadcasted successfully!' });
+}));
 
-    return res.json({
-      success: true,
-      message: `Meeting marked as ${status}`
+function meetingAction(action, notify) {
+  return meetingEndpoint(async (req, res) => {
+    const requested = action || String(req.body?.status || '').trim().toLowerCase();
+    const status = { active: 'Active', completed: 'Completed', rejected: 'Rejected' }[requested];
+    if (!['Active', 'Completed', 'Rejected'].includes(status)) throw meetingSync.error(400, 'Choose a valid meeting status.');
+    await refreshMeetingSchedules(req.app.get('io'));
+    const notifications = await meetingSync.transaction(async (conn) => {
+      const meeting = await meetingSync.lockMeeting(conn, req.params.id);
+      if (!isOrganizer(meeting, req.user)) throw meetingSync.error(403, 'Only the organizer can change this meeting.');
+      const now = meetingSync.istNowString();
+      if (meeting.status === status) return null;
+      if (meeting.end_at && meeting.end_at <= now) {
+        throw meetingSync.error(409, meeting.status === 'Scheduled'
+          ? 'Edit the schedule before starting this meeting. Its end time has passed.'
+          : 'This meeting has ended.');
+      }
+      if (!meetingSync.open(meeting) ||
+          (status === 'Completed' && meeting.status !== 'Active')) {
+        throw meetingSync.error(409, 'This action is unavailable for this meeting.');
+      }
+      if (status === 'Active') {
+        await meetingSync.activate(conn, meeting, now);
+      } else {
+        await meetingSync.finish(conn, meeting, status, now);
+      }
+
+      const notifications = [];
+      if (notify) {
+        const participants = await meetingSync.expandParticipants(conn, meeting);
+        for (const { name } of participants.values()) {
+          notifications.push(await meetingNotification(conn, req.user.fullName, name,
+            `🔔 Meeting "${meeting.title}" has been marked as ${status} by ${req.user.fullName}.`, false, 'meeting_status'));
+        }
+      }
+      return notifications;
     });
+    if (notifications) publishMeeting(req, req.params.id, requested, notifications);
+    res.json({ success: true, message: 'Meeting marked as ' + status });
+  });
+}
 
-  } catch (err) {
-    console.error(
-      'PATCH /chat/meetings/:id/status ERROR:',
-      err
-    );
+router.patch('/meetings/:id/status', meetingAction(null, true));
+router.patch('/meetings/:id/complete', meetingAction('completed', false));
+router.post('/meetings/:id/start', meetingAction('active', false));
 
-    return res.status(500).json({
-      success: false,
-      message: err.message
-    });
+router.patch('/meetings/:id', meetingEndpoint(async (req, res) => {
+  const body = req.body || {};
+  const attendees = meetingSync.selection(body.attendees);
+  const groups = meetingSync.selection(body.groups);
+  await refreshMeetingSchedules(req.app.get('io'));
+  await meetingSync.transaction(async (conn) => {
+    const meeting = await meetingSync.lockMeeting(conn, req.params.id);
+    if (!isOrganizer(meeting, req.user)) throw meetingSync.error(403, 'Only the organizer can edit this meeting.');
+    if (!meetingSync.open(meeting)) throw meetingSync.error(409, 'Only scheduled or active meetings can be edited.');
+
+    const now = meetingSync.istNowString();
+    if (meeting.status === 'Active' && meeting.end_at && meeting.end_at <= now) {
+      throw meetingSync.error(409, 'This meeting has ended.');
+    }
+    const changesStart = body.startAt !== undefined || body.meetingTime !== undefined;
+    const changesEnd = body.endAt !== undefined || body.durationMins !== undefined;
+    const updates = {};
+    if (changesStart || changesEnd) {
+      const start = meetingSync.resolveSchedule({
+        startAt: body.startAt ?? body.meetingTime ?? meeting.start_at ?? meeting.meeting_time,
+      }).startAt;
+      const schedule = meetingSync.resolveSchedule({
+        startAt: start,
+        endAt: changesEnd ? body.endAt : (start === meeting.start_at ? meeting.end_at : undefined),
+        durationMins: changesEnd ? body.durationMins : (start !== meeting.start_at ? meeting.duration_mins : undefined),
+      });
+      if (meeting.status === 'Active' && start !== meeting.start_at) {
+        throw meetingSync.error(409, 'The start time is fixed once the meeting begins.');
+      }
+      if (schedule.endAt && schedule.endAt <= now) {
+        throw meetingSync.error(400, 'The meeting end time must be in the future.');
+      }
+      Object.assign(updates, {
+        start_at: start, end_at: schedule.endAt, meeting_time: start, duration_mins: schedule.durationMins,
+      });
+    }
+    if (body.title !== undefined) updates.title = meetingText(body.title, 'title', 255);
+    if (body.meetingLink !== undefined) updates.meeting_link = meetingText(body.meetingLink, 'link');
+    if (body.details !== undefined) updates.meeting_details = body.details == null ? null : String(body.details);
+    if (attendees !== undefined) updates.attendees = JSON.stringify(attendees);
+    if (groups !== undefined) updates.groups = JSON.stringify(groups);
+    if (Object.keys(updates).length) {
+      await conn.query('UPDATE scheduled_meetings SET ? WHERE id = ?', [updates, meeting.id]);
+      Object.assign(meeting, updates);
+    }
+    await meetingSync.syncParticipants(conn, meeting, now, { validateGroups: groups !== undefined });
+  });
+  publishMeeting(req, req.params.id, 'updated');
+  res.json({ success: true, message: 'Meeting updated successfully' });
+}));
+
+router.get('/meetings/scheduled', meetingEndpoint(async (req, res) => {
+  await refreshMeetingSchedules(req.app.get('io'));
+  res.json({ success: true, data: await meetingsFor(req.user) });
+}));
+
+router.get('/meetings/live/:employeeName', meetingEndpoint(async (req, res) => {
+  if (meetingSync.nameKey(req.params.employeeName) !== meetingSync.nameKey(req.user.fullName)) {
+    throw meetingSync.error(403, 'Meeting tracking is available for your own account.');
   }
-});
-
-
-// ================================================================
-// 10. PATCH /api/chat/meetings/:id/complete
-// ================================================================
-
-router.patch('/meetings/:id/complete', async (req, res) => {
-  try {
-    await db.query(
-      `
-        UPDATE scheduled_meetings
-        SET status = 'Completed'
-        WHERE id = ?
-      `,
-      [req.params.id]
-    );
-
-    return res.json({
-      success: true,
-      message: 'Meeting marked as completed'
-    });
-
-  } catch (err) {
-    console.error(
-      'PATCH /chat/meetings/:id/complete ERROR:',
-      err
-    );
-
-    return res.status(500).json({
-      success: false,
-      message: err.message
-    });
-  }
-});
+  await refreshMeetingSchedules(req.app.get('io'));
+  const data = await meetingSync.getLiveSessionsForEmployee(req.user.fullName, req.query.date);
+  res.json({ success: true, data });
+}));
 
 // 11. PATCH /api/chat/edit/:id
 router.patch('/edit/:id', async (req, res) => {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
 
 import '../../layouts/admin_layout.dart';
+import '../../core/keyboard/keyboard_shortcuts.dart';
 import '../../services/api_config.dart';
 import '../role_sop_viewer_dialog.dart';
 import 'widgets/role_sop_card.dart';
@@ -138,7 +139,11 @@ class _RoleSopMasterScreenState extends State<RoleSopMasterScreen> {
     final roleName = _roleName(roleId) ?? 'this role';
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => KeyboardSubmit(
+        autofocus: true,
+        onSubmit: () => Navigator.pop(dialogContext, true),
+        onCancel: () => Navigator.pop(dialogContext, false),
+        child: AlertDialog(
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
         ),
@@ -160,6 +165,7 @@ class _RoleSopMasterScreenState extends State<RoleSopMasterScreen> {
             child: const Text('Delete'),
           ),
         ],
+      ),
       ),
     );
     if (confirmed != true || !mounted) return;
@@ -265,7 +271,17 @@ class _RoleSopMasterScreenState extends State<RoleSopMasterScreen> {
       pageTitle: 'Role-Based SOP',
       currentRoute: '/role-sop-master',
       onSearch: (_) {},
-      child: _loading
+      child: KeyboardSaveScope(
+        onSave: () {
+          if (!_saving && _editingRoleId != null) _save();
+        },
+        child: _buildSopBody(),
+      ),
+    );
+  }
+
+  Widget _buildSopBody() {
+    return _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? Center(
@@ -282,8 +298,7 @@ class _RoleSopMasterScreenState extends State<RoleSopMasterScreen> {
           ? _buildEmptyState()
           : _editingRoleId == null
           ? _buildRoleCards()
-          : _buildEditor(),
-    );
+          : _buildEditor();
   }
 
   Widget _buildPageHeader(String subtitle) {

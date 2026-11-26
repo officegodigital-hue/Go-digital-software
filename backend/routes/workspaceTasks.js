@@ -12,6 +12,8 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
+const { meetingWork } = require('../lib/meetingSync');
+const { additionalMeetingSeconds } = require('../lib/meetingWorkTime');
 const { touchedOn, localDay, syncDayPlanStatus } = require('../lib/dayPlanSync');
 const { ensureWorkspaceTaskSchemaOnce } = require('../lib/ensureWorkspaceTaskSchema');
 const { ensureEventsTable } = require('../lib/assignmentEvents');
@@ -2171,6 +2173,7 @@ const inDay = (v, from, to) => {
 // holds one row per start→stop; tech_tasks carries the live status and assignee.
 async function techDayWork(employee, day, from, to, end, now, today) {
   const items = [];
+  const countedIntervals = [];
   let totalSecs = 0;
   let rows;
   try {
@@ -2187,7 +2190,7 @@ async function techDayWork(employee, day, from, to, end, now, today) {
       [employee, from, to, from, to],
     );
   } catch (_) {
-    return { items, totalSecs }; // tech tables may not exist on this database
+    return { items, totalSecs, countedIntervals }; // tech tables may not exist on this database
   }
 
   const byTask = new Map();
@@ -2207,6 +2210,7 @@ async function techDayWork(employee, day, from, to, end, now, today) {
     const startedToday = started >= from && started < to;
     if (startedToday) {
       const sEnd = ended || end;
+      countedIntervals.push([started.getTime(), Math.min(sEnd, end)]);
       g.secs += Math.max(Math.floor((Math.min(sEnd, end) - started) / 1000), 0);
     }
     if (!ended && r.status === 'IN PROGRESS') {
@@ -2235,7 +2239,7 @@ async function techDayWork(employee, day, from, to, end, now, today) {
       source: 'tech',
     });
   }
-  return { items, totalSecs };
+  return { items, totalSecs, countedIntervals };
 }
 
 async function dayWork(employee, day) {
@@ -2244,13 +2248,17 @@ async function dayWork(employee, day) {
   const { from, to } = appBounds(day);
   const end = to < now ? to : now;
   const items = [];
+  const countedIntervals = [];
   let totalSecs = 0;
 
   for (const { raw, row } of await employeeTaskItems(employee)) {
     const intervals = workIntervals(raw, now);
     let secs = 0;
     for (const [a, b] of intervals) {
-      if (a >= from && a < to) secs += Math.max(Math.floor((Math.min(b, end) - a) / 1000), 0);
+      if (a >= from && a < to) {
+        countedIntervals.push([a.getTime(), Math.min(b, end)]);
+        secs += Math.max(Math.floor((Math.min(b, end) - a) / 1000), 0);
+      }
     }
     const events = [raw.start_time, raw.complete_time];
     for (let i = 1; i <= 10; i += 1) events.push(raw[`hold_time_${i}`], raw[`restart_time_${i}`]);
@@ -2276,6 +2284,7 @@ async function dayWork(employee, day) {
     const actedToday = inDay(s.last_activity_at, from, to) || (started && started >= from && started < to);
     if (!actedToday && !stale && !runningToday) continue;
     const secs = runningToday ? Math.max(Math.floor((now - started) / 1000), 0) : 0;
+    if (runningToday) countedIntervals.push([started.getTime(), now.getTime()]);
     totalSecs += secs;
     items.push({
       ...s,
@@ -2294,7 +2303,7 @@ async function dayWork(employee, day) {
 
   const rank = (i) => (i.status === 'IN PROGRESS' ? 0 : ['ON HOLD', 'REWORK'].includes(i.status) ? 1 : 2);
   items.sort((a, b) => rank(a) - rank(b) || String(a.client).localeCompare(String(b.client)));
-  return { items, totalSecs, now };
+  return { items, totalSecs, now, from, to, countedIntervals: [...countedIntervals, ...tech.countedIntervals] };
 }
 
 // GET /live-all?employee=&date=  → what was worked on that day, all clients
@@ -2316,13 +2325,18 @@ router.get('/running', async (req, res) => {
   const employee = employeeFrom(req);
   if (!employee) return res.status(400).json({ success: false, message: 'employee is required' });
   try {
-    const { items, totalSecs, now } = await dayWork(employee, appDay());
+    const { items, totalSecs, now, from, to, countedIntervals } = await dayWork(employee, appDay());
+    const meeting = await meetingWork(employee, from, now, to);
+    const workingSecsWithMeetings = totalSecs + additionalMeetingSeconds(countedIntervals, meeting.intervals);
+    const workingUntil = items.some((item) => item.today_running) ? to.getTime() : meeting.runningUntil;
     // Prefer what is running today; else an old forgotten one (to hold it).
     const running = items.find((i) => i.today_running) || items.find((i) => i.stale_running) || null;
     return res.json({
       success: true,
       serverNow: now.toISOString(),
       totalSecs,
+      workingSecsWithMeetings,
+      workingRemainingSecs: Math.max(0, Math.floor((workingUntil - now.getTime()) / 1000)),
       running: running && {
         ...running,
         task: running.title,

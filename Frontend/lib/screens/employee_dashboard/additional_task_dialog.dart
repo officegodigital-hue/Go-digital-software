@@ -18,6 +18,7 @@ import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:intl/intl.dart';
 
 import '../../services/api_config.dart';
+import '../../core/keyboard/keyboard_shortcuts.dart';
 
 class AdditionalTaskDialog extends StatefulWidget {
   final String employeeName;
@@ -241,7 +242,11 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    return Dialog(
+    final bool canSave = !_loading && _loadError == null && _allowed && !_saving;
+    return KeyboardSubmit(
+      onSubmit: canSave ? _save : null,
+      onCancel: _saving ? null : () => Navigator.of(context).pop(),
+      child: Dialog(
       insetPadding: EdgeInsets.symmetric(horizontal: width < 560 ? 14 : 40, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       clipBehavior: Clip.antiAlias,
@@ -261,6 +266,7 @@ class _AdditionalTaskDialogState extends State<AdditionalTaskDialog> {
             _footer(),
           ],
         ),
+      ),
       ),
     );
   }

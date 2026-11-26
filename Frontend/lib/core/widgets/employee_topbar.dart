@@ -1,9 +1,10 @@
-import 'package:godigital_portal/services/auth_storage.dart';
+import 'package:godigital_portal/services/socket_auth.dart';
 // lib/core/widgets/employee_topbar.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:provider/provider.dart';
@@ -14,6 +15,8 @@ import '../constants/employee_role.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_config.dart';
 import '../../services/app_notification_center.dart';
+import '../../services/push_notification_service.dart';
+import '../keyboard/keyboard_shortcuts.dart';
 import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
 
 // ============================================================
@@ -1282,15 +1285,22 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   IO.Socket? _socket;
   Set<int> _knownNotificationIds = {};
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  late final VoidCallback _focusSearchHandler;
 
   String formattedTotalWorkingTime = "00h 00m 00s";
 
   // ── Working hours + running task (server is the source of truth) ──
+  int? _workingRemainingSecs;
+  final _workingElapsed = Stopwatch();
+  int _workingHoursRequest = 0;
   int _baseTotalSecs = 0;               // seconds worked today when last fetched
   DateTime _baseAt = DateTime.now();    // local time of that fetch
   Duration _serverOffset = Duration.zero;
   Map<String, dynamic>? _running;       // {trackingItemId, client, task, sessionStartedAt}
   Timer? _tickTimer;
+  List<String> _runningMeetings = const [];
+  int _meetingRequest = 0;
 
   late AnimationController _rotateController;
   late AnimationController _glowController;
@@ -1341,6 +1351,7 @@ late final AnimationController _actionController; // event-specific robot action
 
     _startPolling();
     _fetchTodayWorkingHours();
+    _fetchRunningMeetings();
     _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) _recomputeWorkingDisplay();
     });
@@ -1348,6 +1359,100 @@ late final AnimationController _actionController; // event-specific robot action
     _checkActiveBroadcast();
     _checkAssignedClientStatusChanges();
     _taskActionSub = AppNotificationCenter.taskActions.listen(_onTaskAction);
+
+    // Ctrl/Cmd + K focuses this top bar's search box.
+    _focusSearchHandler = () {
+      if (!mounted) return;
+      FocusScope.of(context).requestFocus(_searchFocusNode);
+      _searchController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _searchController.text.length,
+      );
+    };
+    AppShortcutsController.instance.registerSearchFocus(_focusSearchHandler);
+  }
+
+  Future<void> _handleLogout() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    AppNotificationCenter.instance.stop();
+    await PushNotificationService.instance.unregister();
+    await authService.logout();
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+  }
+
+  void _onProfileMenuSelected(String value) {
+    switch (value) {
+      case 'workspace':
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+        break;
+      case 'profile':
+        Navigator.pushNamed(context, '/profile');
+        break;
+      case 'logout':
+        _handleLogout();
+        break;
+    }
+  }
+
+  List<PopupMenuEntry<String>> _profileMenuItems(
+    String employeeName,
+    String employeeRole,
+  ) {
+    return <PopupMenuEntry<String>>[
+      PopupMenuItem<String>(
+        enabled: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              employeeName,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              employeeRole,
+              style: const TextStyle(fontSize: 11, color: AppColors.textGrey),
+            ),
+          ],
+        ),
+      ),
+      const PopupMenuDivider(),
+      const PopupMenuItem<String>(
+        value: 'workspace',
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.home_rounded, size: 20, color: AppColors.primary),
+          title: Text('Workspace', style: TextStyle(fontSize: 13)),
+        ),
+      ),
+      const PopupMenuItem<String>(
+        value: 'profile',
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.person_outline_rounded,
+              size: 20, color: AppColors.textGrey),
+          title: Text('Profile', style: TextStyle(fontSize: 13)),
+        ),
+      ),
+      const PopupMenuDivider(),
+      const PopupMenuItem<String>(
+        value: 'logout',
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.logout_rounded, size: 20, color: Color(0xFFEF4444)),
+          title: Text('Logout',
+              style: TextStyle(fontSize: 13, color: Color(0xFFEF4444))),
+        ),
+      ),
+    ];
   }
 
   // A task action the employee confirmed (in this top bar, the Employee
@@ -1451,7 +1556,9 @@ late final AnimationController _actionController; // event-specific robot action
     _tickTimer?.cancel();
     _popupTimer?.cancel();
     _taskActionSub?.cancel();
+    AppShortcutsController.instance.unregisterSearchFocus(_focusSearchHandler);
     _searchController.dispose();
+    _searchFocusNode.dispose();
     _socket?.dispose();
     _audioPlayer.dispose();
     _actionTimer?.cancel();
@@ -2284,14 +2391,15 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     if (employeeName == null || employeeName.toString().isEmpty) return;
 
     try {
-      _socket = IO.io(_socketUrl, {
-        'transports': ['websocket'],
-        'auth': {'token': AuthStorage.cachedToken},
-        'autoConnect': false,
-        'reconnection': true,
-      });
-
-      _socket!.connect();
+      _socket = IO.io(
+        _socketUrl,
+        IO.OptionBuilder()
+            .setAuthFn(authenticateSocket)
+            .setTransports(['websocket'])
+            .enableForceNew()
+            .disableAutoConnect()
+            .build(),
+      );
 
       void handle(dynamic payload) {
         if (!mounted || payload is! Map) return;
@@ -2323,6 +2431,12 @@ List<TextSpan> _buildHighlightedMessage(String message) {
       _socket!.on('task_updated', (_) {
         if (mounted) _fetchTodayWorkingHours();
       });
+      _socket!.on('meeting_tracking_updated', (_) {
+        _fetchRunningMeetings();
+        _fetchTodayWorkingHours();
+      });
+      _socket!.onConnect((_) => _fetchRunningMeetings());
+      _socket!.connect();
     } catch (e) {
       debugPrint('Topbar socket init error: $e');
     }
@@ -2330,6 +2444,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
 
   void _startPolling() {
     _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      unawaited(_fetchRunningMeetings());
       await _checkNewNotifications();
       await _fetchTodayWorkingHours();
       await _checkActiveBroadcast();
@@ -2337,11 +2452,39 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     });
   }
 
+  Future<void> _fetchRunningMeetings() async {
+    if (!mounted) return;
+    final name = context.read<AuthService>().user?['fullName']?.toString();
+    if (name == null || name.trim().isEmpty) return;
+    final request = ++_meetingRequest;
+    try {
+      final response = await http.get(Uri.parse(
+        '${ApiConfig.baseUrl}/chat/meetings/live/${Uri.encodeComponent(name)}',
+      ));
+      if (!mounted || request != _meetingRequest || response.statusCode != 200) {
+        return;
+      }
+      final data = jsonDecode(response.body)['data'];
+      if (data is! List) return;
+      final titles = [
+        for (final session in data.whereType<Map>())
+          if (session['status'] == 'ACTIVE')
+            (session['title'] ?? 'Meeting').toString(),
+      ];
+      if (!listEquals(_runningMeetings, titles)) {
+        setState(() => _runningMeetings = titles);
+      }
+    } catch (error) {
+      debugPrint('Could not refresh running meetings: $error');
+    }
+  }
+
   Future<void> _fetchTodayWorkingHours() async {
     if (!mounted) return;
     final authService = Provider.of<AuthService>(context, listen: false);
     final employeeName = authService.user?['fullName'] ?? authService.user?['name'] ?? authService.user?['username'];
     if (employeeName == null || employeeName.toString().isEmpty) return;
+    final request = ++_workingHoursRequest;
     try {
       final now = DateTime.now();
       final formattedDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
@@ -2351,11 +2494,16 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         queryParameters: {'employee': employeeName.toString(), 'date': formattedDate},
       );
       final r = await http.get(url);
-      if (r.statusCode == 200 && mounted) {
+      if (r.statusCode == 200 && mounted && request == _workingHoursRequest) {
         final body = jsonDecode(r.body);
         final serverNow = DateTime.tryParse((body['serverNow'] ?? '').toString());
         setState(() {
-          _baseTotalSecs = (body['totalSecs'] as num?)?.toInt() ?? 0;
+          _baseTotalSecs =
+              ((body['workingSecsWithMeetings'] ?? body['totalSecs']) as num?)?.toInt() ?? 0;
+          _workingRemainingSecs = (body['workingRemainingSecs'] as num?)?.toInt();
+          _workingElapsed
+            ..reset()
+            ..start();
           _baseAt = DateTime.now();
           _serverOffset = serverNow != null ? serverNow.difference(DateTime.now()) : Duration.zero;
           _running = body['running'] is Map ? Map<String, dynamic>.from(body['running'] as Map) : null;
@@ -2374,7 +2522,12 @@ List<TextSpan> _buildHighlightedMessage(String message) {
 
   void _recomputeWorkingDisplay() {
     int total = _baseTotalSecs;
-    if (_runningToday) total += DateTime.now().difference(_baseAt).inSeconds;
+    final remaining = _workingRemainingSecs;
+    if (remaining != null) {
+      total += math.min(_workingElapsed.elapsed.inSeconds, remaining);
+    } else if (_runningToday) {
+      total += DateTime.now().difference(_baseAt).inSeconds;
+    }
     final h = total ~/ 3600;
     final m = (total % 3600) ~/ 60;
     final sec = total % 60;
@@ -2415,12 +2568,65 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     await _fetchTodayWorkingHours();
   }
 
+  Widget _buildRunningMeetingChip({required bool compact}) {
+    final count = _runningMeetings.length;
+    final label = count == 1 ? 'Meeting live' : '$count meetings live';
+    return Tooltip(
+      message: [label, ..._runningMeetings].join('\n'),
+      child: Container(
+        margin: const EdgeInsets.only(left: 4),
+        padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 9, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE0F2FE),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.video_camera_front_rounded, size: 17, color: Color(0xFF0369A1)),
+            if (!compact) ...[
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFF075985),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   // Compact "running task" chip shown next to Today Working Hours.
-  Widget _buildRunningChip() {
+  Widget _buildRunningChip({required bool compact}) {
     final running = _running;
     if (running == null) return const SizedBox.shrink();
     final client = (running['client'] ?? '').toString();
     var title = '${client.isEmpty ? '' : '$client · '}${running['task'] ?? ''}';
+    void openTask() {
+      if (widget.onOpenRunningItem != null) {
+        widget.onOpenRunningItem!(Map<String, dynamic>.from(running));
+      } else {
+        widget.onOpenRunningTask?.call();
+      }
+    }
+
+    if (compact) {
+      return Tooltip(
+        message: 'Task running: $title',
+        child: IconButton(
+          onPressed: openTask,
+          icon: const Icon(Icons.play_circle_outline, size: 18, color: Color(0xFF166534)),
+          padding: const EdgeInsets.all(6),
+          constraints: const BoxConstraints(),
+          visualDensity: VisualDensity.compact,
+        ),
+      );
+    }
     if (title.length > 32) title = '${title.substring(0, 32)}…';
     // Still running from an earlier day → ask to hold it (not counted today).
     final stale = running['stale_running'] == true;
@@ -2435,14 +2641,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
-          onTap: () {
-            final item = _running;
-            if (item != null && widget.onOpenRunningItem != null) {
-              widget.onOpenRunningItem!(Map<String, dynamic>.from(item));
-            } else {
-              widget.onOpenRunningTask?.call();
-            }
-          },
+          onTap: openTask,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(
@@ -2666,12 +2865,17 @@ void _dismissPopup() {
                           Expanded(
                             child: TextField(
                               controller: _searchController,
+                              focusNode: _searchFocusNode,
+                              textInputAction: TextInputAction.search,
                               onChanged: (value) {
                                 setState(() {});
                                 widget.onSearch?.call(value);
                               },
+                              onSubmitted: (value) {
+                                widget.onSearch?.call(value);
+                              },
                               decoration: const InputDecoration(
-                                hintText: 'Search client name…',
+                                hintText: 'Search client name…  (Ctrl+K)',
                                 hintStyle: TextStyle(fontSize: 12, color: AppColors.textGrey),
                                 // No theme box: no blue focus line, no white fill.
                                 border: InputBorder.none,
@@ -2786,7 +2990,7 @@ void _dismissPopup() {
                             ),
                             child: Container(
                               height: 38,
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              padding: EdgeInsets.symmetric(horizontal: isSmallMobile ? 6 : 12),
                               decoration: BoxDecoration(
                                 color: const Color.fromARGB(0, 14, 65, 141),
                                 borderRadius: BorderRadius.circular(8),
@@ -2812,13 +3016,24 @@ void _dismissPopup() {
                                         transform: GradientRotation(_isPaused ? 0.0 : _rotateController.value * 2 * 3.141592653589793),
                                       ).createShader(bounds);
                                     },
-                                    child: Text(
-                                      isSmallMobile ? "Today: $formattedTotalWorkingTime" : "Today Working Hours: $formattedTotalWorkingTime",
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.white,
-                                        letterSpacing: 0.3,
+                                    child: SizedBox(
+                                      width: isSmallMobile ? 58 : null,
+                                      child: FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        child: Text(
+                                          isSmallMobile
+                                              ? formattedTotalWorkingTime.replaceAll(RegExp(r'[hm] '), ':').replaceFirst('s', '')
+                                              : "Today Working Hours: $formattedTotalWorkingTime",
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w900,
+                                            color: Colors.white,
+                                            letterSpacing: 0.3,
+                                          ),
+                                          semanticsLabel: isSmallMobile
+                                              ? 'Today working hours: $formattedTotalWorkingTime'
+                                              : null,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -2831,7 +3046,9 @@ void _dismissPopup() {
                     ),
                   ),
                 ),
-                if (!isSmallMobile) _buildRunningChip(),
+                _buildRunningChip(compact: isSmallMobile),
+                if (_runningMeetings.isNotEmpty)
+                  _buildRunningMeetingChip(compact: !isDesktop),
                 const SizedBox(width: 8),
                 
                 Stack(
@@ -2863,10 +3080,10 @@ void _dismissPopup() {
                   ],
                 ),
                 
+                const SizedBox(width: 8),
+                const KeyboardHelpButton(size: 18, color: AppColors.textDark),
                 if (!isSmallMobile) ...[
-                  const SizedBox(width: 16),
-                  const Icon(Icons.help_outline_rounded, size: 18, color: AppColors.textDark),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 10),
                   Container(height: 30, width: 1, color: AppColors.border),
                   const SizedBox(width: 14),
                 ],
@@ -2896,9 +3113,13 @@ void _dismissPopup() {
                       } catch (_) {}
                     }
 
+                    final String roleLabel = employeeRole.toString();
+
                     if (!isDesktop) {
-                      return PopupMenuButton<int>(
+                      return PopupMenuButton<String>(
+                        tooltip: 'Account',
                         offset: const Offset(0, 45),
+                        onSelected: _onProfileMenuSelected,
                         icon: CircleAvatar(
                           radius: 16,
                           backgroundColor: avatarColor,
@@ -2907,51 +3128,51 @@ void _dismissPopup() {
                               ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))
                               : null,
                         ),
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            enabled: false,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(employeeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textDark)),
-                                const SizedBox(height: 2),
-                                Text(employeeRole, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                              ],
-                            ),
-                          ),
-                        ],
+                        itemBuilder: (context) =>
+                            _profileMenuItems(employeeName.toString(), roleLabel),
                       );
                     }
 
-                    return Row(
-                      children: [
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              employeeName,
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
-                            ),
-                            Text(
-                              employeeRole,
-                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(width: 10),
-                        CircleAvatar(
-                          radius: 16,
-                          backgroundColor: avatarColor,
-                          backgroundImage: profileImage,
-                          child: profileImage == null
-                              ? Text(
-                                  initials,
-                                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
-                                )
-                              : null,
-                        ),
-                      ],
+                    return PopupMenuButton<String>(
+                      tooltip: 'Account',
+                      offset: const Offset(0, 48),
+                      onSelected: _onProfileMenuSelected,
+                      itemBuilder: (context) =>
+                          _profileMenuItems(employeeName.toString(), roleLabel),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                employeeName,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
+                              ),
+                              Text(
+                                employeeRole,
+                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 10),
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: avatarColor,
+                            backgroundImage: profileImage,
+                            child: profileImage == null
+                                ? Text(
+                                    initials,
+                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                                  )
+                                : null,
+                          ),
+                          const SizedBox(width: 2),
+                          const Icon(Icons.keyboard_arrow_down_rounded,
+                              size: 18, color: AppColors.textGrey),
+                        ],
+                      ),
                     );
                   },
                 ),

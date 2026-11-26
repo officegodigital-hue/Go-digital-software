@@ -9,6 +9,7 @@ import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/push_notification_service.dart';
 import 'package:godigital_portal/services/app_notification_center.dart';
 import 'package:godigital_portal/services/api_config.dart';
+import 'package:godigital_portal/core/keyboard/keyboard_shortcuts.dart';
 import '../core/widgets/notification_robot.dart';
 import '../screens/admin_dashboard/privacy_policy_screen.dart';
 
@@ -42,6 +43,8 @@ class _AdminLayoutState extends State<AdminLayout>
 
   final AudioPlayer _audioPlayer = AudioPlayer();
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  late final VoidCallback _focusSearchHandler;
   Set<int> _knownNotificationIds = {};
 
   // Animation controller for floating background bubbles in the sidebar
@@ -86,6 +89,17 @@ class _AdminLayoutState extends State<AdminLayout>
       vsync: this,
       duration: const Duration(seconds: 7),
     )..repeat(reverse: true);
+
+    // Ctrl/Cmd + K focuses this layout's search box.
+    _focusSearchHandler = () {
+      if (!mounted) return;
+      FocusScope.of(context).requestFocus(_searchFocusNode);
+      _searchController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _searchController.text.length,
+      );
+    };
+    AppShortcutsController.instance.registerSearchFocus(_focusSearchHandler);
   }
 
   @override
@@ -94,8 +108,10 @@ class _AdminLayoutState extends State<AdminLayout>
     _pollingTimer?.cancel();
     _popupTimer?.cancel();
     _robotActionTimer?.cancel();
+    AppShortcutsController.instance.unregisterSearchFocus(_focusSearchHandler);
     _audioPlayer.dispose();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     _bubbleController.dispose();
     _robotController.dispose();
     _robotActionController.dispose();
@@ -251,6 +267,91 @@ class _AdminLayoutState extends State<AdminLayout>
     } catch (e) {
       debugPrint("Audio Error: $e");
     }
+  }
+
+  Future<void> _handleLogout() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    AppNotificationCenter.instance.stop();
+    await PushNotificationService.instance.unregister();
+    await authService.logout();
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+  }
+
+  void _onProfileMenuSelected(String value) {
+    switch (value) {
+      case 'workspace':
+        Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+        break;
+      case 'profile':
+        Navigator.pushNamed(context, '/profile');
+        break;
+      case 'logout':
+        _handleLogout();
+        break;
+    }
+  }
+
+  /// Workspace / Profile / Logout menu shown when the profile avatar is tapped.
+  List<PopupMenuEntry<String>> _profileMenuItems(
+    String userName,
+    String userType,
+    String userRole,
+  ) {
+    return <PopupMenuEntry<String>>[
+      PopupMenuItem<String>(
+        enabled: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              userName,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              "$userType | $userRole",
+              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            ),
+          ],
+        ),
+      ),
+      const PopupMenuDivider(),
+      const PopupMenuItem<String>(
+        value: 'workspace',
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.home_rounded, size: 20, color: Color(0xFF0757D5)),
+          title: Text('Workspace', style: TextStyle(fontSize: 13)),
+        ),
+      ),
+      const PopupMenuItem<String>(
+        value: 'profile',
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading:
+              Icon(Icons.person_outline_rounded, size: 20, color: Color(0xFF475569)),
+          title: Text('Profile', style: TextStyle(fontSize: 13)),
+        ),
+      ),
+      const PopupMenuDivider(),
+      const PopupMenuItem<String>(
+        value: 'logout',
+        child: ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.logout_rounded, size: 20, color: Color(0xFFEF4444)),
+          title: Text('Logout',
+              style: TextStyle(fontSize: 13, color: Color(0xFFEF4444))),
+        ),
+      ),
+    ];
   }
 
   @override
@@ -517,7 +618,8 @@ class _AdminLayoutState extends State<AdminLayout>
                     // Sidebar Content — kept below the phone status bar
                     SafeArea(
                       right: false,
-                      child: Column(
+                      child: ArrowFocusGroup(
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Container(
@@ -616,6 +718,9 @@ class _AdminLayoutState extends State<AdminLayout>
                                 hoverColor: Colors.white.withValues(
                                   alpha: 0.12,
                                 ),
+                                focusColor: Colors.white.withValues(
+                                  alpha: 0.22,
+                                ),
                                 child: Container(
                                   padding: EdgeInsets.symmetric(
                                     horizontal: _isSidebarCollapsed ? 16 : 12,
@@ -675,6 +780,9 @@ class _AdminLayoutState extends State<AdminLayout>
                                 hoverColor: Colors.white.withValues(
                                   alpha: 0.12,
                                 ),
+                                focusColor: Colors.white.withValues(
+                                  alpha: 0.22,
+                                ),
                                 child: Container(
                                   padding: EdgeInsets.symmetric(
                                     horizontal: _isSidebarCollapsed ? 16 : 12,
@@ -706,6 +814,7 @@ class _AdminLayoutState extends State<AdminLayout>
                           ),
                           const SizedBox(height: 12),
                         ],
+                      ),
                       ),
                     ),
                   ],
@@ -820,13 +929,19 @@ class _AdminLayoutState extends State<AdminLayout>
                                             Expanded(
                                               child: TextField(
                                                 controller: _searchController,
+                                                focusNode: _searchFocusNode,
+                                                textInputAction:
+                                                    TextInputAction.search,
                                                 onChanged: (value) {
                                                   setState(() {});
                                                   widget.onSearch?.call(value);
                                                 },
+                                                onSubmitted: (value) {
+                                                  widget.onSearch?.call(value);
+                                                },
                                                 decoration: const InputDecoration(
                                                   hintText:
-                                                      'Search workspace...',
+                                                      'Search workspace...  (Ctrl+K)',
                                                   hintStyle: TextStyle(
                                                     fontSize: 12,
                                                     color: Color(0xFF94A3B8),
@@ -968,11 +1083,17 @@ class _AdminLayoutState extends State<AdminLayout>
                                     ],
                                   ),
 
+                                  const SizedBox(width: 4),
+                                  const KeyboardHelpButton(
+                                    color: Color(0xFF475569),
+                                    size: 20,
+                                  ),
                                   if (!isSmallMobile) ...[
                                     const SizedBox(width: 4),
                                     IconButton(
+                                      tooltip: 'Privacy Policy',
                                       icon: const Icon(
-                                        Icons.help_outline_rounded,
+                                        Icons.privacy_tip_outlined,
                                         size: 20,
                                         color: Color(0xFF475569),
                                       ),
@@ -1014,8 +1135,10 @@ class _AdminLayoutState extends State<AdminLayout>
                                   ],
 
                                   if (!isDesktop)
-                                    PopupMenuButton<int>(
+                                    PopupMenuButton<String>(
+                                      tooltip: 'Account',
                                       offset: const Offset(0, 45),
+                                      onSelected: _onProfileMenuSelected,
                                       icon: CircleAvatar(
                                         radius: 16,
                                         backgroundColor: avatarColor,
@@ -1028,24 +1151,38 @@ class _AdminLayoutState extends State<AdminLayout>
                                               )
                                             : null,
                                       ),
-                                      itemBuilder: (context) => [
-                                        PopupMenuItem(
-                                          enabled: false,
-                                          child: Column(
+                                      itemBuilder: (context) =>
+                                          _profileMenuItems(
+                                              userName, userType, userRole),
+                                    ),
+
+                                  if (isDesktop)
+                                    PopupMenuButton<String>(
+                                      tooltip: 'Account',
+                                      offset: const Offset(0, 48),
+                                      onSelected: _onProfileMenuSelected,
+                                      itemBuilder: (context) =>
+                                          _profileMenuItems(
+                                              userName, userType, userRole),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
                                             crossAxisAlignment:
-                                                CrossAxisAlignment.start,
+                                                CrossAxisAlignment.end,
                                             children: [
                                               Text(
                                                 userName,
                                                 style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
                                                   fontSize: 13,
+                                                  fontWeight: FontWeight.w700,
                                                   color: Color(0xFF0F172A),
                                                 ),
                                               ),
-                                              const SizedBox(height: 2),
                                               Text(
-                                                "$userType | $userRole",
+                                                userType,
                                                 style: const TextStyle(
                                                   fontSize: 11,
                                                   color: Color(0xFF64748B),
@@ -1053,51 +1190,32 @@ class _AdminLayoutState extends State<AdminLayout>
                                               ),
                                             ],
                                           ),
-                                        ),
-                                      ],
-                                    ),
-
-                                  if (isDesktop) ...[
-                                    Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          userName,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: Color(0xFF0F172A),
+                                          const SizedBox(width: 10),
+                                          CircleAvatar(
+                                            radius: 18,
+                                            backgroundColor: avatarColor,
+                                            backgroundImage: profileImage,
+                                            child: profileImage == null
+                                                ? Text(
+                                                    initials,
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  )
+                                                : null,
                                           ),
-                                        ),
-                                        Text(
-                                          userType,
-                                          style: const TextStyle(
-                                            fontSize: 11,
+                                          const SizedBox(width: 4),
+                                          const Icon(
+                                            Icons.keyboard_arrow_down_rounded,
+                                            size: 18,
                                             color: Color(0xFF64748B),
                                           ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
-                                    const SizedBox(width: 10),
-                                    CircleAvatar(
-                                      radius: 18,
-                                      backgroundColor: avatarColor,
-                                      backgroundImage: profileImage,
-                                      child: profileImage == null
-                                          ? Text(
-                                              initials,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            )
-                                          : null,
-                                    ),
-                                  ],
                                 ],
                               ),
                             ),
@@ -1148,6 +1266,7 @@ class _AdminLayoutState extends State<AdminLayout>
       child: Material(
         color: Colors.transparent,
         child: InkWell(
+          autofocus: isActive,
           onTap: () {
             if (!isActive) Navigator.pushNamed(context, route);
           },
@@ -1155,6 +1274,7 @@ class _AdminLayoutState extends State<AdminLayout>
           hoverColor: Colors.white.withOpacity(
             0.14,
           ), // ðŸ’¡ Bright Lighting effect on hover
+          focusColor: Colors.white.withOpacity(0.22),
           splashColor: Colors.white.withOpacity(0.2),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),

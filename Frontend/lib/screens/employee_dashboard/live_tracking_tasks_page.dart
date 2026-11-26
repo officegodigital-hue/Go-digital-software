@@ -1,5 +1,4 @@
 import 'package:godigital_portal/services/socket_auth.dart';
-import 'package:godigital_portal/services/auth_storage.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -76,7 +75,14 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
 
   List<Map<String, dynamic>> liveTasksData = [];
 
+  // Background meeting tracking sessions for this employee — a SEPARATE activity
+  // from tasks (its own table on the backend), shown in its own panel. Starting,
+  // pausing or completing a task never affects these, and vice-versa.
+  List<Map<String, dynamic>> _meetingSessions = [];
+
   late IO.Socket socket;
+  int _meetingRequest = 0;
+  final _meetingElapsed = Stopwatch();
 
   DateTime selectedDate = DateTime.now();
 
@@ -136,6 +142,7 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
       });
 
       _fetchLiveTasks();
+      _fetchMeetingSessions();
       _initSocketListener();
       _durationTicker = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted) return;
@@ -154,7 +161,10 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
           task['duration'] = _formatTaskDuration(seconds);
           hasRunningTask = true;
         }
-        if (hasRunningTask) {
+        final hasRunningMeeting = _meetingSessions.any(
+          (session) => session['status'] == 'ACTIVE',
+        );
+        if (hasRunningTask || hasRunningMeeting) {
           setState(_updateTotalWorkingTime);
         }
       });
@@ -164,6 +174,7 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
         (_) {
           if (mounted && loggedInEmployeeName.isNotEmpty) {
             _fetchLiveTasks(showLoader: false);
+            _fetchMeetingSessions();
           }
         },
       );
@@ -184,8 +195,6 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
           .build(),
     );
 
-    socket.connect();
-
     socket.off('task_updated');
 
     socket.on('task_updated', (data) {
@@ -193,6 +202,48 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
 
       _fetchLiveTasks(showLoader: false);
     });
+
+    socket.onConnect((_) => _fetchMeetingSessions());
+    socket.on('meeting_tracking_updated', (data) {
+      if (!mounted) return;
+      _fetchMeetingSessions();
+    });
+    socket.connect();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // FETCH MEETING SESSIONS (separate background activity)
+  // ─────────────────────────────────────────────────────────────
+
+  Future<void> _fetchMeetingSessions() async {
+    if (!mounted || loggedInEmployeeName.isEmpty) return;
+    final request = ++_meetingRequest;
+    try {
+      final formattedDate =
+          "${selectedDate.year}-"
+          "${selectedDate.month.toString().padLeft(2, '0')}-"
+          "${selectedDate.day.toString().padLeft(2, '0')}";
+
+      final response = await http.get(
+        Uri.parse(
+          '$_baseUrl/chat/meetings/live/${Uri.encodeComponent(loggedInEmployeeName)}',
+        ).replace(queryParameters: {'date': formattedDate}),
+      );
+      if (!mounted || request != _meetingRequest || response.statusCode != 200) return;
+      final body = jsonDecode(response.body);
+      final rows = List<dynamic>.from(body['data'] ?? []);
+      setState(() {
+        _meetingElapsed
+          ..reset()
+          ..start();
+        _meetingSessions = rows
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      });
+    } catch (_) {
+      // Non-fatal: the meeting panel just stays as-is.
+    }
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -230,9 +281,11 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
     if (picked != null && picked != selectedDate) {
       setState(() {
         selectedDate = picked;
+        _meetingSessions = [];
       });
 
       _fetchLiveTasks();
+      _fetchMeetingSessions();
     }
   }
 
@@ -467,6 +520,12 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
                       height: isMobile ? 16 : 22,
                     ),
 
+                    // Background meetings — a separate activity, above the tasks.
+                    if (_meetingSessions.isNotEmpty) ...[
+                      _buildMeetingPanel(isMobile),
+                      SizedBox(height: isMobile ? 16 : 22),
+                    ],
+
                     _buildTaskWorkspace(
                       tasks,
                       isMobile,
@@ -479,6 +538,205 @@ class _LiveTrackingTasksPageState extends State<LiveTrackingTasksPage> {
           ),
         );
       },
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // MEETING PANEL (separate background activity)
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _buildMeetingPanel(bool isMobile) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(isMobile ? 14 : 18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [_primary, _primaryDark],
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.video_camera_front_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Meetings',
+                  style: TextStyle(
+                    color: _ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: _primarySoft,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Runs in background',
+                  style: const TextStyle(
+                    color: _primary,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ..._meetingSessions.map((s) => _buildMeetingSessionRow(s, isMobile)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMeetingSessionRow(Map<String, dynamic> s, bool isMobile) {
+    final status = (s['status'] ?? 'SCHEDULED').toString().toUpperCase();
+    final title = (s['title'] ?? 'Meeting').toString();
+    final host = (s['host'] ?? '').toString();
+    var secs = _durationSeconds(s['durationSecs']);
+    if (status == 'ACTIVE') {
+      final elapsed = _meetingElapsed.elapsed.inSeconds;
+      final remaining = s['remainingSecs'];
+      secs += remaining is int && remaining < elapsed ? remaining : elapsed;
+    }
+
+    Color chipColor;
+    Color chipBg;
+    String label;
+    if (status == 'ACTIVE') {
+      chipColor = _success;
+      chipBg = _successSoft;
+      label = 'LIVE';
+    } else if (status == 'COMPLETED') {
+      chipColor = _muted;
+      chipBg = _surface;
+      label = 'ENDED';
+    } else if (status == 'CANCELLED' || status == 'REJECTED') {
+      chipColor = _danger;
+      chipBg = _dangerSoft;
+      label = 'CANCELLED';
+    } else {
+      chipColor = _warning;
+      chipBg = _warningSoft;
+      label = 'SCHEDULED';
+    }
+
+    final schedule = (s['scheduledStart'] ?? '').toString();
+    final startedAt = s['startedAt']?.toString();
+    final endedAt = s['endedAt']?.toString();
+    final range = startedAt == null
+        ? schedule
+        : endedAt == null ? startedAt : '$startedAt – $endedAt';
+    final timing = range.isEmpty ? '' : '$range IST';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: chipColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _ink,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [if (host.isNotEmpty) 'Host: $host', if (timing.isNotEmpty) timing].join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _muted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            _formatTaskDuration(secs),
+            style: TextStyle(
+              color: status == 'ACTIVE' ? _success : _text,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 4,
+            ),
+            decoration: BoxDecoration(
+              color: chipBg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: chipColor,
+                fontSize: 8.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

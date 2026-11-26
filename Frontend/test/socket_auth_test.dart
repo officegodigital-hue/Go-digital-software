@@ -86,7 +86,7 @@ http.listen(0, '127.0.0.1', () => console.log(http.address().port));
   );
 
   test(
-    'All 19 affected live-update connections use the authentication callback',
+    'Screen live-update connections use the authentication callback',
     () {
       var connections = 0;
       for (final file in Directory(
@@ -108,7 +108,7 @@ http.listen(0, '127.0.0.1', () => console.log(http.address().port));
           connections++;
         }
       }
-      expect(connections, 19);
+      expect(connections, 18);
     },
   );
 }

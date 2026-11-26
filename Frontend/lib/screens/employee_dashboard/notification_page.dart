@@ -1,3 +1,4 @@
+import 'package:godigital_portal/services/socket_auth.dart';
 // notification_page.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -403,16 +404,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (_loggedInEmployee == null) return;
 
     try {
-      _socket = IO.io(_socketUrl, {
-        'transports': ['websocket'],
-        'autoConnect': false,
-        'reconnection': true,
-      });
-
-      _socket!.connect();
+      _socket = IO.io(
+        _socketUrl,
+        IO.OptionBuilder()
+            .setAuthFn(authenticateSocket)
+            .setTransports(['websocket'])
+            .enableForceNew()
+            .disableAutoConnect()
+            .build(),
+      );
 
       _socket!.onConnect((_) {
-        debugPrint('✅ Chat socket connected');
+        _refreshScheduledMeetings();
+      });
+
+      _socket!.on('meeting_tracking_updated', (payload) {
+        if (payload is Map && payload['action'] == 'group_updated') {
+          _fetchHubData();
+        } else {
+          _refreshScheduledMeetings();
+        }
       });
 
       _socket!.on('receive_message', (payload) {
@@ -480,6 +491,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
       _socket!.onDisconnect((_) => debugPrint('🔌 Chat socket disconnected'));
       _socket!.onError((e) => debugPrint('Socket error: $e'));
+      _socket!.connect();
     } catch (e) {
       debugPrint('Socket init error: $e');
     }
@@ -704,7 +716,27 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }).length;
   }
 
+  int _meetingRefresh = 0;
+
+  Future<void> _refreshScheduledMeetings() async {
+    if (!mounted || _loggedInEmployee == null) return;
+    final refresh = ++_meetingRefresh;
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/chat/meetings/scheduled'),
+      );
+      if (!mounted || refresh != _meetingRefresh || response.statusCode != 200) {
+        return;
+      }
+      final body = jsonDecode(response.body);
+      setState(() => scheduledMeetings = List<dynamic>.from(body['data']));
+    } catch (error) {
+      debugPrint('Could not refresh meetings: $error');
+    }
+  }
+
   Future<void> _fetchHubData() async {
+    final meetingRefresh = _meetingRefresh;
     if (_loggedInEmployee == null) return;
     if (mounted) setState(() => _loading = true);
 
@@ -773,7 +805,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         notificationLogs = loadedLogs;
         activeEmployees = parsedEmployees;
         chatGroups = loadedGroups;
-        scheduledMeetings = List<dynamic>.from(body["meetings"] ?? []);
+        if (meetingRefresh == _meetingRefresh) {
+          scheduledMeetings = List<dynamic>.from(body["meetings"] ?? []);
+        }
         pinnedChats = serverPins.toList();
         _unreadTotal = _calculateUnreadTotal();
 
@@ -975,9 +1009,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   void _openMeetingSchedulerDialog() {
     final TextEditingController topicController = TextEditingController();
     final TextEditingController linkController = TextEditingController();
+    final TextEditingController detailsController = TextEditingController();
+    final TextEditingController durationController = TextEditingController(text: '30');
 
-    DateTime selectedDate = DateTime.now();
-    TimeOfDay selectedTime = TimeOfDay.now();
+    DateTime selectedDate = _meetingNow();
+    TimeOfDay selectedTime = TimeOfDay.fromDateTime(selectedDate);
+    TimeOfDay? endTime;
 
     Map<String, bool> selectedAttendees = {
       for (var e in activeEmployees) e["full_name"].toString(): false,
@@ -1183,7 +1220,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                     final picked = await showDatePicker(
                                       context: context,
                                       initialDate: selectedDate,
-                                      firstDate: DateTime.now(),
+                                      firstDate: _meetingNow(),
                                       lastDate: DateTime(2100),
                                       builder: (context, child) {
                                         return Theme(
@@ -1238,6 +1275,116 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 ),
                               ),
                             ],
+                          ),
+
+                          const SizedBox(height: 12),
+
+                          // End time OR duration — set either one.
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _premiumPickerButton(
+                                  icon: Icons.timer_off_rounded,
+                                  title: "End time (IST)",
+                                  value: endTime == null
+                                      ? "Not set"
+                                      : '${endTime!.format(context)}'
+                                        '${_meetingEnd(selectedDate, selectedTime, endTime!).day != selectedDate.day ? ' (+1 day)' : ''}',
+                                  onTap: () async {
+                                    final picked = await showTimePicker(
+                                      context: context,
+                                      initialTime: endTime ??
+                                          TimeOfDay(
+                                            hour: (selectedTime.hour + 1) % 24,
+                                            minute: selectedTime.minute,
+                                          ),
+                                    );
+                                    if (picked != null) {
+                                      setDialogState(() {
+                                        endTime = picked;
+                                        durationController.clear();
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextField(
+                                  controller: durationController,
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (_) {
+                                    if (endTime != null) {
+                                      setDialogState(() => endTime = null);
+                                    }
+                                  },
+                                  decoration: InputDecoration(
+                                    labelText: "Duration (mins)",
+                                    prefixIcon: const Icon(
+                                      Icons.hourglass_bottom_rounded,
+                                      color: Color(0xFF0052CC),
+                                      size: 20,
+                                    ),
+                                    filled: true,
+                                    fillColor: const Color(0xFFF8FAFF),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: const BorderSide(
+                                        color: Color(0xFFD8E2F0),
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: const BorderSide(
+                                        color: Color(0xFFD8E2F0),
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: const BorderSide(
+                                        color: Color(0xFF0052CC),
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          TextField(
+                            controller: detailsController,
+                            minLines: 2,
+                            maxLines: 4,
+                            decoration: InputDecoration(
+                              labelText: "Meeting Details / Agenda (optional)",
+                              alignLabelWithHint: true,
+                              prefixIcon: const Icon(
+                                Icons.notes_rounded,
+                                color: Color(0xFF0052CC),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFF),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide:
+                                    const BorderSide(color: Color(0xFFD8E2F0)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide:
+                                    const BorderSide(color: Color(0xFFD8E2F0)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF0052CC),
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
                           ),
 
                           const SizedBox(height: 24),
@@ -1325,8 +1472,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         bottom: Radius.circular(24),
                       ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
                         TextButton(
                           onPressed: () => Navigator.pop(ctx),
@@ -1338,7 +1487,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
                         ElevatedButton.icon(
                           icon: const Icon(Icons.send_rounded, size: 17),
                           style: ElevatedButton.styleFrom(
@@ -1381,6 +1529,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
                             final formattedDateTime =
                                 "${DateFormat('yyyy-MM-dd').format(selectedDate)} ${selectedTime.format(context)}";
+                            final startAtStr = _fmtMeetingWall(
+                              _combineMeetingDateTime(selectedDate, selectedTime),
+                            );
+                            String? endAtStr;
+                            if (endTime != null) {
+                              endAtStr = _fmtMeetingWall(
+                                _meetingEnd(selectedDate, selectedTime, endTime!),
+                              );
+                            }
 
                             try {
                               await http.post(
@@ -1389,6 +1546,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 body: jsonEncode({
                                   'title': topicController.text.trim(),
                                   'meetingTime': formattedDateTime,
+                                  'startAt': startAtStr,
+                                  if (endAtStr != null) 'endAt': endAtStr,
+                                  if (endAtStr == null) 'durationMins': durationController.text.trim(),
+                                  'details': detailsController.text.trim(),
                                   'meetingLink': linkController.text.trim(),
                                   'hostName': _loggedInEmployee,
                                   'selectedPersons': chosenPersons,
@@ -1770,6 +1931,45 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
+  // ── Meeting schedule helpers ───────────────────────────────────────────
+  // Parse an IST wall-clock "YYYY-MM-DD HH:mm:ss" (or ISO) into a local
+  // DateTime (timezone ignored — backend stores and expects IST wall clock).
+  DateTime _meetingNow() => DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+
+  DateTime? _parseMeetingDate(dynamic value) {
+    if (value == null) return null;
+    final raw = value.toString().trim();
+    if (raw.isEmpty) return null;
+    final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})')
+        .firstMatch(raw);
+    if (m != null) {
+      return DateTime.utc(
+        int.parse(m.group(1)!), int.parse(m.group(2)!), int.parse(m.group(3)!),
+        int.parse(m.group(4)!), int.parse(m.group(5)!),
+      );
+    }
+    return DateTime.tryParse(raw);
+  }
+
+  // Format a DateTime as the IST wall-clock "yyyy-MM-dd HH:mm" the backend wants.
+  String _fmtMeetingWall(DateTime d) =>
+      "${d.year.toString().padLeft(4, '0')}-"
+      "${d.month.toString().padLeft(2, '0')}-"
+      "${d.day.toString().padLeft(2, '0')} "
+      "${d.hour.toString().padLeft(2, '0')}:"
+      "${d.minute.toString().padLeft(2, '0')}";
+
+  DateTime _combineMeetingDateTime(DateTime date, TimeOfDay t) =>
+      DateTime.utc(date.year, date.month, date.day, t.hour, t.minute);
+
+  DateTime _meetingEnd(DateTime date, TimeOfDay start, TimeOfDay end) {
+    final endDate = _combineMeetingDateTime(date, end);
+    if (endDate.isBefore(_combineMeetingDateTime(date, start))) {
+      return endDate.add(const Duration(days: 1));
+    }
+    return endDate;
+  }
+
   void _openEditMeetingDialog(Map<String, dynamic> meeting) {
     final TextEditingController topicController = TextEditingController(
       text: meeting["title"]?.toString() ?? "",
@@ -1779,10 +1979,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       text: meeting["meeting_link"]?.toString() ?? "",
     );
 
+    final TextEditingController detailsController = TextEditingController(
+      text: meeting["meeting_details"]?.toString() ?? "",
+    );
+
+    var startChanged = false;
+    var endChanged = false;
+    final isActive = meeting['status'] == 'Active';
+  final DateTime? startDt = _parseMeetingDate(meeting["start_at"]);
+    final DateTime? endDt = _parseMeetingDate(meeting["end_at"]);
+    DateTime selectedDate = startDt ?? _meetingNow();
+    TimeOfDay selectedTime = TimeOfDay.fromDateTime(startDt ?? _meetingNow());
+    TimeOfDay? endTime = endDt != null && endDt.year == selectedDate.year &&
+        endDt.month == selectedDate.month && endDt.day == selectedDate.day ? TimeOfDay.fromDateTime(endDt) : null;
+    final TextEditingController durationController = TextEditingController(
+      text: (endTime == null && meeting["duration_mins"] != null)
+          ? meeting["duration_mins"].toString()
+          : "",
+    );
+
     List<dynamic> currentAttendees = [];
 
     try {
       currentAttendees = jsonDecode(meeting["attendees"] ?? '[]');
+    } catch (_) {}
+
+    List<dynamic> currentGroups = [];
+    try {
+      currentGroups = jsonDecode(meeting["groups"] ?? '[]');
     } catch (_) {}
 
     Map<String, bool> selectedAttendees = {
@@ -1791,6 +2015,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           e["full_name"].toString(),
         ),
     };
+
+    Map<String, bool> selectedGroupsForMeeting = {
+      for (var g in chatGroups)
+        g["group_name"].toString(): currentGroups.contains(
+          g["group_name"].toString(),
+        ),
+    };
+
+    final availableGroups = {
+      for (final group in chatGroups) group["group_name"].toString(),
+      ...currentGroups.whereType<String>(),
+    };
+    final availableEmployees = {
+      for (final employee in activeEmployees) employee["full_name"].toString(): employee,
+    };
+    for (final name in currentAttendees.whereType<String>()) {
+      availableEmployees.putIfAbsent(name, () => {"full_name": name});
+      selectedAttendees[name] = true;
+    }
+    for (final name in currentGroups.whereType<String>()) {
+      selectedGroupsForMeeting[name] = true;
+    }
 
     showDialog(
       context: context,
@@ -1952,6 +2198,179 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             ),
                           ),
 
+                          const SizedBox(height: 14),
+
+                          TextField(
+                            controller: detailsController,
+                            minLines: 2,
+                            maxLines: 4,
+                            decoration: InputDecoration(
+                              labelText: "Meeting Details / Agenda",
+                              alignLabelWithHint: true,
+                              prefixIcon: const Icon(
+                                Icons.notes_rounded,
+                                color: Color(0xFF0052CC),
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFF),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD8E2F0),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF0052CC),
+                                  width: 1.5,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 18),
+
+                          const Text(
+                            "Date & Time",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _premiumPickerButton(
+                                  icon: Icons.calendar_today_rounded,
+                                  title: "Date",
+                                  value: DateFormat('dd MMM yyyy')
+                                      .format(selectedDate),
+                                  onTap: isActive ? null : () async {
+                                    final picked = await showDatePicker(
+                                      context: context,
+                                      initialDate: selectedDate,
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime(2100),
+                                    );
+                                    if (picked != null) {
+                                      setDialogState(() {
+                                      selectedDate = picked;
+                                      startChanged = true;
+                                    });
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _premiumPickerButton(
+                                  icon: Icons.access_time_rounded,
+                                  title: "Start time (IST)",
+                                  value: selectedTime.format(context),
+                                  onTap: isActive ? null : () async {
+                                    final picked = await showTimePicker(
+                                      context: context,
+                                      initialTime: selectedTime,
+                                    );
+                                    if (picked != null) {
+                                      setDialogState(() {
+                                      selectedTime = picked;
+                                      startChanged = true;
+                                    });
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // End time OR duration — set either one.
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _premiumPickerButton(
+                                  icon: Icons.timer_off_rounded,
+                                  title: "End time (IST)",
+                                  value: endTime == null
+                                      ? "Not set"
+                                      : '${endTime!.format(context)}'
+                                        '${_meetingEnd(selectedDate, selectedTime, endTime!).day != selectedDate.day ? ' (+1 day)' : ''}',
+                                  onTap: () async {
+                                    final picked = await showTimePicker(
+                                      context: context,
+                                      initialTime: endTime ??
+                                          TimeOfDay(
+                                            hour: (selectedTime.hour + 1) % 24,
+                                            minute: selectedTime.minute,
+                                          ),
+                                    );
+                                    if (picked != null) {
+                                      setDialogState(() {
+                                        endTime = picked;
+                                      endChanged = true;
+                                        durationController.clear();
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextField(
+                                  controller: durationController,
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (_) {
+                                  endChanged = true;
+                                    if (endTime != null) {
+                                      setDialogState(() => endTime = null);
+                                    }
+                                  },
+                                  decoration: InputDecoration(
+                                    labelText: "Duration (mins)",
+                                    prefixIcon: const Icon(
+                                      Icons.hourglass_bottom_rounded,
+                                      color: Color(0xFF0052CC),
+                                      size: 20,
+                                    ),
+                                    filled: true,
+                                    fillColor: const Color(0xFFF8FAFF),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: const BorderSide(
+                                        color: Color(0xFFD8E2F0),
+                                      ),
+                                    ),
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: const BorderSide(
+                                        color: Color(0xFFD8E2F0),
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      borderSide: const BorderSide(
+                                        color: Color(0xFF0052CC),
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
                           const SizedBox(height: 24),
 
                           const Text(
@@ -1964,7 +2383,28 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                           const SizedBox(height: 12),
 
-                          ...activeEmployees.map((emp) {
+                          if (availableGroups.isNotEmpty) ...[
+                            _sectionLabel("CHAT GROUPS"),
+                            ...availableGroups.map((name) {
+                              return _premiumCheckTile(
+                                icon: Icons.groups_rounded,
+                                title: name,
+                                subtitle: "Everyone in this group",
+                                value: selectedGroupsForMeeting[name] ?? false,
+                                onChanged: (value) {
+                                  setDialogState(() {
+                                    selectedGroupsForMeeting[name] =
+                                        value ?? false;
+                                  });
+                                },
+                              );
+                            }),
+                            const SizedBox(height: 14),
+                          ],
+
+                          _sectionLabel("EMPLOYEES"),
+
+                          ...availableEmployees.values.map((emp) {
                             final name = emp["full_name"]?.toString() ?? "";
                             final role = emp["role"]?.toString() ?? "Employee";
                             final initials = emp["initials"]?.toString() ?? "?";
@@ -1995,8 +2435,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         bottom: Radius.circular(24),
                       ),
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
                         TextButton(
                           onPressed: () => Navigator.pop(ctx),
@@ -2008,7 +2450,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
                         ElevatedButton.icon(
                           icon: const Icon(Icons.save_rounded, size: 17),
                           style: ElevatedButton.styleFrom(
@@ -2028,9 +2469,24 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 .where((e) => e.value)
                                 .map((e) => e.key)
                                 .toList();
+                            final chosenGroups = selectedGroupsForMeeting.entries
+                                .where((e) => e.value)
+                                .map((e) => e.key)
+                                .toList();
+
+                            final startDateTime = _combineMeetingDateTime(
+                              selectedDate,
+                              selectedTime,
+                            );
+                            String? endAtStr;
+                            if (endTime != null) {
+                              endAtStr = _fmtMeetingWall(
+                                _meetingEnd(selectedDate, selectedTime, endTime!),
+                              );
+                            }
 
                             try {
-                              await http.patch(
+                              final resp = await http.patch(
                                 Uri.parse(
                                   '$_baseUrl/chat/meetings/${meeting["id"]}',
                                 ),
@@ -2038,11 +2494,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 body: jsonEncode({
                                   'title': topicController.text.trim(),
                                   'meetingLink': linkController.text.trim(),
+                                  'details': detailsController.text.trim(),
+                                  if (!isActive && (startChanged || startDt == null))
+                                  'startAt': _fmtMeetingWall(startDateTime),
+                                  if (endChanged || (startChanged && endTime != null)) 'endAt': endAtStr,
+                                  if (endChanged && endAtStr == null)
+                                  'durationMins': durationController.text.trim(),
                                   'attendees': chosenPersons,
+                                  'groups': chosenGroups,
+                                  'requesterName': _loggedInEmployee,
                                 }),
                               );
 
                               if (!mounted) return;
+
+                              final ok = resp.statusCode >= 200 &&
+                                  resp.statusCode < 300;
+                              if (!ok) {
+                                String msg = "Failed to update meeting";
+                                try {
+                                  msg = (jsonDecode(resp.body)['message'] ?? msg)
+                                      .toString();
+                                } catch (_) {}
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(msg)),
+                                );
+                                return;
+                              }
 
                               Navigator.pop(ctx);
                               await _fetchHubData();
@@ -2340,7 +2818,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     required IconData icon,
     required String title,
     required String value,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
     return InkWell(
       onTap: onTap,
@@ -2415,31 +2893,34 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           color: value ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0),
         ),
       ),
-      child: CheckboxListTile(
-        value: value,
-        onChanged: onChanged,
-        activeColor: const Color(0xFF0052CC),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-        secondary: Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: const Color(0xFFEAF2FF),
-            borderRadius: BorderRadius.circular(11),
+      child: Material(
+        type: MaterialType.transparency,
+        child: CheckboxListTile(
+          value: value,
+          onChanged: onChanged,
+          activeColor: const Color(0xFF0052CC),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          secondary: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Icon(icon, color: const Color(0xFF0052CC), size: 20),
           ),
-          child: Icon(icon, color: const Color(0xFF0052CC), size: 20),
-        ),
-        title: Text(
-          title,
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
+          title: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
           ),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+          subtitle: Text(
+            subtitle,
+            style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+          ),
         ),
       ),
     );
@@ -2461,39 +2942,42 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           color: value ? const Color(0xFF0052CC) : const Color(0xFFE2E8F0),
         ),
       ),
-      child: CheckboxListTile(
-        value: value,
-        onChanged: onChanged,
-        activeColor: const Color(0xFF0052CC),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-        secondary: Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0xFF0052CC),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            initials,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
+      child: Material(
+        type: MaterialType.transparency,
+        child: CheckboxListTile(
+          value: value,
+          onChanged: onChanged,
+          activeColor: const Color(0xFF0052CC),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          secondary: Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0052CC),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              initials,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
-        ),
-        title: Text(
-          name,
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
+          title: Text(
+            name,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
           ),
-        ),
-        subtitle: Text(
-          role,
-          style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+          subtitle: Text(
+            role,
+            style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B)),
+          ),
         ),
       ),
     );
@@ -2882,16 +3366,57 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _updateMeetingStatus(int meetingId, String status) async {
-    final res = await http.patch(
-      Uri.parse('$_baseUrl/chat/meetings/$meetingId/status'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'status': status, 'actionBy': _loggedInEmployee}),
-    );
-    if (res.statusCode == 200) {
-      _fetchHubData();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Meeting marked as $status successfully!")),
+    try {
+      final response = await http.patch(
+        Uri.parse('$_baseUrl/chat/meetings/$meetingId/status'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'status': status}),
       );
+      if (!mounted) return;
+      await _refreshScheduledMeetings();
+      if (!mounted) return;
+      final body = jsonDecode(response.body);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(body['message']?.toString() ?? 'Could not update the meeting.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update the meeting.')),
+      );
+    }
+  }
+
+  // Host formally starts the meeting: flips it Active and activates every
+  // participant's background tracking session.
+  Future<void> _startMeeting(dynamic meetingId) async {
+    try {
+      final res = await http.post(
+        Uri.parse('$_baseUrl/chat/meetings/$meetingId/start'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'actionBy': _loggedInEmployee}),
+      );
+      if (!mounted) return;
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        await _fetchHubData();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Meeting started.")),
+        );
+      } else {
+        String msg = "Could not start the meeting";
+        try {
+          msg = (jsonDecode(res.body)['message'] ?? msg).toString();
+        } catch (_) {}
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Could not start the meeting: $e")),
+        );
+      }
     }
   }
 
@@ -3720,12 +4245,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       color: selected ? _primary : _muted,
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      tabs[index].$2,
-                      style: TextStyle(
-                        color: selected ? _primary : _muted,
-                        fontSize: compact ? 11 : 12,
-                        fontWeight: FontWeight.w800,
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                            tabs[index].$2,
+                            style: TextStyle(
+                              color: selected ? _primary : _muted,
+                              fontSize: compact ? 11 : 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                        ),
                       ),
                     ),
                     if (unread > 0) ...[
@@ -4193,13 +4723,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _buildMeetingCard(Map<String, dynamic> m, {bool mobile = false}) {
-    final status = m['status']?.toString() ?? 'Active';
+    final status = m['status']?.toString() ?? 'Scheduled';
     final isActive = status == 'Active';
+    final isScheduled = status == 'Scheduled';
     final hostName = m['host_name']?.toString() ?? 'Admin';
-    final isMeetingAdmin = hostName == _loggedInEmployee;
+    final isMeetingAdmin = m['can_manage'] == true;
     final title = m['title']?.toString() ?? 'Untitled Meeting';
     final link = m['meeting_link']?.toString() ?? '';
-    final meetingTime = m['meeting_time']?.toString() ?? '-';
+    final start = _parseMeetingDate(m['start_at']);
+    final end = _parseMeetingDate(m['end_at']);
+    final dateFormat = DateFormat('dd MMM yyyy, h:mm a');
+    final meetingTime = start == null
+        ? (m['meeting_time']?.toString() ?? '-')
+        : '${dateFormat.format(start)}${end == null ? '' : ' – ${DateUtils.isSameDay(start, end) ? DateFormat('h:mm a').format(end) : dateFormat.format(end)}'} IST';
+    final details = m['meeting_details']?.toString().trim() ?? '';
 
     Color statusColor;
     Color statusBg;
@@ -4315,6 +4852,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               child: Column(
                 children: [
                   _buildMeetingMeta(Icons.schedule_rounded, meetingTime),
+                  if (details.isNotEmpty) ...[
+                    const SizedBox(height: 7),
+                    Tooltip(
+                      message: details,
+                      child: _buildMeetingMeta(Icons.notes_rounded, details),
+                    ),
+                  ],
                   if (link.isNotEmpty) ...[
                     const SizedBox(height: 7),
                     InkWell(
@@ -4355,12 +4899,33 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ],
               ),
             ),
-            if (isMeetingAdmin && isActive) ...[
+            if (isMeetingAdmin && (isScheduled || isActive)) ...[
               const SizedBox(height: 10),
               Wrap(
                 spacing: 7,
                 runSpacing: 7,
                 children: [
+                  // Scheduled → Start. Once started it is replaced by the status
+                  // chip (top-right) and the Complete button below.
+                  if (isScheduled)
+                    ElevatedButton.icon(
+                      onPressed: () => _startMeeting(m['id']),
+                      icon: const Icon(Icons.play_arrow_rounded, size: 15),
+                      label: const Text('Start',
+                          style: TextStyle(fontSize: 10.5)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0052CC),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 9,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
                   OutlinedButton.icon(
                     onPressed: () => _openEditMeetingDialog(m),
                     icon: const Icon(Icons.edit_outlined, size: 14),
@@ -4377,46 +4942,52 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       ),
                     ),
                   ),
-                  ElevatedButton.icon(
-                    onPressed: () => _updateMeetingStatus(m['id'], 'Completed'),
-                    icon: const Icon(Icons.check_rounded, size: 14),
-                    label: const Text(
-                      'Complete',
-                      style: TextStyle(fontSize: 10.5),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF16A34A),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 9,
+                  if (isActive)
+                    ElevatedButton.icon(
+                      onPressed: () =>
+                          _updateMeetingStatus(m['id'], 'Completed'),
+                      icon: const Icon(Icons.check_rounded, size: 14),
+                      label: const Text(
+                        'Complete',
+                        style: TextStyle(fontSize: 10.5),
                       ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () => _updateMeetingStatus(m['id'], 'Rejected'),
-                    icon: const Icon(Icons.close_rounded, size: 14),
-                    label: const Text(
-                      'Reject',
-                      style: TextStyle(fontSize: 10.5),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFDC2626),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 9,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF16A34A),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 9,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
-                  ),
+                  // Reject applies while the meeting is running (existing
+                  // workflow) — it cancels the meeting and its tracking.
+                  if (isActive)
+                    ElevatedButton.icon(
+                      onPressed: () =>
+                          _updateMeetingStatus(m['id'], 'Rejected'),
+                      icon: const Icon(Icons.close_rounded, size: 14),
+                      label: const Text(
+                        'Reject',
+                        style: TextStyle(fontSize: 10.5),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFDC2626),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 9,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -4434,7 +5005,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         Expanded(
           child: Text(
             text,
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: _ink,
@@ -5528,17 +6099,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final searchQuery = _searchController.text.trim().toLowerCase();
 
     final filteredMeetings = scheduledMeetings.where((m) {
-      List<dynamic> attendees = [];
-      try {
-        attendees = jsonDecode(m['attendees'] ?? '[]');
-      } catch (_) {}
-
-      final isParticipant =
-          m['host_name'] == _loggedInEmployee ||
-          attendees.contains(_loggedInEmployee);
-
-      if (!isParticipant) return false;
-
       final status = m['status']?.toString() ?? 'Active';
       if (_meetingFilter == 'Active' || _meetingFilter == 'Present') {
         return status == 'Active';

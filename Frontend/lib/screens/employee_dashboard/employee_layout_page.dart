@@ -245,6 +245,7 @@ class _EmployeeLayoutPageState extends State<EmployeeLayoutPage> {
         return getDashboardByRole(loggedInRole);
       case 'Day Planner':
         return DayPlannerScreen(
+          searchQuery: searchQuery,
           onOpenWorkspace: _openWorkspaceItem,
           onOpenTech: _openTechItem,
         );

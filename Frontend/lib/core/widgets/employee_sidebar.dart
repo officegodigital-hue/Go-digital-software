@@ -1,6 +1,7 @@
 // lib/core/widgets/employee_sidebar.dart
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import '../keyboard/keyboard_shortcuts.dart';
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 
@@ -135,7 +136,8 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                   ),
                 ),
                 // Sidebar Content
-                Column(
+                ArrowFocusGroup(
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Container(
@@ -201,6 +203,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                               icon: _iconForMenu(menu),
                               title: menu,
                               isActive: widget.selectedMenu == menu,
+                              autofocus: widget.selectedMenu == menu,
                               isCollapsed: _isSidebarCollapsed && !widget.isMobileDrawer,
                               onTap: () {
                                 widget.onMenuTap(menu);
@@ -229,6 +232,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                           },
                           borderRadius: BorderRadius.circular(10),
                           hoverColor: Colors.white.withOpacity(0.14),
+                          focusColor: Colors.white.withOpacity(0.22),
                           splashColor: Colors.white.withOpacity(0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
@@ -267,6 +271,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                           },
                           borderRadius: BorderRadius.circular(10),
                           hoverColor: Colors.white.withOpacity(0.14),
+                          focusColor: Colors.white.withOpacity(0.22),
                           splashColor: Colors.white.withOpacity(0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
@@ -305,6 +310,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                           },
                           borderRadius: BorderRadius.circular(10),
                           hoverColor: Colors.white.withOpacity(0.14),
+                          focusColor: Colors.white.withOpacity(0.22),
                           splashColor: Colors.white.withOpacity(0.2),
                           child: Container(
                             padding: EdgeInsets.symmetric(horizontal: (_isSidebarCollapsed && !widget.isMobileDrawer) ? 16 : 12, vertical: 11),
@@ -331,6 +337,7 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
                     const SizedBox(height: 12),
                   ],
                 ),
+                ),
               ],
             ),
           );
@@ -349,11 +356,12 @@ class _EmployeeSidebarState extends State<EmployeeSidebar> with TickerProviderSt
   }
 }
 
-class _SidebarItem extends StatelessWidget {
+class _SidebarItem extends StatefulWidget {
   final IconData icon;
   final String title;
   final bool isActive;
   final bool isCollapsed;
+  final bool autofocus;
   final VoidCallback onTap;
 
   const _SidebarItem({
@@ -362,18 +370,48 @@ class _SidebarItem extends StatelessWidget {
     required this.isActive,
     required this.isCollapsed,
     required this.onTap,
+    this.autofocus = false,
   });
 
   @override
+  State<_SidebarItem> createState() => _SidebarItemState();
+}
+
+class _SidebarItemState extends State<_SidebarItem> {
+  final FocusNode _node = FocusNode();
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _node.addListener(() {
+      if (mounted && _node.hasFocus != _focused) {
+        setState(() => _focused = _node.hasFocus);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _node.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final bool isActive = widget.isActive;
+    final bool isCollapsed = widget.isCollapsed;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: onTap,
+          focusNode: _node,
+          autofocus: widget.autofocus,
+          onTap: widget.onTap,
           borderRadius: BorderRadius.circular(10),
           hoverColor: Colors.white.withOpacity(0.14), // 💡 Bright Lighting effect on hover
+          focusColor: Colors.white.withOpacity(0.22),
           splashColor: Colors.white.withOpacity(0.2),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
@@ -381,6 +419,9 @@ class _SidebarItem extends StatelessWidget {
             decoration: BoxDecoration(
               color: isActive ? Colors.white : Colors.transparent,
               borderRadius: BorderRadius.circular(10),
+              border: (_focused && !isActive)
+                  ? Border.all(color: Colors.white.withOpacity(0.85), width: 1.6)
+                  : null,
               boxShadow: isActive
                   ? [
                       BoxShadow(
@@ -394,7 +435,7 @@ class _SidebarItem extends StatelessWidget {
             child: Row(
               children: [
                 Icon(
-                  icon,
+                  widget.icon,
                   size: 20, // ⬆️ Slightly taller and prominent icon size
                   color: isActive ? const Color(0xFF0757D5) : Colors.white70,
                 ),
@@ -402,7 +443,7 @@ class _SidebarItem extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      title,
+                      widget.title,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,

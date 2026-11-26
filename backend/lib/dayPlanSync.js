@@ -80,6 +80,19 @@ function taskRowPlanStatus(r) {
   return r.start_time ? 'PENDING' : 'NOT START';
 }
 
+// Planner status for one Tech Workspace task (marker "[Tech Task #id]").
+// Returns null for an unknown status so the row is left untouched rather than
+// reset — tech rows are otherwise maintained live by techProjects.js.
+function techTaskPlanStatus(raw) {
+  const s = String(raw || '').toUpperCase();
+  if (s === 'IN PROGRESS') return 'PROCESSING';
+  if (s === 'ON HOLD') return 'HOLD';
+  if (s === 'CORRECTION') return 'HOLD';
+  if (s === 'IN REVIEW' || s === 'APPROVED') return 'COMPLETE';
+  if (s === 'ADDED') return 'PENDING';
+  return null;
+}
+
 // Planner status for one Content Calendar category (marker "[Calendar Row #id]").
 async function calendarPlanStatus(calendarId) {
   const [[row]] = await db.query(
@@ -133,6 +146,8 @@ async function syncDayPlanStatus(employeeName, clientName = null, date = null) {
     let next = null;
     const taskMarker = plan.match(/\[Task Row #(\d+)\]/);
     const calMarker = plan.match(/\[Calendar Row #(\d+)\]/);
+    const techMarker = plan.match(/\[Tech Task #(\d+)\]/);
+    const isLegacyTechRow = /\[Tech Project #\d+\]/.test(plan);
     if (taskMarker) {
       const [[t]] = await db.query(
         'SELECT status, review_status, start_time FROM time_tracking_task_items WHERE id = ?',
@@ -141,6 +156,19 @@ async function syncDayPlanStatus(employeeName, clientName = null, date = null) {
       next = t ? taskRowPlanStatus(t) : null;
     } else if (calMarker) {
       next = await calendarPlanStatus(Number(calMarker[1]));
+    } else if (techMarker) {
+      // Tech Workspace row → follow the tech task's own status. Never fall
+      // through to the client branch, which would always read NOT START
+      // (tech projects have no task_list / content_calendar rows).
+      const [[tt]] = await db.query(
+        'SELECT status FROM tech_tasks WHERE id = ?',
+        [Number(techMarker[1])],
+      );
+      next = tt ? techTaskPlanStatus(tt.status) : null;
+    } else if (isLegacyTechRow) {
+      // Legacy "[Tech Project #id]" rows carry a project id, not a task id —
+      // leave their status as techProjects.js last set it.
+      next = null;
     } else {
       const key = String(row.client_name).trim().toLowerCase();
       if (!clientCache.has(key)) clientCache.set(key, await computeClientStatus(name, row.client_name, day));

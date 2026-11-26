@@ -11,6 +11,7 @@ import '../../services/auth_service.dart';
 import '../../services/attendance_location.dart';
 import '../../services/hrms_tracking_api.dart';
 import '../shared/employee_ui.dart';
+import '../../core/keyboard/keyboard_shortcuts.dart';
 
 class EmployeePermissionPage extends StatefulWidget {
   const EmployeePermissionPage({super.key});
@@ -345,7 +346,9 @@ class _PermissionContentState extends State<_PermissionContent> {
         borderRadius: BorderRadius.circular(16),
       ),
     );
-    return Column(
+    return KeyboardSubmit(
+      onSubmit: _submitting ? null : _submit,
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const MobileEmployeeHeader(showGreeting: true),
@@ -590,6 +593,7 @@ class _PermissionContentState extends State<_PermissionContent> {
           ),
         ),
       ],
+      ),
     );
   }
 
@@ -906,7 +910,9 @@ class _PermissionContentState extends State<_PermissionContent> {
   @override
   Widget build(BuildContext context) {
     if (widget.mobile && !widget.logOnly) return _buildMobileRequest(context);
-    return Column(
+    return KeyboardSubmit(
+      onSubmit: _submitting ? null : _submit,
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (widget.mobile) ...[
@@ -1244,6 +1250,7 @@ class _PermissionContentState extends State<_PermissionContent> {
           ),
         ],
       ],
+      ),
     );
   }
 

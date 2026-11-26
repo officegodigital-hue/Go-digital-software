@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import '../../../layouts/admin_layout.dart';
+import '../../core/keyboard/keyboard_shortcuts.dart';
 import 'package:provider/provider.dart';
 import '../../../services/auth_service.dart'; 
 import '../../services/api_config.dart';
@@ -3250,7 +3251,11 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
               final confirmed = await showDialog<bool>(
                 context: context,
                 builder: (dialogContext) {
-                  return AlertDialog(
+                  return KeyboardSubmit(
+                    autofocus: true,
+                    onSubmit: () => Navigator.pop(dialogContext, true),
+                    onCancel: () => Navigator.pop(dialogContext, false),
+                    child: AlertDialog(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18),
                     ),
@@ -3284,6 +3289,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                         child: const Text('Delete'),
                       ),
                     ],
+                  ),
                   );
                 },
               );

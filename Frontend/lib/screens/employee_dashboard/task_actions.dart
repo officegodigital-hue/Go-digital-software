@@ -19,6 +19,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../services/api_config.dart';
 import '../../services/app_notification_center.dart';
+import '../../core/keyboard/keyboard_shortcuts.dart';
 
 class TaskActions {
   TaskActions._();
@@ -43,7 +44,9 @@ class TaskActions {
     final result = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (c) => StatefulBuilder(
+      builder: (c) => KeyboardSubmit(
+        onCancel: () => Navigator.pop(c),
+        child: StatefulBuilder(
         builder: (c, setD) => AlertDialog(
           title: Text(title),
           content: SizedBox(
@@ -76,6 +79,7 @@ class TaskActions {
           ],
         ),
       ),
+      ),
     );
     controller.dispose();
     return result;
@@ -96,7 +100,11 @@ class TaskActions {
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (c) => AlertDialog(
+      builder: (c) => KeyboardSubmit(
+        autofocus: true,
+        onSubmit: () => Navigator.pop(c, true),
+        onCancel: () => Navigator.pop(c, false),
+        child: AlertDialog(
         icon: const Icon(Icons.event_note_rounded, color: Color(0xFF004AAD)),
         title: const Text('Add to today\'s Day Planner?'),
         content: Text(
@@ -107,6 +115,7 @@ class TaskActions {
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Add & start')),
         ],
+      ),
       ),
     );
     return ok == true;
@@ -138,7 +147,11 @@ class TaskActions {
     if (action == 'complete') {
       final ok = await showDialog<bool>(
         context: context,
-        builder: (c) => AlertDialog(
+        builder: (c) => KeyboardSubmit(
+          autofocus: true,
+          onSubmit: () => Navigator.pop(c, true),
+          onCancel: () => Navigator.pop(c, false),
+          child: AlertDialog(
           title: Text('Complete $title?'),
           content: Text(isCalendar
               ? 'The category is marked prepared. Assign it from the Content Calendar.'
@@ -147,6 +160,7 @@ class TaskActions {
             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
             FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Complete')),
           ],
+        ),
         ),
       );
       if (ok != true) return false;

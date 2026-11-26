@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:godigital_portal/client_work_repository/assets_module/core/theme/app_theme.dart'
     as assets_theme;
 import 'package:godigital_portal/services/auth_service.dart';
+import 'package:godigital_portal/core/keyboard/keyboard_shortcuts.dart';
 import 'package:godigital_portal/screens/login_screen.dart';
 import 'package:godigital_portal/hrms_admin/app/app.dart' as hrms_admin;
 import 'package:godigital_portal/hrms_admin/routing/app_router.dart';
@@ -88,8 +89,12 @@ class MyApp extends StatelessWidget {
             assets_theme.AppTheme.lightTheme.textTheme,
           ),
         ),
-        builder: (context, child) => WaitingAlertHost(
-          navigatorKey: appNavigatorKey, child: child ?? const SizedBox(),
+        builder: (context, child) => AppShortcuts(
+          navigatorKey: appNavigatorKey,
+          child: WaitingAlertHost(
+            navigatorKey: appNavigatorKey,
+            child: child ?? const SizedBox(),
+          ),
         ),
         onGenerateRoute: (settings) {
           final uri = Uri.tryParse(settings.name ?? '');

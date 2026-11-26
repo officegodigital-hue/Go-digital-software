@@ -510,11 +510,19 @@ async function assignCalendarRow(
       : existingItem.task_list_id);
 
   if (!taskItemId) {
+    // Append at a free s_no so we never clash with uq_tti_row
+    // (task_list_id, s_no, sub_no) when the target list already has rows.
+    // A fresh list yields 1 (unchanged behaviour).
+    const [[{ nextSno }]] = await connection.query(
+      `SELECT COALESCE(MAX(s_no), 0) + 1 AS nextSno
+       FROM time_tracking_task_items WHERE task_list_id = ?`,
+      [taskListId],
+    );
     const [result] = await connection.query(
       `INSERT INTO time_tracking_task_items
        (task_list_id, s_no, submit_date, task_description, duration_secs, status)
        VALUES (?, ?, ?, ?, 0, 'IDLE')`,
-      [taskListId, row.s_no || 1, row.submit_date || null, taskDescription],
+      [taskListId, nextSno, row.submit_date || null, taskDescription],
     );
     taskItemId = result.insertId;
   } else {
@@ -1164,13 +1172,23 @@ async function assignEmergencySourceRow(connection, row, employee, reason, assig
   const taskList = await sourceTaskList(connection, row);
   let taskItemId = numericId(row.task_item_id);
   if (!taskItemId) {
+    // This tracking row is created in the source list only momentarily — it is
+    // moved to the target's Additional-task list with s_no = 1 a few lines
+    // below. Using row.source_row_number here collides with uq_tti_row
+    // (task_list_id, s_no, sub_no) whenever that s_no already exists in the
+    // source list, so pick a guaranteed-free s_no instead.
+    const [[{ nextSno }]] = await connection.query(
+      `SELECT COALESCE(MAX(s_no), 0) + 1 AS nextSno
+       FROM time_tracking_task_items WHERE task_list_id = ?`,
+      [taskList.id],
+    );
     const [result] = await connection.query(
       `INSERT INTO time_tracking_task_items
          (task_list_id, s_no, submit_date, task_description, duration_secs, status)
        VALUES (?, ?, ?, ?, 0, 'IDLE')`,
       [
         taskList.id,
-        row.source_row_number,
+        nextSno,
         row.submit_date || null,
         employeeTaskDescription(row),
       ],

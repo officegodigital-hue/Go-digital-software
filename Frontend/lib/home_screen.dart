@@ -8,6 +8,7 @@ import 'package:godigital_portal/services/api_config.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/app_notification_center.dart';
 import 'package:godigital_portal/services/push_notification_service.dart';
+import 'package:godigital_portal/core/keyboard/keyboard_shortcuts.dart';
 import 'package:godigital_portal/report/report_route_names.dart';
 import 'screens/employee_dashboard/employee_sop_dashboard_screen.dart';
 
@@ -417,6 +418,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ],
           ),
           const Spacer(),
+          // Help & keyboard shortcuts (F1) — shown right next to the profile.
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF2FF),
+              borderRadius: BorderRadius.circular(30),
+            ),
+            child: const KeyboardHelpButton(
+              color: primaryColor,
+              size: 20,
+              padding: EdgeInsets.all(8),
+            ),
+          ),
+          const SizedBox(width: 10),
           InkWell(
             onTap: () {
               Navigator.pushNamed(context, '/profile');

@@ -19,7 +19,16 @@ class DayPlannerScreen extends StatefulWidget {
   /// Opens a Tech Workspace row (a tech project/task) in the Tech Workspace.
   final ValueChanged<Map<String, dynamic>>? onOpenTech;
 
-  const DayPlannerScreen({super.key, this.onOpenWorkspace, this.onOpenTech});
+  /// Search text coming from the shared top-bar search (Ctrl+K). The planner
+  /// no longer has its own in-page search box — it filters by this instead.
+  final String searchQuery;
+
+  const DayPlannerScreen({
+    super.key,
+    this.onOpenWorkspace,
+    this.onOpenTech,
+    this.searchQuery = '',
+  });
 
   @override
   State<DayPlannerScreen> createState() => _DayPlannerScreenState();
@@ -63,15 +72,14 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
       .length;
   int get totalAssignedClientsCount => assignedClients.length;
 
-  final TextEditingController _searchController = TextEditingController();
-
   double get completionPercentage {
     if (dayPlanRows.isEmpty) return 0;
 
     return completeCount / dayPlanRows.length;
   }
 
-  String _searchText = '';
+  // Search text comes from the shared top-bar search (Ctrl+K).
+  String get _searchText => widget.searchQuery;
 
   bool _hasAdsColumn() {
     for (final client in assignedClients) {
@@ -407,7 +415,6 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   void dispose() {
     _horizontalController.dispose();
     _autoSaveTimer?.cancel();
-    _searchController.dispose();
     socket.dispose();
     super.dispose();
   }
@@ -2259,46 +2266,43 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
     );
   }
 
+  // Search now lives in the shared top bar (Ctrl+K). This read-only strip
+  // shows the active filter and points the user to the top search bar.
   Widget _buildSearchBox() {
-    return TextField(
-      controller: _searchController,
-      onChanged: (value) => setState(() => _searchText = value),
-      decoration: InputDecoration(
-        hintText: 'Search clients, plans or work...',
-        hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF91A0B7)),
-        prefixIcon: const Icon(
-          Icons.search_rounded,
-          size: 19,
-          color: Color(0xFF0757D5),
+    final q = widget.searchQuery.trim();
+    final bool active = q.isNotEmpty;
+    return Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F9FE),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(
+          color: active ? const Color(0xFF0757D5) : const Color(0xFFE0E9F7),
+          width: active ? 1.2 : 1,
         ),
-        suffixIcon: _searchController.text.isEmpty
-            ? null
-            : IconButton(
-                tooltip: 'Clear search',
-                icon: const Icon(
-                  Icons.close_rounded,
-                  size: 17,
-                  color: Color(0xFF71819A),
-                ),
-                onPressed: () {
-                  _searchController.clear();
-                  setState(() => _searchText = '');
-                },
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search_rounded, size: 19, color: Color(0xFF0757D5)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              active
+                  ? 'Filtering by "$q"'
+                  : 'Search from the top bar  (Ctrl + K)  to filter clients, plans or work',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: active
+                    ? const Color(0xFF0F2E63)
+                    : const Color(0xFF91A0B7),
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
               ),
-        filled: true,
-        fillColor: const Color(0xFFF6F9FE),
-        contentPadding: const EdgeInsets.symmetric(
-          vertical: 13,
-          horizontal: 14,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(color: Color(0xFFE0E9F7)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(color: Color(0xFF0757D5), width: 1.4),
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
