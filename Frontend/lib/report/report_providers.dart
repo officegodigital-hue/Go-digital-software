@@ -163,9 +163,44 @@ ReportProvider? providerForName(String? raw) {
   return best;
 }
 
+/// Every provider whose key / label / alias appears anywhere in [raw],
+/// de-duplicated and ordered by first appearance. Unlike [providerForName]
+/// (which returns the single best match), this recognises a combined
+/// deliverable string such as 'Facebook (8), GMB (8), Instagram (8)' as THREE
+/// separate providers — the common shape of a Page/Ads handler's platform cell.
+List<ReportProvider> providersInText(String? raw) {
+  if (raw == null) return const <ReportProvider>[];
+  final norm = _normalize(raw);
+  if (norm.isEmpty) return const <ReportProvider>[];
+
+  final firstIndex = <ReportProvider, int>{};
+  void consider(ReportProvider provider, String token) {
+    final needle = _normalize(token);
+    if (needle.isEmpty) return;
+    final idx = norm.indexOf(needle);
+    if (idx < 0) return;
+    final existing = firstIndex[provider];
+    if (existing == null || idx < existing) firstIndex[provider] = idx;
+  }
+
+  for (final provider in kReportProviders) {
+    consider(provider, provider.key);
+    consider(provider, provider.label);
+    consider(provider, provider.dashboardPage);
+    for (final alias in provider.aliases) {
+      consider(provider, alias);
+    }
+  }
+
+  final out = firstIndex.keys.toList()
+    ..sort((a, b) => firstIndex[a]!.compareTo(firstIndex[b]!));
+  return out;
+}
+
 /// Resolves a de-duplicated list of providers from a client's assigned task
-/// names (e.g. 'GOOGLE ADS (1)', 'INSTAGRAM POSTER (12)'). Unrecognized tasks
-/// are skipped. Order follows the task list, keeping the first occurrence.
+/// names (e.g. 'GOOGLE ADS (1)', 'INSTAGRAM POSTER (12)', or a combined
+/// 'Facebook (8), GMB (8), Instagram (8)'). Unrecognized tasks are skipped.
+/// Order follows the task list, keeping the first occurrence.
 List<ReportProvider> providersFromTaskNames(Iterable<dynamic> tasks) {
   final seen = <String>{};
   final out = <ReportProvider>[];
@@ -173,8 +208,9 @@ List<ReportProvider> providersFromTaskNames(Iterable<dynamic> tasks) {
     final name = task is Map
         ? (task['task']?.toString() ?? '')
         : task.toString();
-    final provider = providerForName(name);
-    if (provider != null && seen.add(provider.key)) out.add(provider);
+    for (final provider in providersInText(name)) {
+      if (seen.add(provider.key)) out.add(provider);
+    }
   }
   return out;
 }

@@ -28,6 +28,7 @@ import 'api_config.dart';
 import 'browser_notifier_stub.dart'
     if (dart.library.js_interop) 'browser_notifier_web.dart' as browser;
 import 'push_notification_service.dart';
+import 'mimi_voice.dart';
 
 class AppNotificationCenter with WidgetsBindingObserver {
   AppNotificationCenter._();
@@ -106,7 +107,8 @@ class AppNotificationCenter with WidgetsBindingObserver {
     }
 
     _poll();
-    _pollTimer = Timer.periodic(const Duration(seconds: 6), (_) => _poll());
+    // 20s fallback (was 6s); the socket below delivers alerts in real time.
+    _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) => _poll());
     _loadGroups();
     _groupsTimer = Timer.periodic(const Duration(minutes: 3), (_) => _loadGroups());
     _connectSocket();
@@ -307,7 +309,10 @@ class AppNotificationCenter with WidgetsBindingObserver {
     if (last != null && now.difference(last).inSeconds < 4) return;
     _recent[key] = now;
 
-    _playSound();
+    // MIMI speaks it instead of the old beep. For a chat she names the sender
+    // (the banner title). Her own de-dupe stops a double read-out when a top
+    // bar robot also handles the same message.
+    MimiVoice.instance.announce(sender: chat ? title : null, message: body);
     if (kIsWeb && browser.pageHidden) {
       browser.show(title, body, tag: key);
     }

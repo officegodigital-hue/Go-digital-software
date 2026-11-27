@@ -236,9 +236,20 @@ const { runReminders } = require('./jobs/attendance-chat');
 cron.schedule('* * * * *', () => runReminders(io));
 
 // Meeting tracking: close organizer-started sessions at their scheduled end.
+// Runs every 30s (was every 5s). Session end times are recorded from each
+// meeting's scheduled end_at, not "now", so a slightly later sweep does not
+// change the tracked duration — it only trims constant DB/CPU load ~6x.
 const { runMeetingScheduler } = require('./jobs/meeting-scheduler');
-cron.schedule('*/5 * * * * *', () => runMeetingScheduler(io));
+cron.schedule('*/30 * * * * *', () => runMeetingScheduler(io));
 runMeetingScheduler(io);
+
+// Performance: make sure the hot read paths (Employee Workspace, Task Review,
+// live tracking, meeting sweep) have their indexes. Idempotent and online, so
+// it is safe to run on every boot. Without these the frequent JOINs do
+// full-table scans, which is the usual cause of high CPU / slow page loads.
+require('./lib/ensureIndexes')
+  .ensureIndexesOnce()
+  .catch((err) => console.error('ensureIndexes failed:', err.message));
 
 push.attachIo(io); // chat + group socket messages also go to phones as push
 

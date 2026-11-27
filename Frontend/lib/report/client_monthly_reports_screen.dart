@@ -99,7 +99,39 @@ class _ClientMonthlyReportsScreenState
   late Future<List<Map<String, dynamic>>> _reportsFuture;
   late Future<List<Map<String, dynamic>>> _submissionsFuture;
 
+  // Per-platform submission status rows for this client (all months). Resolved
+  // asynchronously and kept in state so each month card can show which assigned
+  // platforms are Completed / In review / Pending without blocking its render.
+  List<Map<String, dynamic>> _platformStatus = const [];
+
   String get _name => widget.client['name']?.toString() ?? 'Client';
+
+  // Platform key (UPPER_SNAKE, matching ReportProvider.key) → latest status
+  // (approved | rejected | pending) for the given month. Platforms absent here
+  // have not been submitted yet and are treated as still-pending.
+  Map<String, String> _platformStatusForMonth(int month, int year) {
+    final out = <String, String>{};
+    for (final row in _platformStatus) {
+      final m = int.tryParse('${row['report_month'] ?? ''}');
+      final y = int.tryParse('${row['report_year'] ?? ''}');
+      if (m != month || y != year) continue;
+      final key = (row['platform_key']?.toString() ?? '').toUpperCase();
+      if (key.isEmpty) continue;
+      out[key] = (row['status']?.toString() ?? 'pending').toLowerCase();
+    }
+    return out;
+  }
+
+  // The latest deadline across a month's assigned tasks, formatted for display.
+  String _deadlineLabel(List<dynamic> tasks) {
+    DateTime? best;
+    for (final task in tasks.whereType<Map>()) {
+      final deadline = DateTime.tryParse('${task['deadline'] ?? ''}');
+      if (deadline == null) continue;
+      if (best == null || deadline.isAfter(best)) best = deadline;
+    }
+    return best == null ? '' : _dateLabel(best.toIso8601String());
+  }
 
   List<dynamic> get _assignedTasks {
     final tasks = widget.client['assignedTasks'];
@@ -174,6 +206,17 @@ class _ClientMonthlyReportsScreenState
     _submissionsFuture = _service
         .listSubmissions(company: _name)
         .catchError((_) => <Map<String, dynamic>>[]);
+    // Per-platform status drives the month cards' deliverable breakdown and the
+    // "Completed" ribbon. Loaded into state (not awaited in build) so cards show
+    // the moment it arrives; failures simply leave every platform pending.
+    _service
+        .listPlatformStatus(company: _name)
+        .then((rows) {
+          if (mounted) setState(() => _platformStatus = rows);
+        })
+        .catchError((_) {
+          if (mounted) setState(() => _platformStatus = const []);
+        });
   }
 
   Future<void> _refresh() async {
@@ -440,6 +483,13 @@ class _ClientMonthlyReportsScreenState
                                           .toUpperCase(),
                                   created: _dateLabel(monthlyReports[i]['created_at']),
                                   tasks: _tasksForReportMonth(monthlyReports[i]),
+                                  statusByKey: _platformStatusForMonth(
+                                    int.tryParse('${monthlyReports[i]['report_month']}') ?? 0,
+                                    int.tryParse('${monthlyReports[i]['report_year']}') ?? 0,
+                                  ),
+                                  deadline: _deadlineLabel(
+                                    _tasksForReportMonth(monthlyReports[i]),
+                                  ),
                                   onTap: () => _newReport(
                                     month: int.tryParse('${monthlyReports[i]['report_month']}'),
                                     year: int.tryParse('${monthlyReports[i]['report_year']}'),
@@ -454,6 +504,11 @@ class _ClientMonthlyReportsScreenState
                                   month: assignmentMonth.month,
                                   year: assignmentMonth.year,
                                   tasks: assignmentMonth.tasks,
+                                  statusByKey: _platformStatusForMonth(
+                                    assignmentMonth.month,
+                                    assignmentMonth.year,
+                                  ),
+                                  deadline: _deadlineLabel(assignmentMonth.tasks),
                                   onTap: () => _newReport(
                                     month: assignmentMonth.month,
                                     year: assignmentMonth.year,
@@ -825,6 +880,191 @@ class _HandlerAssignmentSummary extends StatelessWidget {
   }
 }
 
+// Per-platform deliverable status for one month: each assigned platform with a
+// Completed / In review / Rejected / Pending pill, followed by the deadline. A
+// client's month is fully done only when EVERY assigned platform is approved —
+// which is what drives the "Completed" ribbon on the card.
+class _MonthPlatformStatus extends StatelessWidget {
+  const _MonthPlatformStatus({
+    required this.providers,
+    required this.statusByKey,
+    this.deadline = '',
+  });
+
+  final List<ReportProvider> providers;
+  final Map<String, String> statusByKey;
+  final String deadline;
+
+  // Keep a month card compact: show at most this many platform rows, then a
+  // "+N more platforms" summary line.
+  static const int _maxRows = 4;
+
+  // Latest status for a platform: 'approved' | 'rejected' | 'pending'
+  // (submitted, in review), or 'none' when nothing has been submitted yet.
+  static String statusFor(ReportProvider provider, Map<String, String> byKey) =>
+      byKey[provider.key.toUpperCase()] ?? 'none';
+
+  static bool allApproved(
+    List<ReportProvider> providers,
+    Map<String, String> byKey,
+  ) =>
+      providers.isNotEmpty &&
+      providers.every((p) => statusFor(p, byKey) == 'approved');
+
+  static (String, Color, IconData) meta(String status) {
+    switch (status) {
+      case 'approved':
+        return ('Completed', const Color(0xFF16A34A), Icons.verified_rounded);
+      case 'rejected':
+        return ('Rejected', const Color(0xFFE11D48), Icons.cancel_rounded);
+      case 'pending':
+        return (
+          'In review',
+          const Color(0xFFD97706),
+          Icons.hourglass_top_rounded,
+        );
+      default:
+        return ('Pending', const Color(0xFF64748B), Icons.schedule_rounded);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (providers.isEmpty && deadline.isEmpty) return const SizedBox.shrink();
+    final visible = providers.take(_maxRows).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final provider in visible)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                ProviderLogo(provider: provider, size: 16),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    provider.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: _navy,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                _StatusPill(status: statusFor(provider, statusByKey)),
+              ],
+            ),
+          ),
+        if (providers.length > visible.length)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              '+${providers.length - visible.length} more platforms',
+              style: const TextStyle(
+                color: _muted,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        if (deadline.isNotEmpty)
+          Row(
+            children: [
+              const Icon(Icons.event_rounded, size: 13, color: _muted),
+              const SizedBox(width: 5),
+              Text(
+                'Deadline · $deadline',
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: _muted,
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.status});
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color, icon) = _MonthPlatformStatus.meta(status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: .34)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Shown on a month card once every assigned platform for that month is approved.
+class _CompletedRibbon extends StatelessWidget {
+  const _CompletedRibbon();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF16A34A), Color(0xFF22C55E)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF16A34A).withValues(alpha: .30),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.verified_rounded, size: 13, color: Colors.white),
+          SizedBox(width: 4),
+          Text(
+            'Completed',
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              letterSpacing: .2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // One passed-to-admin submission: status, who passed it and when, and the
 // admin's decision (approved / rejected with note) or that it is still pending.
 class _SubmissionTile extends StatelessWidget {
@@ -980,12 +1220,16 @@ class _MonthReportCard extends StatelessWidget {
     required this.format,
     required this.created,
     required this.tasks,
+    required this.statusByKey,
+    this.deadline = '',
     required this.onTap,
   });
   final String title;
   final String format;
   final String created;
   final List<dynamic> tasks;
+  final Map<String, String> statusByKey;
+  final String deadline;
   final VoidCallback onTap;
 
   @override
@@ -997,6 +1241,7 @@ class _MonthReportCard extends StatelessWidget {
             : task,
       ),
     );
+    final completed = _MonthPlatformStatus.allApproved(providers, statusByKey);
     final color = format == 'PDF'
         ? const Color(0xFFE11D48)
         : format == 'DOCX'
@@ -1058,6 +1303,10 @@ class _MonthReportCard extends StatelessWidget {
                             ),
                           ),
                           const Spacer(),
+                          if (completed) ...[
+                            const _CompletedRibbon(),
+                            const SizedBox(width: 8),
+                          ],
                           Container(
                             width: 34,
                             height: 34,
@@ -1093,34 +1342,12 @@ class _MonthReportCard extends StatelessWidget {
                         created.isEmpty ? format : '$format  •  $created',
                         style: const TextStyle(color: _muted, fontSize: 12.5),
                       ),
-                      if (tasks.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        _HandlerAssignmentSummary(tasks: tasks),
-                      ],
-                      if (providers.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: providers
-                              .map(
-                                (provider) => Tooltip(
-                                  message: provider.label,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(5),
-                                    decoration: BoxDecoration(
-                                      color: _paleBlue,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: _lineBlue),
-                                    ),
-                                    child: ProviderLogo(
-                                      provider: provider,
-                                      size: 18,
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
+                      if (providers.isNotEmpty || deadline.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        _MonthPlatformStatus(
+                          providers: providers,
+                          statusByKey: statusByKey,
+                          deadline: deadline,
                         ),
                       ],
                       const Spacer(),
@@ -1159,12 +1386,16 @@ class _AssignedMonthCard extends StatelessWidget {
     required this.month,
     required this.year,
     required this.tasks,
+    required this.statusByKey,
+    this.deadline = '',
     required this.onTap,
   });
 
   final int month;
   final int year;
   final List<dynamic> tasks;
+  final Map<String, String> statusByKey;
+  final String deadline;
   final VoidCallback onTap;
 
   @override
@@ -1176,6 +1407,7 @@ class _AssignedMonthCard extends StatelessWidget {
             : task,
       ),
     );
+    final completed = _MonthPlatformStatus.allApproved(providers, statusByKey);
     return Material(
       color: _paleBlue,
       borderRadius: BorderRadius.circular(20),
@@ -1229,6 +1461,10 @@ class _AssignedMonthCard extends StatelessWidget {
                             ),
                           ),
                           const Spacer(),
+                          if (completed) ...[
+                            const _CompletedRibbon(),
+                            const SizedBox(width: 8),
+                          ],
                           const Icon(
                             Icons.arrow_forward_rounded,
                             color: _blue,
@@ -1245,34 +1481,12 @@ class _AssignedMonthCard extends StatelessWidget {
                           letterSpacing: -.3,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      _HandlerAssignmentSummary(tasks: tasks),
-                      if (providers.isNotEmpty) ...[
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 7,
-                          runSpacing: 6,
-                          children: providers
-                              .map(
-                                (provider) => Tooltip(
-                                  message: provider.label,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(5),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(color: _lineBlue),
-                                    ),
-                                    child: ProviderLogo(
-                                      provider: provider,
-                                      size: 18,
-                                    ),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ],
+                      const SizedBox(height: 10),
+                      _MonthPlatformStatus(
+                        providers: providers,
+                        statusByKey: statusByKey,
+                        deadline: deadline,
+                      ),
                       const Spacer(),
                       Row(
                         children: const [

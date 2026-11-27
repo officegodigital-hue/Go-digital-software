@@ -8,10 +8,12 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
+import 'package:godigital_portal/widgets/employee_performance.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -51,12 +53,12 @@ class _P {
   }
 
   static Color forGroup(String group) => switch (group) {
-        'completed' => completed,
-        'processing' => processing,
-        'onHold' => onHold,
-        'rejected' => rejected,
-        _ => pending,
-      };
+    'completed' => completed,
+    'processing' => processing,
+    'onHold' => onHold,
+    'rejected' => rejected,
+    _ => pending,
+  };
 }
 
 // Safe readers for JSON maps.
@@ -66,9 +68,11 @@ String _s(dynamic v, [String fallback = '']) {
   return t.isEmpty || t == 'null' ? fallback : t;
 }
 
-Map<String, dynamic> _m(dynamic v) => v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
-List<Map<String, dynamic>> _l(dynamic v) =>
-    v is List ? v.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() : <Map<String, dynamic>>[];
+Map<String, dynamic> _m(dynamic v) =>
+    v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
+List<Map<String, dynamic>> _l(dynamic v) => v is List
+    ? v.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+    : <Map<String, dynamic>>[];
 String _pctText(dynamic v) {
   final x = _n(v).toDouble();
   return x == x.roundToDouble() ? '${x.toInt()}%' : '${x.toStringAsFixed(1)}%';
@@ -80,7 +84,9 @@ String _dmy(String ymd) {
 }
 
 class PerformanceScreen extends StatefulWidget {
-  const PerformanceScreen({super.key});
+  final String? employeeName;
+
+  const PerformanceScreen({super.key, this.employeeName});
 
   @override
   State<PerformanceScreen> createState() => _PerformanceScreenState();
@@ -105,6 +111,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   // Detail
   String? _selected;
+  int? _selectedId;
   bool _loadingDetail = false;
   String? _detailError;
   Map<String, dynamic>? _detail;
@@ -118,6 +125,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   void initState() {
     super.initState();
     _fetchOverview();
+    if (widget.employeeName != null && widget.employeeName!.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _fetchDetail(widget.employeeName!.trim()),
+      );
+    }
     // Keeps "running now" and today's hours fresh without hammering the server.
     _autoRefresh = Timer.periodic(const Duration(seconds: 60), (_) {
       if (!mounted) return;
@@ -141,13 +153,20 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   Map<String, String> get _headers {
     final token = Provider.of<AuthService>(context, listen: false).token;
-    return {'Content-Type': 'application/json', if (token != null) 'Authorization': 'Bearer $token'};
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
   }
 
   Map<String, String> get _rangeParams {
     final f = DateFormat('yyyy-MM-dd');
-    if (_quick == 'today') return {'mode': 'daily', 'date': f.format(_from)};
-    return {'mode': 'monthly', 'fromDate': f.format(_from), 'toDate': f.format(_to)};
+    if (_quick == 'today') return {'mode': 'daily'};
+    return {
+      'mode': 'monthly',
+      'fromDate': f.format(_from),
+      'toDate': f.format(_to),
+    };
   }
 
   String get _rangeLabel {
@@ -166,12 +185,19 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     }
     try {
       final res = await http
-          .get(Uri.parse('$_api/overview').replace(queryParameters: _rangeParams), headers: _headers)
+          .get(
+            Uri.parse('$_api/overview').replace(queryParameters: _rangeParams),
+            headers: _headers,
+          )
           .timeout(const Duration(seconds: 30));
       if (!mounted || id != _requestId) return;
       final body = jsonDecode(res.body);
       if (res.statusCode != 200 || body is! Map) {
-        throw Exception(body is Map ? body['message'] ?? 'Failed (${res.statusCode})' : 'Failed (${res.statusCode})');
+        throw Exception(
+          body is Map
+              ? body['message'] ?? 'Failed (${res.statusCode})'
+              : 'Failed (${res.statusCode})',
+        );
       }
       final data = _m(body['data']);
       setState(() {
@@ -190,10 +216,15 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     }
   }
 
-  Future<void> _fetchDetail(String name, {bool silent = false}) async {
+  Future<void> _fetchDetail(
+    String name, {
+    int? employeeId,
+    bool silent = false,
+  }) async {
     final id = ++_requestId;
     setState(() {
       _selected = name;
+      _selectedId = employeeId ?? _selectedId;
       if (!silent) {
         _loadingDetail = true;
         _detailError = null;
@@ -204,14 +235,26 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     try {
       final res = await http
           .get(
-            Uri.parse('$_api/detail').replace(queryParameters: {'employeeName': name, ..._rangeParams}),
+            Uri.parse('$_api/detail').replace(
+              queryParameters: {
+                if (_selectedId != null)
+                  'employeeId': '$_selectedId'
+                else
+                  'employeeName': name,
+                ..._rangeParams,
+              },
+            ),
             headers: _headers,
           )
           .timeout(const Duration(seconds: 30));
       if (!mounted || id != _requestId) return;
       final body = jsonDecode(res.body);
       if (res.statusCode != 200 || body is! Map) {
-        throw Exception(body is Map ? body['message'] ?? 'Failed (${res.statusCode})' : 'Failed (${res.statusCode})');
+        throw Exception(
+          body is Map
+              ? body['message'] ?? 'Failed (${res.statusCode})'
+              : 'Failed (${res.statusCode})',
+        );
       }
       final data = _m(body['data']);
       setState(() {
@@ -240,6 +283,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   void _backToList() {
     setState(() {
       _selected = null;
+      _selectedId = null;
       _detail = null;
       _detailError = null;
     });
@@ -270,7 +314,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       context: context,
       firstDate: DateTime(2020),
       lastDate: DateTime.now(),
-      initialDateRange: DateTimeRange(start: _from, end: _to.isBefore(_from) ? _from : _to),
+      initialDateRange: DateTimeRange(
+        start: _from,
+        end: _to.isBefore(_from) ? _from : _to,
+      ),
     );
     if (picked == null) return;
     setState(() {
@@ -285,7 +332,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     final q = _search.toLowerCase();
     final list = _employees.where((e) {
       if (q.isEmpty) return true;
-      return _s(e['fullName']).toLowerCase().contains(q) || _s(e['role']).toLowerCase().contains(q);
+      return _s(e['fullName']).toLowerCase().contains(q) ||
+          _s(e['role']).toLowerCase().contains(q);
     }).toList();
     int desc(String k, Map a, Map b) => _n(b[k]).compareTo(_n(a[k]));
     // Employees with no activity always go to the bottom.
@@ -299,7 +347,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       final act = activity(a, b);
       if (act != 0) return act;
       return switch (_sortBy) {
-        'score_asc' => _n(a['performancePct']).compareTo(_n(b['performancePct'])),
+        'score_asc' => _n(
+          a['performancePct'],
+        ).compareTo(_n(b['performancePct'])),
         'hours_desc' => desc('workingSecs', a, b),
         'completed_desc' => desc('completed', a, b),
         'overdue_desc' => desc('overdue', a, b),
@@ -331,7 +381,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               const SizedBox(height: 14),
               _filterBar(mobile),
               const SizedBox(height: 14),
-              if (_selected == null) _overview(w, mobile) else _detailView(w, mobile),
+              if (_selected == null)
+                _overview(w, mobile)
+              else
+                _detailView(w, mobile),
               const SizedBox(height: 28),
             ],
           );
@@ -356,12 +409,22 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           colors: [_P.primaryDark, _P.primary, _P.primary2],
         ),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: _P.primary.withValues(alpha: .22), blurRadius: 22, offset: const Offset(0, 10))],
+        boxShadow: [
+          BoxShadow(
+            color: _P.primary.withValues(alpha: .22),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Row(
         children: [
           if (detail)
-            _heroButton(Icons.arrow_back_rounded, 'Back to all employees', _backToList)
+            _heroButton(
+              Icons.arrow_back_rounded,
+              'Back to all employees',
+              _backToList,
+            )
           else
             Container(
               width: 46,
@@ -381,12 +444,20 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                   detail ? _selected! : 'Employee Performance',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.white, fontSize: mobile ? 18 : 22, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: mobile ? 18 : 22,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   _rangeLabel,
-                  style: TextStyle(color: Colors.white.withValues(alpha: .85), fontSize: 11.5, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .85),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -406,7 +477,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
-  Widget _heroButton(IconData icon, String tip, VoidCallback? onTap, {bool busy = false}) {
+  Widget _heroButton(
+    IconData icon,
+    String tip,
+    VoidCallback? onTap, {
+    bool busy = false,
+  }) {
     return Tooltip(
       message: tip,
       child: Material(
@@ -421,7 +497,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
             child: busy
                 ? const Padding(
                     padding: EdgeInsets.all(12),
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : Icon(icon, color: Colors.white, size: 20),
           ),
@@ -443,7 +522,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           _chip('This Week', _quick == 'week', () => _setQuick('week')),
           _chip('This Month', _quick == 'month', () => _setQuick('month')),
           _chip(
-            _quick == 'custom' ? '${DateFormat('dd/MM').format(_from)} – ${DateFormat('dd/MM').format(_to)}' : 'Custom range',
+            _quick == 'custom'
+                ? '${DateFormat('dd/MM').format(_from)} – ${DateFormat('dd/MM').format(_to)}'
+                : 'Custom range',
             _quick == 'custom',
             _pickRange,
             icon: Icons.date_range_rounded,
@@ -453,12 +534,19 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               width: mobile ? double.infinity : 230,
               child: TextField(
                 onChanged: (v) => setState(() => _search = v.trim()),
-                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
                 decoration: InputDecoration(
                   isDense: true,
                   hintText: 'Search employee or role…',
                   hintStyle: const TextStyle(fontSize: 12, color: _P.muted),
-                  prefixIcon: const Icon(Icons.search_rounded, size: 18, color: _P.primary),
+                  prefixIcon: const Icon(
+                    Icons.search_rounded,
+                    size: 18,
+                    color: _P.primary,
+                  ),
                   contentPadding: const EdgeInsets.symmetric(vertical: 11),
                   filled: true,
                   fillColor: _P.bg,
@@ -480,7 +568,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
-  Widget _chip(String label, bool selected, VoidCallback onTap, {IconData? icon}) {
+  Widget _chip(
+    String label,
+    bool selected,
+    VoidCallback onTap, {
+    IconData? icon,
+  }) {
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
@@ -534,9 +627,14 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           value: _sortBy,
           isDense: true,
           icon: const Icon(Icons.sort_rounded, size: 16, color: _P.primary),
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _P.ink),
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: _P.ink,
+          ),
           items: [
-            for (final e in options.entries) DropdownMenuItem(value: e.key, child: Text(e.value)),
+            for (final e in options.entries)
+              DropdownMenuItem(value: e.key, child: Text(e.value)),
           ],
           onChanged: (v) => setState(() => _sortBy = v ?? _sortBy),
         ),
@@ -550,10 +648,15 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   Widget _overview(double w, bool mobile) {
     if (_loadingOverview && _employees.isEmpty) return _loading();
-    if (_overviewError != null && _employees.isEmpty) return _errorBox(_overviewError!, _fetchOverview);
+    if (_overviewError != null && _employees.isEmpty)
+      return _errorBox(_overviewError!, _fetchOverview);
 
     final list = _visible;
-    final cols = w >= 1250 ? 3 : w >= 760 ? 2 : 1;
+    final cols = w >= 1250
+        ? 3
+        : w >= 760
+        ? 2
+        : 1;
     const gap = 14.0;
     final cardW = (w - gap * (cols - 1)) / cols;
 
@@ -564,7 +667,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         const SizedBox(height: 12),
         _scoreRules(),
         const SizedBox(height: 14),
-        _sectionTitle(Icons.groups_rounded, 'Employees', '${list.length} shown · tap a card for full details'),
+        _sectionTitle(
+          Icons.groups_rounded,
+          'Employees',
+          '${list.length} shown · tap a card for full details',
+        ),
         const SizedBox(height: 10),
         if (list.isEmpty)
           _emptyBox('No employees found', 'Try another name or role.')
@@ -572,7 +679,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           Wrap(
             spacing: gap,
             runSpacing: gap,
-            children: [for (final e in list) SizedBox(width: cardW, child: _employeeCard(e))],
+            children: [
+              for (final e in list)
+                SizedBox(width: cardW, child: _employeeCard(e)),
+            ],
           ),
       ],
     );
@@ -580,24 +690,60 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   Widget _teamStrip(double w) {
     final items = [
-      _Stat('Active employees', '${_n(_team['activeEmployees'])} / ${_n(_team['employees'])}', Icons.groups_rounded, _P.primary),
-      _Stat('Working now', '${_n(_team['runningNow'])}', Icons.play_circle_rounded, _P.processing),
-      _Stat('Tasks completed', '${_n(_team['completed'])} / ${_n(_team['totalTasks'])}', Icons.task_alt_rounded, _P.completed),
-      _Stat('Overdue tasks', '${_n(_team['overdue'])}', Icons.warning_amber_rounded, _P.rejected),
-      _Stat('Team working time', _s(_team['workingHours'], '0m'), Icons.timer_rounded, _P.purple),
-      _Stat('Average score', '${_n(_team['avgScore'])}%', Icons.speed_rounded, _P.forScore(_n(_team['avgScore']))),
+      _Stat(
+        'Active employees',
+        '${_n(_team['activeEmployees'])} / ${_n(_team['employees'])}',
+        Icons.groups_rounded,
+        _P.primary,
+      ),
+      _Stat(
+        'Working now',
+        '${_n(_team['runningNow'])}',
+        Icons.play_circle_rounded,
+        _P.processing,
+      ),
+      _Stat(
+        'Tasks completed',
+        '${_n(_team['completed'])} / ${_n(_team['totalTasks'])}',
+        Icons.task_alt_rounded,
+        _P.completed,
+      ),
+      _Stat(
+        'Overdue tasks',
+        '${_n(_team['overdue'])}',
+        Icons.warning_amber_rounded,
+        _P.rejected,
+      ),
+      _Stat(
+        'Team working time',
+        _s(_team['workingHours'], '0m'),
+        Icons.timer_rounded,
+        _P.purple,
+      ),
+      _Stat(
+        'Average score',
+        '${_n(_team['avgScore'])}%',
+        Icons.speed_rounded,
+        _P.forScore(_n(_team['avgScore'])),
+      ),
     ];
     return _statGrid(items, w);
   }
 
   Widget _statGrid(List<_Stat> items, double w) {
-    final cols = w >= 1100 ? items.length : w >= 700 ? 3 : 2;
+    final cols = w >= 1100
+        ? items.length
+        : w >= 700
+        ? 3
+        : 2;
     const gap = 10.0;
     final cw = (w - gap * (cols - 1)) / cols;
     return Wrap(
       spacing: gap,
       runSpacing: gap,
-      children: [for (final s in items) SizedBox(width: cw, child: _statTile(s))],
+      children: [
+        for (final s in items) SizedBox(width: cw, child: _statTile(s)),
+      ],
     );
   }
 
@@ -614,7 +760,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           Container(
             width: 36,
             height: 36,
-            decoration: BoxDecoration(color: s.color.withValues(alpha: .10), borderRadius: BorderRadius.circular(10)),
+            decoration: BoxDecoration(
+              color: s.color.withValues(alpha: .10),
+              borderRadius: BorderRadius.circular(10),
+            ),
             child: Icon(s.icon, size: 18, color: s.color),
           ),
           const SizedBox(width: 10),
@@ -626,13 +775,21 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                   s.value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: s.color),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: s.color,
+                  ),
                 ),
                 Text(
                   s.label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 10.5, color: _P.muted, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    color: _P.muted,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ),
@@ -648,7 +805,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         ? [
             {'label': 'Task completion', 'weight': 35},
             {'label': 'Productive time', 'weight': 20},
-            {'label': 'On-time delivery', 'weight': 20},
+            {'label': 'On-time delivery', 'weight': 12},
+            {'label': 'Time against task estimate', 'weight': 8},
             {'label': 'Manager approval', 'weight': 15},
             {'label': 'Day Planner', 'weight': 10},
           ]
@@ -660,10 +818,18 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         child: ExpansionTile(
           tilePadding: const EdgeInsets.symmetric(horizontal: 14),
           childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          leading: const Icon(Icons.info_outline_rounded, color: _P.primary, size: 20),
+          leading: const Icon(
+            Icons.info_outline_rounded,
+            color: _P.primary,
+            size: 20,
+          ),
           title: const Text(
             'How performance is calculated',
-            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: _P.ink),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w900,
+              color: _P.ink,
+            ),
           ),
           children: [
             Align(
@@ -672,18 +838,22 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  for (final w in weights) _badge('${_s(w['label'])} · ${_n(w['weight'])}%', _P.primary),
+                  for (final w in weights)
+                    _badge(
+                      '${_s(w['label'])} · ${_n(w['weight'])}%',
+                      _P.primary,
+                    ),
                 ],
               ),
             ),
             const SizedBox(height: 10),
             const Text(
               '• Tasks in the period = tasks due in it, plus tasks started, held, restarted, completed or reviewed in it.\n'
-              '• Productive time = tracked task time. A session counts only up to the end of the day it started '
-              '(max 10 h), so a task left running overnight must be held and restarted.\n'
-              '• Available time = working days (Mon–Sat, up to today) × 8 h. Idle = available − productive.\n'
-              '• On-time = completed on or before the submit date. Approval = approved ÷ reviewed.\n'
-              '• Day Planner = working days with a submitted plan. Parts with no data are left out and the rest re-weighted.',
+              '• Completion compares deliveries with overdue work. Open tasks due today have until the end of the day.\n'
+              '• Productive time compares tracked work within check-in and checkout against attendance after breaks. Overlapping timers count once. An open shift uses the current time.\n'
+              '• Delivery uses the due date. Before In, Achieved and Delay Out compare work duration with its estimate.\n'
+              '• Task Manager admin output uses invoice and quotation creation, client record creation, and recorded onboarding completions on pages the employee can access.\n'
+              '• Approval and Day Planner use recorded reviews and eligible attendance days. Only applicable factors contribute to the score.',
               style: TextStyle(fontSize: 11.5, height: 1.55, color: _P.text),
             ),
           ],
@@ -694,7 +864,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   Widget _employeeCard(Map<String, dynamic> e) {
     final score = _n(e['performancePct']);
-    final active = _n(e['totalTasks']) > 0 || _n(e['workingSecs']) > 0;
+    final active = e['performanceGrade'] != 'No Activity';
     final color = active ? _P.forScore(score) : _P.pending;
     final running = e['running'] == true;
     final overdue = _n(e['overdue']);
@@ -704,13 +874,22 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: () => _fetchDetail(_s(e['fullName'])),
+        onTap: () =>
+            _fetchDetail(_s(e['fullName']), employeeId: _n(e['id']).toInt()),
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: running ? _P.processing.withValues(alpha: .4) : _P.border),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .03), blurRadius: 12, offset: const Offset(0, 5))],
+            border: Border.all(
+              color: running ? _P.processing.withValues(alpha: .4) : _P.border,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .03),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -727,7 +906,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                           '${_s(e['fullName'])}${e['employmentStatus'] == 'Inactive' ? ' (Inactive)' : ''}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: _P.ink),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: _P.ink,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Row(
@@ -737,7 +920,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                                 _s(e['role'], '—'),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 11, color: _P.muted, fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: _P.muted,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             if (running) ...[
@@ -749,7 +936,13 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                       ],
                     ),
                   ),
-                  _Ring(percent: active ? score.toDouble() : 0, color: color, size: 50, stroke: 5, label: active ? '${score.toInt()}' : '—'),
+                  _Ring(
+                    percent: active ? score.toDouble() : 0,
+                    color: color,
+                    size: 50,
+                    stroke: 5,
+                    label: active ? '${score.toInt()}' : '—',
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -774,14 +967,19 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                 children: [
                   Text(
                     _s(e['performanceGrade'], '—'),
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: color),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: color,
+                    ),
                   ),
                   const Spacer(),
                   if (overdue > 0) ...[
                     _badge('$overdue overdue', _P.rejected),
                     const SizedBox(width: 6),
                   ],
-                  if (active) _badge('On-time ${_pctText(e['onTimePct'])}', _P.completed),
+                  if (active)
+                    _badge('On-time ${_pctText(e['onTimePct'])}', _P.completed),
                 ],
               ),
             ],
@@ -799,10 +997,21 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900, color: _P.ink),
+            style: const TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w900,
+              color: _P.ink,
+            ),
           ),
           const SizedBox(height: 1),
-          Text(label, style: const TextStyle(fontSize: 9.5, color: _P.muted, fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 9.5,
+              color: _P.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
@@ -824,7 +1033,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     Widget pair(Widget a, Widget b) => twoCol
         ? Row(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [Expanded(child: a), const SizedBox(width: 14), Expanded(child: b)],
+            children: [
+              Expanded(child: a),
+              const SizedBox(width: 14),
+              Expanded(child: b),
+            ],
           )
         : Column(children: [a, const SizedBox(height: 14), b]);
 
@@ -853,7 +1066,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     final perf = _m(d['performance']);
     final hours = _m(d['workingHours']);
     final score = _n(perf['score']);
-    final active = _n(_m(d['summary'])['totalTasks']) > 0 || _n(hours['totalSecs']) > 0;
+    final active = perf['grade'] != 'No Activity';
     final color = active ? _P.forScore(score) : _P.pending;
     return _card(
       icon: Icons.badge_rounded,
@@ -871,15 +1084,24 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                   children: [
                     Text(
                       _s(emp['fullName']),
-                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: _P.ink),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                        color: _P.ink,
+                      ),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       [
                         _s(emp['role']),
-                        if (_s(emp['staffId']).isNotEmpty) 'ID ${_s(emp['staffId'])}',
+                        if (_s(emp['staffId']).isNotEmpty)
+                          'ID ${_s(emp['staffId'])}',
                       ].where((x) => x.isNotEmpty).join(' · '),
-                      style: const TextStyle(fontSize: 11.5, color: _P.muted, fontWeight: FontWeight.w600),
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: _P.muted,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     if (d['running'] == true) ...[
                       const SizedBox(height: 6),
@@ -887,7 +1109,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     ],
                     if (_n(d['staleRunning']) > 0) ...[
                       const SizedBox(height: 6),
-                      _badge('${_n(d['staleRunning'])} task left running from an earlier day', _P.rejected),
+                      _badge(
+                        '${_n(d['staleRunning'])} task left running from an earlier day',
+                        _P.rejected,
+                      ),
                     ],
                   ],
                 ),
@@ -897,19 +1122,43 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           const SizedBox(height: 16),
           Row(
             children: [
-              _Ring(percent: active ? score.toDouble() : 0, color: color, size: 78, stroke: 8, label: active ? '${score.toInt()}%' : '—'),
+              _Ring(
+                percent: active ? score.toDouble() : 0,
+                color: color,
+                size: 78,
+                stroke: 8,
+                label: active ? '${score.toInt()}%' : '—',
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Performance score', style: TextStyle(fontSize: 11, color: _P.muted, fontWeight: FontWeight.w700)),
+                    const Text(
+                      'Performance score',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: _P.muted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 2),
-                    Text(_s(perf['grade'], '—'), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+                    Text(
+                      _s(perf['grade'], '—'),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: color,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     Text(
-                      'Worked ${_s(hours['total'], '0m')} of ${_s(hours['available'], '0m')} available',
-                      style: const TextStyle(fontSize: 11.5, color: _P.text, fontWeight: FontWeight.w600),
+                      '${_s(hours['available'], '0m')} attendance · ${_s(hours['total'], '0m')} tracked',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: _P.text,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
@@ -926,13 +1175,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     return _card(
       icon: Icons.stacked_bar_chart_rounded,
       title: 'Score breakdown',
-      subtitle: 'Each part × its weight',
+      subtitle: 'Recorded results and how to improve',
       child: Column(
         children: [
-          for (final p in parts) ...[
-            _partRow(p),
-            const SizedBox(height: 10),
-          ],
+          for (final p in parts) ...[_partRow(p), const SizedBox(height: 10)],
         ],
       ),
     );
@@ -950,17 +1196,39 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
             Expanded(
               child: Text(
                 '${_s(p['label'])}  ·  ${_n(p['weight'])}%',
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _P.ink),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: _P.ink,
+                ),
               ),
             ),
             Text(
-              has ? '${_pctText(v)}  →  ${_n(p['points'])} pts' : 'No data · not counted',
-              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: has ? color : _P.muted),
+              has
+                  ? '${_pctText(v)}  →  ${_n(p['points'])} pts'
+                  : 'No applicable data',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
+                color: has ? color : _P.muted,
+              ),
             ),
           ],
         ),
         const SizedBox(height: 5),
         _bar(v / 100, color),
+        if (has) ...[
+          const SizedBox(height: 4),
+          Text(
+            _s(p['evidence']),
+            style: const TextStyle(fontSize: 11.5, color: _P.text),
+          ),
+          if (p['improvement'] != null)
+            Text(
+              '${_n(p['pointsLost'])} points below full credit. ${_s(p['improvement'])}',
+              style: const TextStyle(fontSize: 11.5, color: _P.text),
+            ),
+        ],
       ],
     );
   }
@@ -969,14 +1237,72 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     final s = _m(d['summary']);
     String pc(String k) => _pctText(s[k]);
     return _statGrid([
-      _Stat('Clients', '${_n(s['totalClients'])}', Icons.apartment_rounded, _P.primary),
-      _Stat('Tasks in period', '${_n(s['totalTasks'])}', Icons.list_alt_rounded, _P.ink),
-      _Stat('Completed · ${pc('completedPct')}', '${_n(s['completed'])}', Icons.check_circle_rounded, _P.completed),
-      _Stat('In progress · ${pc('processingPct')}', '${_n(s['processing'])}', Icons.play_circle_rounded, _P.processing),
-      _Stat('On hold · ${pc('onHoldPct')}', '${_n(s['onHold'])}', Icons.pause_circle_rounded, _P.onHold),
-      _Stat('Not started · ${pc('pendingPct')}', '${_n(s['pending'])}', Icons.hourglass_empty_rounded, _P.pending),
-      _Stat('Rework / rejected', '${_n(s['rejected'])}', Icons.replay_rounded, _P.rejected),
-      _Stat('Overdue', '${_n(s['overdue'])}', Icons.warning_amber_rounded, _P.rejected),
+      _Stat(
+        'Clients',
+        '${_n(s['totalClients'])}',
+        Icons.apartment_rounded,
+        _P.primary,
+      ),
+      _Stat(
+        'Tasks in period',
+        '${_n(s['totalTasks'])}',
+        Icons.list_alt_rounded,
+        _P.ink,
+      ),
+      _Stat(
+        'Completed · ${pc('completedPct')}',
+        '${_n(s['completed'])}',
+        Icons.check_circle_rounded,
+        _P.completed,
+      ),
+      _Stat(
+        'In progress · ${pc('processingPct')}',
+        '${_n(s['processing'])}',
+        Icons.play_circle_rounded,
+        _P.processing,
+      ),
+      _Stat(
+        'On hold · ${pc('onHoldPct')}',
+        '${_n(s['onHold'])}',
+        Icons.pause_circle_rounded,
+        _P.onHold,
+      ),
+      _Stat(
+        'Not started · ${pc('pendingPct')}',
+        '${_n(s['pending'])}',
+        Icons.hourglass_empty_rounded,
+        _P.pending,
+      ),
+      _Stat(
+        'Rework / rejected',
+        '${_n(s['rejected'])}',
+        Icons.replay_rounded,
+        _P.rejected,
+      ),
+      _Stat(
+        'Overdue',
+        '${_n(s['overdue'])}',
+        Icons.warning_amber_rounded,
+        _P.rejected,
+      ),
+      _Stat(
+        'Before In',
+        '${_n(s['beforeIn'])}',
+        Icons.fast_forward_rounded,
+        _P.completed,
+      ),
+      _Stat(
+        'Achieved',
+        '${_n(s['achieved'])}',
+        Icons.check_rounded,
+        _P.completed,
+      ),
+      _Stat(
+        'Delay Out',
+        '${_n(s['delayOut'])}',
+        Icons.timer_off_outlined,
+        _P.rejected,
+      ),
     ], w);
   }
 
@@ -984,27 +1310,72 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     final h = _m(d['workingHours']);
     final prod = _n(h['productivityPct']).toDouble();
     final tiles = [
-      _Stat('Productive (tracked)', _s(h['total'], '0m'), Icons.bolt_rounded, _P.completed),
-      _Stat('Available (${_n(h['workingDays'])} days × ${_n(h['dayHours'])}h)', _s(h['available'], '0m'), Icons.event_available_rounded, _P.primary),
-      _Stat('Idle', _s(h['idle'], '0m'), Icons.pause_circle_outline_rounded, _P.onHold),
-      _Stat('Avg per active day (${_n(h['activeDays'])})', _s(h['avgDaily'], '0m'), Icons.today_rounded, _P.processing),
-      _Stat('Avg per completed task', _s(h['avgTask'], '0m'), Icons.task_alt_rounded, _P.purple),
-      _Stat('On-time delivery', _pctText(h['efficiencyPct']), Icons.alarm_on_rounded, _P.completed),
+      _Stat(
+        'Tracked during attendance',
+        _s(h['productive'], '0m'),
+        Icons.bolt_rounded,
+        _P.completed,
+      ),
+      _Stat(
+        'Attendance after breaks',
+        _s(h['available'], '0m'),
+        Icons.event_available_rounded,
+        _P.primary,
+      ),
+      _Stat(
+        'Attendance without tracked work',
+        _s(h['idle'], '0m'),
+        Icons.pause_circle_outline_rounded,
+        _P.onHold,
+      ),
+      _Stat(
+        'Avg per active day (${_n(h['activeDays'])})',
+        _s(h['avgDaily'], '0m'),
+        Icons.today_rounded,
+        _P.processing,
+      ),
+      _Stat(
+        'Avg per completed task',
+        _s(h['avgTask'], '0m'),
+        Icons.task_alt_rounded,
+        _P.purple,
+      ),
+      _Stat(
+        'On-time delivery',
+        _pctText(h['efficiencyPct']),
+        Icons.alarm_on_rounded,
+        _P.completed,
+      ),
     ];
     return _card(
       icon: Icons.timer_rounded,
       title: 'Working time & productivity',
-      subtitle: 'From Start / Hold / Restart / Complete on each task',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           LayoutBuilder(builder: (context, c) => _statGrid(tiles, c.maxWidth)),
           const SizedBox(height: 14),
+          PerformanceWorkDetails(data: d),
+          const SizedBox(height: 14),
           Row(
             children: [
-              const Text('Productive time used', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _P.ink)),
+              const Text(
+                'Productive time used',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: _P.ink,
+                ),
+              ),
               const Spacer(),
-              Text(_pctText(prod), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: _P.forScore(prod))),
+              Text(
+                h['productivityPct'] == null ? '—' : _pctText(prod),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  color: _P.forScore(prod),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -1016,17 +1387,23 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
 
   Widget _trendCard(Map<String, dynamic> d) {
     final trend = _l(d['trend']);
-    final dayHours = _n(_m(d['workingHours'])['dayHours']).toDouble();
-    final target = dayHours > 0 ? dayHours : 8.0;
-    final hasData = trend.any((t) => _n(t['workedSecs']) > 0);
+    final hasData = trend.any(
+      (t) => _n(t['workedSecs']) > 0 || _n(t['attendanceSecs']) > 0,
+    );
     return _card(
       icon: Icons.bar_chart_rounded,
-      title: 'Hours worked per day',
-      subtitle: 'Dashed line = ${target.toStringAsFixed(0)} h working day',
+      title: 'Attendance and tracked time by day',
+      subtitle:
+          'Blue bars show tracked time. Light bars show attendance after breaks.',
       child: !hasData
           ? const SizedBox(
               height: 140,
-              child: Center(child: Text('No tracked time in this period', style: TextStyle(fontSize: 12, color: _P.muted))),
+              child: Center(
+                child: Text(
+                  'No tracked time in this period',
+                  style: TextStyle(fontSize: 12, color: _P.muted),
+                ),
+              ),
             )
           : SizedBox(
               height: 230,
@@ -1034,35 +1411,57 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                 BarChartData(
                   minY: 0,
                   maxY: [
-                    target + 2,
-                    ...trend.map((t) => _n(t['workedSecs']) / 3600 + 1),
+                    2.0,
+                    ...trend.map(
+                      (t) =>
+                          math.max(
+                                _n(t['workedSecs']),
+                                _n(t['attendanceSecs']),
+                              ) /
+                              3600 +
+                          1,
+                    ),
                   ].reduce((a, b) => a > b ? a : b).ceilToDouble(),
-                  gridData: const FlGridData(show: true, drawVerticalLine: false),
+                  gridData: const FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                  ),
                   borderData: FlBorderData(show: false),
-                  extraLinesData: ExtraLinesData(horizontalLines: [
-                    HorizontalLine(y: target, color: _P.completed.withValues(alpha: .6), strokeWidth: 1.2, dashArray: [5, 4]),
-                  ]),
                   barTouchData: BarTouchData(
                     touchTooltipData: BarTouchTooltipData(
                       getTooltipItem: (group, gi, rod, ri) {
                         final t = trend[group.x.toInt()];
                         return BarTooltipItem(
-                          '${_dmy(_s(t['date']))}\n${_s(t['worked'], '0m')} · ${_n(t['completed'])} done',
-                          const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                          '${_dmy(_s(t['date']))}\n${_s(t['worked'], '0m')} tracked'
+                          '\n${_s(t['attendance'], '—')} attendance · ${_n(t['completed'])} delivered',
+                          const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
                         );
                       },
                     ),
                   ),
                   titlesData: FlTitlesData(
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 30,
                         interval: 2,
-                        getTitlesWidget: (v, m) =>
-                            Text('${v.toInt()}h', style: const TextStyle(fontSize: 9.5, color: _P.muted)),
+                        getTitlesWidget: (v, m) => Text(
+                          '${v.toInt()}h',
+                          style: const TextStyle(
+                            fontSize: 9.5,
+                            color: _P.muted,
+                          ),
+                        ),
                       ),
                     ),
                     bottomTitles: AxisTitles(
@@ -1071,15 +1470,22 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                         reservedSize: 26,
                         getTitlesWidget: (v, m) {
                           final i = v.toInt();
-                          if (i < 0 || i >= trend.length) return const SizedBox.shrink();
+                          if (i < 0 || i >= trend.length)
+                            return const SizedBox.shrink();
                           final every = (trend.length / 10).ceil();
-                          if (every > 1 && i % every != 0) return const SizedBox.shrink();
+                          if (every > 1 && i % every != 0)
+                            return const SizedBox.shrink();
                           final date = DateTime.tryParse(_s(trend[i]['date']));
                           return Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
-                              date == null ? '' : DateFormat('dd/MM').format(date),
-                              style: const TextStyle(fontSize: 9.5, color: _P.muted),
+                              date == null
+                                  ? ''
+                                  : DateFormat('dd/MM').format(date),
+                              style: const TextStyle(
+                                fontSize: 9.5,
+                                color: _P.muted,
+                              ),
                             ),
                           );
                         },
@@ -1088,14 +1494,28 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                   ),
                   barGroups: [
                     for (var i = 0; i < trend.length; i++)
-                      BarChartGroupData(x: i, barRods: [
-                        BarChartRodData(
-                          toY: _n(trend[i]['workedSecs']) / 3600,
-                          width: trend.length > 20 ? 7 : 14,
-                          color: _n(trend[i]['workedSecs']) / 3600 >= target ? _P.completed : _P.primary,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
-                        ),
-                      ]),
+                      BarChartGroupData(
+                        x: i,
+                        barRods: [
+                          BarChartRodData(
+                            toY: _n(trend[i]['workedSecs']) / 3600,
+                            width: trend.length > 80
+                                ? 1
+                                : trend.length > 20
+                                ? 4
+                                : 14,
+                            color: _P.primary,
+                            backDrawRodData: BackgroundBarChartRodData(
+                              show: trend[i]['attendanceSecs'] != null,
+                              toY: _n(trend[i]['attendanceSecs']) / 3600,
+                              color: _P.primary.withValues(alpha: .16),
+                            ),
+                            borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(4),
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -1123,11 +1543,22 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           const SizedBox(height: 14),
           Row(
             children: [
-              const Text('Approval rate', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _P.ink)),
+              const Text(
+                'Approval rate',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: _P.ink,
+                ),
+              ),
               const Spacer(),
               Text(
                 _n(r['reviewed']) > 0 ? _pctText(rate) : 'No reviews yet',
-                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: _P.completed),
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w900,
+                  color: _P.completed,
+                ),
               ),
             ],
           ),
@@ -1144,7 +1575,8 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     return _card(
       icon: Icons.event_note_rounded,
       title: 'Day Planner',
-      subtitle: '${_n(p['submittedDays'])} of ${_n(p['workingDays'])} working days submitted',
+      subtitle:
+          '${_n(p['submittedDays'])} of ${_n(p['workingDays'])} working days submitted',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1163,30 +1595,38 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               runSpacing: 5,
               children: [
                 for (final day in days)
-                  Builder(builder: (context) {
-                    final m = day['morningSubmitted'] == true;
-                    final e = day['eveningSubmitted'] == true;
-                    final c = m && e ? _P.completed : (m || e ? _P.onHold : const Color(0xFFE2E8F0));
-                    final date = DateTime.tryParse(_s(day['date']));
-                    return Tooltip(
-                      message: '${date == null ? _s(day['date']) : DateFormat('EEE, dd MMM').format(date)}\n'
-                          'Morning: ${m ? 'submitted' : '—'}   Evening: ${e ? 'submitted' : '—'}',
-                      child: Container(
-                        width: 22,
-                        height: 22,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(6)),
-                        child: Text(
-                          date == null ? '' : '${date.day}',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            color: m || e ? Colors.white : _P.muted,
+                  Builder(
+                    builder: (context) {
+                      final m = day['morningSubmitted'] == true;
+                      final e = day['eveningSubmitted'] == true;
+                      final c = m && e
+                          ? _P.completed
+                          : (m || e ? _P.onHold : const Color(0xFFE2E8F0));
+                      final date = DateTime.tryParse(_s(day['date']));
+                      return Tooltip(
+                        message:
+                            '${date == null ? _s(day['date']) : DateFormat('EEE, dd MMM').format(date)}\n'
+                            'Morning: ${m ? 'submitted' : '—'}   Evening: ${e ? 'submitted' : '—'}',
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: c,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            date == null ? '' : '${date.day}',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: m || e ? Colors.white : _P.muted,
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  }),
+                      );
+                    },
+                  ),
               ],
             ),
           const SizedBox(height: 10),
@@ -1201,10 +1641,23 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           const SizedBox(height: 10),
           Row(
             children: [
-              const Text('Consistency', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _P.ink)),
+              const Text(
+                'Consistency',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: _P.ink,
+                ),
+              ),
               const Spacer(),
-              Text(_pctText(p['consistencyPct']),
-                  style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: _P.primary)),
+              Text(
+                _pctText(p['consistencyPct']),
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w900,
+                  color: _P.primary,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -1223,7 +1676,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       child: clients.isEmpty
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: Text('No tasks in this period', style: TextStyle(fontSize: 12, color: _P.muted))),
+              child: Center(
+                child: Text(
+                  'No tasks in this period',
+                  style: TextStyle(fontSize: 12, color: _P.muted),
+                ),
+              ),
             )
           : Column(children: [for (final c in clients) _clientTile(c, mobile)]),
     );
@@ -1244,7 +1702,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         children: [
           InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: () => setState(() => open ? _openClients.remove(name) : _openClients.add(name)),
+            onTap: () => setState(
+              () => open ? _openClients.remove(name) : _openClients.add(name),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Row(
@@ -1252,31 +1712,58 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                   Container(
                     width: 36,
                     height: 36,
-                    decoration: BoxDecoration(color: _P.sky, borderRadius: BorderRadius.circular(10)),
-                    child: const Icon(Icons.apartment_rounded, size: 18, color: _P.primary),
+                    decoration: BoxDecoration(
+                      color: _P.sky,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.apartment_rounded,
+                      size: 18,
+                      color: _P.primary,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: _P.ink)),
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                            color: _P.ink,
+                          ),
+                        ),
                         const SizedBox(height: 5),
                         Wrap(
                           spacing: 6,
                           runSpacing: 4,
                           children: [
                             _badge('${_n(c['totalTasks'])} tasks', _P.muted),
-                            _badge('${_n(c['completionPct'])}% done', _P.completed),
+                            _badge(
+                              '${_n(c['completionPct'])}% done',
+                              _P.completed,
+                            ),
                             _badge(_s(c['totalDuration'], '0m'), _P.processing),
-                            if (_n(c['onHold']) > 0) _badge('${_n(c['onHold'])} on hold', _P.onHold),
-                            if (_n(c['rejected']) > 0) _badge('${_n(c['rejected'])} rework', _P.rejected),
+                            if (_n(c['onHold']) > 0)
+                              _badge('${_n(c['onHold'])} on hold', _P.onHold),
+                            if (_n(c['rejected']) > 0)
+                              _badge(
+                                '${_n(c['rejected'])} rework',
+                                _P.rejected,
+                              ),
                           ],
                         ),
                       ],
                     ),
                   ),
-                  Icon(open ? Icons.expand_less_rounded : Icons.expand_more_rounded, color: _P.muted),
+                  Icon(
+                    open
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    color: _P.muted,
+                  ),
                 ],
               ),
             ),
@@ -1284,7 +1771,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           if (open)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Column(children: [for (final t in tasks) _taskRow(t, mobile)]),
+              child: Column(
+                children: [for (final t in tasks) _taskRow(t, mobile)],
+              ),
             ),
         ],
       ),
@@ -1295,13 +1784,15 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     final color = _P.forGroup(_s(t['statusGroup']));
     final timing = _s(t['timing'], '—');
     final timingColor = switch (timing) {
-      'On time' => _P.completed,
-      'Late' || 'Overdue' => _P.rejected,
+      'Before deadline' || 'On deadline' => _P.completed,
+      'After deadline' || 'Overdue' => _P.rejected,
       'Due today' => _P.onHold,
       _ => _P.muted,
     };
     final review = _s(t['reviewStatus'], '-');
     final due = _s(t['due']);
+    final durationRating = _s(t['performance'], '—');
+    final completionTime = _s(t['completionDuration']);
 
     final info = Wrap(
       spacing: 6,
@@ -1309,10 +1800,28 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _badge(_s(t['statusLabel']), color),
-        _badge('⏱ ${_s(t['duration'], '0m')}', _P.processing),
-        if (due.isNotEmpty) _badge('Due ${DateFormat('dd/MM').format(DateTime.tryParse(due) ?? DateTime.now())}', _P.muted),
+        if (_n(t['secs']) > 0)
+          _badge('${_s(t['duration'])} in period', _P.processing),
+        if (completionTime.isNotEmpty)
+          _badge('$completionTime to complete', _P.processing),
+        if (due.isNotEmpty)
+          _badge(
+            'Due ${DateFormat('dd/MM').format(DateTime.tryParse(due) ?? DateTime.now())}',
+            _P.muted,
+          ),
         if (timing != '—') _badge(timing, timingColor),
-        if (review != '-') _badge('Review: ${review[0]}${review.substring(1).toLowerCase()}', _P.primary2),
+        if (durationRating != '—')
+          _badge(
+            durationRating,
+            durationRating == 'Delay Out' ? _P.rejected : _P.completed,
+          ),
+        if (_n(t['expectedMinutes']) > 0)
+          _badge('Estimate ${_n(t['expectedMinutes'])}m', _P.muted),
+        if (review != '-')
+          _badge(
+            'Review: ${review[0]}${review.substring(1).toLowerCase()}',
+            _P.primary2,
+          ),
         if (t['staleRunning'] == true) _badge('Left running', _P.rejected),
       ],
     );
@@ -1331,7 +1840,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
               children: [
                 Text(
                   '${_s(t['deliverable'])} · ${_s(t['rowLabel'])}',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _P.ink),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: _P.ink,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 info,
@@ -1343,7 +1856,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                   width: 4,
                   height: 30,
                   margin: const EdgeInsets.only(right: 10),
-                  decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(4)),
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
                 SizedBox(
                   width: 250,
@@ -1351,7 +1867,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
                     '${_s(t['deliverable'])} · ${_s(t['rowLabel'])}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _P.ink),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: _P.ink,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1380,34 +1900,55 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       child: items.isEmpty
           ? const Padding(
               padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: Text('No activity in this period', style: TextStyle(fontSize: 12, color: _P.muted))),
+              child: Center(
+                child: Text(
+                  'No activity in this period',
+                  style: TextStyle(fontSize: 12, color: _P.muted),
+                ),
+              ),
             )
           : Column(
               children: [
                 for (var i = 0; i < items.length && i < 40; i++)
-                  Builder(builder: (context) {
-                    final e = items[i];
-                    final style = icons[_s(e['type'])] ?? (Icons.circle, _P.muted);
-                    final at = DateTime.tryParse(_s(e['date']))?.toLocal();
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(style.$1, size: 17, color: style.$2),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(_s(e['label']), style: const TextStyle(fontSize: 12, color: _P.ink, height: 1.35)),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            at == null ? '' : DateFormat('dd/MM  hh:mm a').format(at),
-                            style: const TextStyle(fontSize: 10.5, color: _P.muted, fontWeight: FontWeight.w600),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
+                  Builder(
+                    builder: (context) {
+                      final e = items[i];
+                      final style =
+                          icons[_s(e['type'])] ?? (Icons.circle, _P.muted);
+                      final at = DateTime.tryParse(_s(e['date']))?.toLocal();
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(style.$1, size: 17, color: style.$2),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _s(e['label']),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: _P.ink,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              at == null
+                                  ? ''
+                                  : DateFormat('dd/MM  hh:mm a').format(at),
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                color: _P.muted,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
               ],
             ),
     );
@@ -1417,7 +1958,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   // SMALL PIECES
   // ─────────────────────────────────────────────────────────────
 
-  Widget _panel({required Widget child, EdgeInsets padding = const EdgeInsets.all(16)}) {
+  Widget _panel({
+    required Widget child,
+    EdgeInsets padding = const EdgeInsets.all(16),
+  }) {
     return Container(
       width: double.infinity,
       padding: padding,
@@ -1430,7 +1974,12 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     );
   }
 
-  Widget _card({required IconData icon, required String title, String? subtitle, required Widget child}) {
+  Widget _card({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required Widget child,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -1438,7 +1987,13 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _P.border),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .025), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: .025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1457,7 +2012,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         Container(
           width: 32,
           height: 32,
-          decoration: BoxDecoration(color: _P.sky, borderRadius: BorderRadius.circular(9)),
+          decoration: BoxDecoration(
+            color: _P.sky,
+            borderRadius: BorderRadius.circular(9),
+          ),
           child: Icon(icon, size: 17, color: _P.primary),
         ),
         const SizedBox(width: 10),
@@ -1465,9 +2023,23 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: _P.ink)),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  color: _P.ink,
+                ),
+              ),
               if (subtitle != null)
-                Text(subtitle, style: const TextStyle(fontSize: 11, color: _P.muted, fontWeight: FontWeight.w600)),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: _P.muted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
             ],
           ),
         ),
@@ -1481,7 +2053,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       backgroundColor: _P.sky,
       child: Text(
         initials,
-        style: TextStyle(fontSize: radius * 0.62, fontWeight: FontWeight.w900, color: _P.primary),
+        style: TextStyle(
+          fontSize: radius * 0.62,
+          fontWeight: FontWeight.w900,
+          color: _P.primary,
+        ),
       ),
     );
   }
@@ -1489,8 +2065,18 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
   Widget _badge(String text, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: .11), borderRadius: BorderRadius.circular(20)),
-      child: Text(text, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: color)),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .11),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
     );
   }
 
@@ -1498,9 +2084,23 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     return Expanded(
       child: Column(
         children: [
-          Text('${_n(value)}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+          Text(
+            '${_n(value)}',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(label, style: const TextStyle(fontSize: 10.5, color: _P.muted, fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10.5,
+              color: _P.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
@@ -1510,9 +2110,23 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 10, height: 10, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3))),
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: c,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
         const SizedBox(width: 5),
-        Text(label, style: const TextStyle(fontSize: 10.5, color: _P.muted, fontWeight: FontWeight.w600)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: _P.muted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }
@@ -1545,7 +2159,11 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
             : Row(
                 children: [
                   for (final p in parts)
-                    if (p.$1 > 0) Expanded(flex: (p.$1 * 100).round().clamp(1, 1 << 30), child: Container(color: p.$2)),
+                    if (p.$1 > 0)
+                      Expanded(
+                        flex: (p.$1 * 100).round().clamp(1, 1 << 30),
+                        child: Container(color: p.$2),
+                      ),
                 ],
               ),
       ),
@@ -1566,9 +2184,17 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         children: [
           const Icon(Icons.cloud_off_rounded, size: 32, color: _P.muted),
           const SizedBox(height: 10),
-          Text(message, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, color: _P.muted)),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12, color: _P.muted),
+          ),
           const SizedBox(height: 12),
-          OutlinedButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh_rounded, size: 16), label: const Text('Retry')),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 16),
+            label: const Text('Retry'),
+          ),
         ],
       ),
     );
@@ -1581,8 +2207,18 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
         children: [
           const Icon(Icons.people_outline_rounded, size: 32, color: _P.muted),
           const SizedBox(height: 10),
-          Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: _P.ink)),
-          Text(subtitle, style: const TextStyle(fontSize: 11.5, color: _P.muted)),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: _P.ink,
+            ),
+          ),
+          Text(
+            subtitle,
+            style: const TextStyle(fontSize: 11.5, color: _P.muted),
+          ),
         ],
       ),
     );
@@ -1618,21 +2254,27 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           pw.TextStyle(font: b ? bold : font, fontSize: size, color: color);
 
       pw.Widget box(String label, String value) => pw.Expanded(
-            child: pw.Container(
-              margin: const pw.EdgeInsets.all(2),
-              padding: const pw.EdgeInsets.all(8),
-              decoration: pw.BoxDecoration(
-                color: soft,
-                borderRadius: pw.BorderRadius.circular(6),
-                border: pw.Border.all(color: line),
+        child: pw.Container(
+          margin: const pw.EdgeInsets.all(2),
+          padding: const pw.EdgeInsets.all(8),
+          decoration: pw.BoxDecoration(
+            color: soft,
+            borderRadius: pw.BorderRadius.circular(6),
+            border: pw.Border.all(color: line),
+          ),
+          child: pw.Column(
+            children: [
+              pw.Text(value, style: st(12, b: true, color: blue)),
+              pw.SizedBox(height: 2),
+              pw.Text(
+                label,
+                style: st(7.5, color: grey),
+                textAlign: pw.TextAlign.center,
               ),
-              child: pw.Column(children: [
-                pw.Text(value, style: st(12, b: true, color: blue)),
-                pw.SizedBox(height: 2),
-                pw.Text(label, style: st(7.5, color: grey), textAlign: pw.TextAlign.center),
-              ]),
-            ),
-          );
+            ],
+          ),
+        ),
+      );
 
       final doc = pw.Document();
       doc.addPage(
@@ -1642,23 +2284,49 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
           build: (context) => [
             pw.Container(
               padding: const pw.EdgeInsets.all(14),
-              decoration: pw.BoxDecoration(color: blue, borderRadius: pw.BorderRadius.circular(8)),
+              decoration: pw.BoxDecoration(
+                color: blue,
+                borderRadius: pw.BorderRadius.circular(8),
+              ),
               child: pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                    pw.Text('GODIGITAL · Employee Performance Report', style: st(10, b: true, color: PdfColors.white)),
-                    pw.SizedBox(height: 4),
-                    pw.Text(_s(emp['fullName']), style: st(17, b: true, color: PdfColors.white)),
-                    pw.Text('${_s(emp['role'])}   ·   $_rangeLabel', style: st(9.5, color: PdfColors.white)),
-                  ]),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'GODIGITAL · Employee Performance Report',
+                        style: st(10, b: true, color: PdfColors.white),
+                      ),
+                      pw.SizedBox(height: 4),
+                      pw.Text(
+                        _s(emp['fullName']),
+                        style: st(17, b: true, color: PdfColors.white),
+                      ),
+                      pw.Text(
+                        '${_s(emp['role'])}   ·   $_rangeLabel',
+                        style: st(9.5, color: PdfColors.white),
+                      ),
+                    ],
+                  ),
                   pw.Container(
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: pw.BoxDecoration(color: PdfColors.white, borderRadius: pw.BorderRadius.circular(6)),
-                    child: pw.Column(children: [
-                      pw.Text('${_n(perf['score'])}%', style: st(16, b: true, color: blue)),
-                      pw.Text(_s(perf['grade']), style: st(9, b: true)),
-                    ]),
+                    padding: const pw.EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.white,
+                      borderRadius: pw.BorderRadius.circular(6),
+                    ),
+                    child: pw.Column(
+                      children: [
+                        pw.Text(
+                          '${_n(perf['score'])}%',
+                          style: st(16, b: true, color: blue),
+                        ),
+                        pw.Text(_s(perf['grade']), style: st(9, b: true)),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -1684,37 +2352,52 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
             pw.SizedBox(height: 14),
             pw.Text('Tasks', style: st(12, b: true)),
             pw.SizedBox(height: 6),
-            pw.Row(children: [
-              box('Clients', '${_n(s['totalClients'])}'),
-              box('Tasks', '${_n(s['totalTasks'])}'),
-              box('Completed', '${_n(s['completed'])}'),
-              box('In progress', '${_n(s['processing'])}'),
-              box('On hold', '${_n(s['onHold'])}'),
-              box('Not started', '${_n(s['pending'])}'),
-              box('Overdue', '${_n(s['overdue'])}'),
-            ]),
+            pw.Row(
+              children: [
+                box('Clients', '${_n(s['totalClients'])}'),
+                box('Tasks', '${_n(s['totalTasks'])}'),
+                box('Completed', '${_n(s['completed'])}'),
+                box('In progress', '${_n(s['processing'])}'),
+                box('On hold', '${_n(s['onHold'])}'),
+                box('Not started', '${_n(s['pending'])}'),
+                box('Overdue', '${_n(s['overdue'])}'),
+              ],
+            ),
             pw.SizedBox(height: 10),
             pw.Text('Working time', style: st(12, b: true)),
             pw.SizedBox(height: 6),
-            pw.Row(children: [
-              box('Productive', _s(h['total'], '0m')),
-              box('Available', _s(h['available'], '0m')),
-              box('Idle', _s(h['idle'], '0m')),
-              box('Productive %', _pctText(h['productivityPct'])),
-              box('On-time', _pctText(h['efficiencyPct'])),
-            ]),
+            pw.Row(
+              children: [
+                box('Tracked during attendance', _s(h['productive'], '0m')),
+                box('Attendance after breaks', _s(h['available'], '0m')),
+                box('Idle', _s(h['idle'], '0m')),
+                box(
+                  'Productive %',
+                  h['productivityPct'] == null
+                      ? '—'
+                      : _pctText(h['productivityPct']),
+                ),
+                box('On-time', _pctText(h['efficiencyPct'])),
+              ],
+            ),
             pw.SizedBox(height: 10),
-            pw.Row(children: [
-              box('Approved', '${_n(r['approved'])}'),
-              box('Rework', '${_n(r['rework'])}'),
-              box('Rejected', '${_n(r['rejected'])}'),
-              box('Approval rate', _pctText(r['approvalRatePct'])),
-              box('Planner days', '${_n(p['submittedDays'])}/${_n(p['workingDays'])}'),
-            ]),
+            pw.Row(
+              children: [
+                box('Approved', '${_n(r['approved'])}'),
+                box('Rework', '${_n(r['rework'])}'),
+                box('Rejected', '${_n(r['rejected'])}'),
+                box('Approval rate', _pctText(r['approvalRatePct'])),
+                box(
+                  'Planner days',
+                  '${_n(p['submittedDays'])}/${_n(p['workingDays'])}',
+                ),
+              ],
+            ),
             pw.SizedBox(height: 14),
             pw.Text('Clients & tasks', style: st(12, b: true)),
             pw.SizedBox(height: 6),
-            if (clients.isEmpty) pw.Text('No tasks in this period.', style: st(9.5, color: grey)),
+            if (clients.isEmpty)
+              pw.Text('No tasks in this period.', style: st(9.5, color: grey)),
             for (final c in clients) ...[
               pw.Text(
                 '${_s(c['clientName'])}   ·   ${_n(c['totalTasks'])} tasks · ${_n(c['completionPct'])}% done · ${_s(c['totalDuration'])}',
@@ -1751,7 +2434,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF export failed: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF export failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
@@ -1809,7 +2494,14 @@ class _Ring extends StatelessWidget {
                 strokeCap: StrokeCap.round,
               ),
             ),
-            Text(label, style: TextStyle(fontSize: size * 0.24, fontWeight: FontWeight.w900, color: color)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: size * 0.24,
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
+            ),
           ],
         ),
       ),

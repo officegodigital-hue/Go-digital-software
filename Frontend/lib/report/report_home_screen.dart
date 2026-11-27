@@ -254,13 +254,21 @@ class _ReportHomeScreenState extends State<ReportHomeScreen> {
     }
   }
 
-  int _reportsFor(String name) {
-    for (final c in _saved) {
-      if ((c['name']?.toString() ?? '').toLowerCase() == name.toLowerCase()) {
-        return (c['reportCount'] as num?)?.toInt() ?? 0;
+  // Completed reports for a client = distinct months whose submission the admin
+  // approved. This is what the employee's "N reports" count should reflect: it
+  // stays 0 until a passed report is approved, then counts one per approved
+  // month (a rejected / still-pending pass does not count).
+  int _completedReportsFor(String name) {
+    final months = <String>{};
+    for (final s in _subs) {
+      if ((s['company_name']?.toString() ?? '').toLowerCase() !=
+          name.toLowerCase()) {
+        continue;
       }
+      if ((s['status']?.toString().toLowerCase()) != 'approved') continue;
+      months.add('${s['report_year']}-${s['report_month']}');
     }
-    return 0;
+    return months.length;
   }
 
   // Latest submission status for [name] in the selected month: 'approved',
@@ -324,7 +332,7 @@ class _ReportHomeScreenState extends State<ReportHomeScreen> {
                       .toSet()
                       .toList()
                 : const [],
-            reports: _reportsFor(name),
+            reports: _completedReportsFor(name),
             status: _statusFor(name),
             raw: c,
           ),

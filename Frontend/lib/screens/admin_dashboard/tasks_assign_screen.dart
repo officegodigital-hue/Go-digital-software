@@ -7,9 +7,10 @@ import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import '../../../layouts/admin_layout.dart';
 import '../../core/keyboard/keyboard_shortcuts.dart';
 import 'package:provider/provider.dart';
-import '../../../services/auth_service.dart'; 
+import '../../../services/auth_service.dart';
 import '../../services/api_config.dart';
 import 'package:intl/intl.dart';
+import 'performance_page.dart';
 
 class TasksAssignScreen extends StatefulWidget {
   const TasksAssignScreen({super.key});
@@ -40,7 +41,6 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   final Map<String, Map<String, dynamic>> _newClientDrafts = {};
   final Set<String> _creatingClientDrafts = {};
 
-  
   Map<String, String> taskRoles = {};
   bool _loadingRoles = true;
 
@@ -66,7 +66,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   void initState() {
     super.initState();
 
-    _adminName = context.read<AuthService>().user?['fullName'] as String? ?? 'Admin';
+    _adminName =
+        context.read<AuthService>().user?['fullName'] as String? ?? 'Admin';
 
     _leftVerticalController.addListener(_syncLeftToRight);
     _verticalController.addListener(_syncRightToLeft);
@@ -115,8 +116,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   Future<void> _fetchAll() async {
     await Future.wait([
       _fetchEmployees(),
-      _fetchClients(), 
-      _fetchPackagesData(),  
+      _fetchClients(),
+      _fetchPackagesData(),
       _fetchTaskMaster(),
       _fetchTasks(),
     ]);
@@ -130,8 +131,12 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         final body = jsonDecode(r.body);
         final data = List<Map<String, dynamic>>.from(body['data'] ?? []);
         setState(() {
-          allClientsData = [...data]..sort((a, b) =>
-              (int.tryParse('${b['id']}') ?? 0).compareTo(int.tryParse('${a['id']}') ?? 0));
+          allClientsData = [...data]
+            ..sort(
+              (a, b) => (int.tryParse('${b['id']}') ?? 0).compareTo(
+                int.tryParse('${a['id']}') ?? 0,
+              ),
+            );
           clients = allClientsData
               .map((c) => (c['company_name'] ?? '').toString().trim())
               .where((name) => name.isNotEmpty)
@@ -165,7 +170,10 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     }
   }
 
-  Future<void> _onPackageSelected(Map<String, dynamic> row, String packageName) async {
+  Future<void> _onPackageSelected(
+    Map<String, dynamic> row,
+    String packageName,
+  ) async {
     setState(() {
       row['deliverables'] = packageName;
     });
@@ -201,14 +209,27 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         }
       }
 
-      if (roleTaskMap.containsKey('ads_handler_task')) row['ads_platform'] = roleTaskMap['ads_handler_task']!.join(', ');
-      if (roleTaskMap.containsKey('page_handler_task')) row['pages_platform'] = roleTaskMap['page_handler_task']!.join(', ');
-      if (roleTaskMap.containsKey('graphic_designer_task')) row['designer_tasks'] = roleTaskMap['graphic_designer_task']!.join(', ');
-      if (roleTaskMap.containsKey('videographer_task')) row['videographer_tasks'] = roleTaskMap['videographer_task']!.join(', ');
-      if (roleTaskMap.containsKey('video_editor_task')) row['video_editor_task'] = roleTaskMap['video_editor_task']!.join(', ');
-      if (roleTaskMap.containsKey('ui_ux_designer_task')) row['ui_ux_tasks'] = roleTaskMap['ui_ux_designer_task']!.join(', ');
-      if (roleTaskMap.containsKey('developer_task')) row['developer_tasks'] = roleTaskMap['developer_task']!.join(', ');
-      if (roleTaskMap.containsKey('website_designer_task')) row['website_designer_tasks'] = roleTaskMap['website_designer_task']!.join(', ');
+      if (roleTaskMap.containsKey('ads_handler_task'))
+        row['ads_platform'] = roleTaskMap['ads_handler_task']!.join(', ');
+      if (roleTaskMap.containsKey('page_handler_task'))
+        row['pages_platform'] = roleTaskMap['page_handler_task']!.join(', ');
+      if (roleTaskMap.containsKey('graphic_designer_task'))
+        row['designer_tasks'] = roleTaskMap['graphic_designer_task']!.join(
+          ', ',
+        );
+      if (roleTaskMap.containsKey('videographer_task'))
+        row['videographer_tasks'] = roleTaskMap['videographer_task']!.join(
+          ', ',
+        );
+      if (roleTaskMap.containsKey('video_editor_task'))
+        row['video_editor_task'] = roleTaskMap['video_editor_task']!.join(', ');
+      if (roleTaskMap.containsKey('ui_ux_designer_task'))
+        row['ui_ux_tasks'] = roleTaskMap['ui_ux_designer_task']!.join(', ');
+      if (roleTaskMap.containsKey('developer_task'))
+        row['developer_tasks'] = roleTaskMap['developer_task']!.join(', ');
+      if (roleTaskMap.containsKey('website_designer_task'))
+        row['website_designer_tasks'] = roleTaskMap['website_designer_task']!
+            .join(', ');
     }
 
     await _saveRow(row);
@@ -219,7 +240,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     try {
       final r = await http.get(Uri.parse('$_baseUrl/task-roles'));
       if (r.statusCode == 200) {
-        final data = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+        final data = List<Map<String, dynamic>>.from(
+          jsonDecode(r.body)['data'],
+        );
         setState(() {
           taskRoles = {};
           for (var role in data) {
@@ -257,7 +280,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     try {
       final r = await http.get(Uri.parse('$_baseUrl/task-master'));
       if (r.statusCode == 200) {
-        final data = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+        final data = List<Map<String, dynamic>>.from(
+          jsonDecode(r.body)['data'],
+        );
         setState(() {
           taskMaster = data;
           _loadingTaskMaster = false;
@@ -279,15 +304,14 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     try {
       final r = await http.get(Uri.parse('$_baseUrl/employees'));
       if (r.statusCode == 200) {
-        final data = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+        final data = List<Map<String, dynamic>>.from(
+          jsonDecode(r.body)['data'],
+        );
 
         setState(() {
           employees = data
-              .where((e) =>
-                  e['is_active'] == 1 ||
-                  e['is_active'] == true)
-              .map((e) =>
-                  (e['full_name'] ?? '').toString().toUpperCase())
+              .where((e) => e['is_active'] == 1 || e['is_active'] == true)
+              .map((e) => (e['full_name'] ?? '').toString().toUpperCase())
               .where((name) => name.isNotEmpty)
               .toList();
 
@@ -310,7 +334,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       final r = await http.get(Uri.parse('$_baseUrl/tasks'));
       if (r.statusCode == 200) {
         setState(() {
-          taskRows = List<Map<String, dynamic>>.from(jsonDecode(r.body)['data']);
+          taskRows = List<Map<String, dynamic>>.from(
+            jsonDecode(r.body)['data'],
+          );
           _loadingTasks = false;
         });
       } else {
@@ -335,7 +361,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         body: jsonEncode({'clientName': 'PENDING_SELECTION'}),
       );
       if (r.statusCode == 201 || r.statusCode == 200) {
-        await _fetchTasks(); 
+        await _fetchTasks();
       }
     } catch (e) {
       debugPrint('Error: $e');
@@ -373,14 +399,14 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         final dialogWidth = isMobile
             ? screenSize.width - 24
             : screenSize.width > 1000
-                ? 620.0
-                : 560.0;
+            ? 620.0
+            : 560.0;
 
         final dialogHeight = isMobile
             ? screenSize.height * 0.88
             : screenSize.height > 850
-                ? 720.0
-                : screenSize.height * 0.84;
+            ? 720.0
+            : screenSize.height * 0.84;
 
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
@@ -399,9 +425,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                 child: Material(
                   color: Colors.white,
                   clipBehavior: Clip.antiAlias,
-                  borderRadius: BorderRadius.circular(
-                    isMobile ? 26 : 28,
-                  ),
+                  borderRadius: BorderRadius.circular(isMobile ? 26 : 28),
                   child: Column(
                     children: [
                       Container(
@@ -413,10 +437,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                         ),
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [
-                              Color(0xFF0759D5),
-                              Color(0xFF0042A8),
-                            ],
+                            colors: [Color(0xFF0759D5), Color(0xFF0042A8)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
@@ -511,8 +532,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                       const SizedBox(height: 7),
                                       _taskMasterTextField(
                                         controller: roleController,
-                                        hint:
-                                            'e.g. Content Creator Task',
+                                        hint: 'e.g. Content Creator Task',
                                         icon: Icons.badge_outlined,
                                         onChanged: (value) {
                                           setDialogState(() {
@@ -547,62 +567,61 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                       SizedBox(
                                         width: double.infinity,
                                         child: ElevatedButton.icon(
-                                          onPressed:
-                                              newRoleName.trim().isEmpty
-                                                  ? null
-                                                  : () async {
-                                                      final roleName =
-                                                          newRoleName.trim();
+                                          onPressed: newRoleName.trim().isEmpty
+                                              ? null
+                                              : () async {
+                                                  final roleName = newRoleName
+                                                      .trim();
 
-                                                      final roleKey =
-                                                          _toSnakeCase(
-                                                        roleName,
-                                                      );
+                                                  final roleKey = _toSnakeCase(
+                                                    roleName,
+                                                  );
 
-                                                      final success =
-                                                          await _addNewRoleToBackend(
+                                                  final success =
+                                                      await _addNewRoleToBackend(
                                                         roleName,
                                                         roleKey,
                                                       );
 
-                                                      if (!mounted) return;
+                                                  if (!mounted) return;
 
-                                                      if (success) {
-                                                        await _fetchTaskRoles();
+                                                  if (success) {
+                                                    await _fetchTaskRoles();
 
-                                                        setDialogState(() {
-                                                          roleController.clear();
-                                                          newRoleName = '';
-                                                          selectedRole = roleKey;
+                                                    setDialogState(() {
+                                                      roleController.clear();
+                                                      newRoleName = '';
+                                                      selectedRole = roleKey;
 
-                                                          if (!taskRoles
-                                                              .containsKey(
-                                                                  selectedRole)) {
-                                                            selectedRole =
-                                                                taskRoles
-                                                                        .isNotEmpty
-                                                                    ? taskRoles
-                                                                        .entries
-                                                                        .first
-                                                                        .key
-                                                                    : '';
-                                                          }
-                                                        });
-
-                                                        ScaffoldMessenger.of(
-                                                          context,
-                                                        ).showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                              'Role "$roleName" created successfully.',
-                                                            ),
-                                                            backgroundColor:
-                                                                const Color(
-                                                                    0xFF16A34A),
-                                                          ),
-                                                        );
+                                                      if (!taskRoles
+                                                          .containsKey(
+                                                            selectedRole,
+                                                          )) {
+                                                        selectedRole =
+                                                            taskRoles.isNotEmpty
+                                                            ? taskRoles
+                                                                  .entries
+                                                                  .first
+                                                                  .key
+                                                            : '';
                                                       }
-                                                    },
+                                                    });
+
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    ).showSnackBar(
+                                                      SnackBar(
+                                                        content: Text(
+                                                          'Role "$roleName" created successfully.',
+                                                        ),
+                                                        backgroundColor:
+                                                            const Color(
+                                                              0xFF16A34A,
+                                                            ),
+                                                      ),
+                                                    );
+                                                  }
+                                                },
                                           icon: const Icon(
                                             Icons.add_rounded,
                                             size: 19,
@@ -615,16 +634,16 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                             ),
                                           ),
                                           style: ElevatedButton.styleFrom(
-                                            backgroundColor:
-                                                const Color(0xFF0052CC),
+                                            backgroundColor: const Color(
+                                              0xFF0052CC,
+                                            ),
                                             foregroundColor: Colors.white,
                                             disabledBackgroundColor:
                                                 const Color(0xFFE2E8F0),
                                             disabledForegroundColor:
                                                 const Color(0xFF94A3B8),
                                             elevation: 0,
-                                            padding:
-                                                const EdgeInsets.symmetric(
+                                            padding: const EdgeInsets.symmetric(
                                               vertical: 14,
                                             ),
                                             shape: RoundedRectangleBorder(
@@ -665,29 +684,26 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFFF8FAFC),
-                                          borderRadius:
-                                              BorderRadius.circular(13),
+                                          borderRadius: BorderRadius.circular(
+                                            13,
+                                          ),
                                           border: Border.all(
                                             color: const Color(0xFFDCE5F0),
                                           ),
                                         ),
-                                        child:
-                                            DropdownButtonHideUnderline(
+                                        child: DropdownButtonHideUnderline(
                                           child: DropdownButton<String>(
-                                            value: taskRoles.containsKey(
-                                              selectedRole,
-                                            )
+                                            value:
+                                                taskRoles.containsKey(
+                                                  selectedRole,
+                                                )
                                                 ? selectedRole
                                                 : taskRoles.isNotEmpty
-                                                    ? taskRoles
-                                                        .entries
-                                                        .first
-                                                        .key
-                                                    : null,
+                                                ? taskRoles.entries.first.key
+                                                : null,
                                             isExpanded: true,
                                             icon: const Icon(
-                                              Icons
-                                                  .keyboard_arrow_down_rounded,
+                                              Icons.keyboard_arrow_down_rounded,
                                               color: Color(0xFF64748B),
                                             ),
                                             style: const TextStyle(
@@ -696,19 +712,20 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                               color: Color(0xFF0F172A),
                                             ),
                                             dropdownColor: Colors.white,
-                                            borderRadius:
-                                                BorderRadius.circular(14),
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
                                             items: taskRoles.entries
                                                 .map(
                                                   (entry) =>
                                                       DropdownMenuItem<String>(
-                                                    value: entry.key,
-                                                    child: Text(
-                                                      entry.value,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
+                                                        value: entry.key,
+                                                        child: Text(
+                                                          entry.value,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                        ),
+                                                      ),
                                                 )
                                                 .toList(),
                                             onChanged: (value) {
@@ -775,8 +792,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                             ),
                                           ),
                                           Container(
-                                            padding:
-                                                const EdgeInsets.symmetric(
+                                            padding: const EdgeInsets.symmetric(
                                               horizontal: 9,
                                               vertical: 5,
                                             ),
@@ -803,8 +819,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFFF8FAFC),
-                                          borderRadius:
-                                              BorderRadius.circular(15),
+                                          borderRadius: BorderRadius.circular(
+                                            15,
+                                          ),
                                           border: Border.all(
                                             color: const Color(0xFFE2E8F0),
                                           ),
@@ -812,8 +829,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                         child: roleTaskList.isEmpty
                                             ? const Center(
                                                 child: Padding(
-                                                  padding:
-                                                      EdgeInsets.all(30),
+                                                  padding: EdgeInsets.all(30),
                                                   child: Column(
                                                     mainAxisSize:
                                                         MainAxisSize.min,
@@ -822,8 +838,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                                         Icons
                                                             .inventory_2_outlined,
                                                         size: 34,
-                                                        color:
-                                                            Color(0xFFCBD5E1),
+                                                        color: Color(
+                                                          0xFFCBD5E1,
+                                                        ),
                                                       ),
                                                       SizedBox(height: 9),
                                                       Text(
@@ -832,8 +849,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                                           fontSize: 12,
                                                           fontWeight:
                                                               FontWeight.w800,
-                                                          color:
-                                                              Color(0xFF64748B),
+                                                          color: Color(
+                                                            0xFF64748B,
+                                                          ),
                                                         ),
                                                       ),
                                                       SizedBox(height: 3),
@@ -843,8 +861,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                                             TextAlign.center,
                                                         style: TextStyle(
                                                           fontSize: 10,
-                                                          color:
-                                                              Color(0xFF94A3B8),
+                                                          color: Color(
+                                                            0xFF94A3B8,
+                                                          ),
                                                         ),
                                                       ),
                                                     ],
@@ -854,16 +873,14 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                             : Scrollbar(
                                                 thumbVisibility: !isMobile,
                                                 child: ListView.separated(
-                                                  padding:
-                                                      const EdgeInsets.all(9),
+                                                  padding: const EdgeInsets.all(
+                                                    9,
+                                                  ),
                                                   itemCount:
                                                       roleTaskList.length,
-                                                  separatorBuilder:
-                                                      (_, _) =>
-                                                          const SizedBox(
-                                                              height: 7),
-                                                  itemBuilder:
-                                                      (context, index) {
+                                                  separatorBuilder: (_, _) =>
+                                                      const SizedBox(height: 7),
+                                                  itemBuilder: (context, index) {
                                                     final task =
                                                         roleTaskList[index];
 
@@ -875,20 +892,20 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
 
                                                     return Container(
                                                       padding:
-                                                          const EdgeInsets
-                                                              .symmetric(
-                                                        horizontal: 12,
-                                                        vertical: 10,
-                                                      ),
-                                                      decoration:
-                                                          BoxDecoration(
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 12,
+                                                            vertical: 10,
+                                                          ),
+                                                      decoration: BoxDecoration(
                                                         color: Colors.white,
                                                         borderRadius:
-                                                            BorderRadius
-                                                                .circular(12),
+                                                            BorderRadius.circular(
+                                                              12,
+                                                            ),
                                                         border: Border.all(
                                                           color: const Color(
-                                                              0xFFE2E8F0),
+                                                            0xFFE2E8F0,
+                                                          ),
                                                         ),
                                                       ),
                                                       child: Row(
@@ -896,26 +913,28 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                                           Container(
                                                             width: 36,
                                                             height: 36,
-                                                            decoration:
-                                                                BoxDecoration(
+                                                            decoration: BoxDecoration(
                                                               color:
                                                                   const Color(
-                                                                      0xFFEFF6FF),
+                                                                    0xFFEFF6FF,
+                                                                  ),
                                                               borderRadius:
-                                                                  BorderRadius
-                                                                      .circular(
-                                                                          10),
+                                                                  BorderRadius.circular(
+                                                                    10,
+                                                                  ),
                                                             ),
                                                             child: const Icon(
                                                               Icons
                                                                   .checklist_rounded,
                                                               size: 18,
                                                               color: Color(
-                                                                  0xFF0052CC),
+                                                                0xFF0052CC,
+                                                              ),
                                                             ),
                                                           ),
                                                           const SizedBox(
-                                                              width: 10),
+                                                            width: 10,
+                                                          ),
                                                           Expanded(
                                                             child: Text(
                                                               name,
@@ -923,106 +942,99 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                                               overflow:
                                                                   TextOverflow
                                                                       .ellipsis,
-                                                              style:
-                                                                  const TextStyle(
+                                                              style: const TextStyle(
                                                                 fontSize: 12,
                                                                 fontWeight:
                                                                     FontWeight
                                                                         .w700,
                                                                 color: Color(
-                                                                    0xFF0F172A),
+                                                                  0xFF0F172A,
+                                                                ),
                                                               ),
                                                             ),
                                                           ),
                                                           const SizedBox(
-                                                              width: 6),
+                                                            width: 6,
+                                                          ),
                                                           IconButton(
                                                             tooltip: 'Edit',
                                                             onPressed: () {
-                                                              setDialogState(
-                                                                () {
-                                                                  taskName =
-                                                                      name;
-                                                                  taskController
-                                                                          .text =
-                                                                      name;
-                                                                  isEditing =
-                                                                      true;
-                                                                  editingTaskId =
-                                                                      id;
-                                                                },
-                                                              );
+                                                              setDialogState(() {
+                                                                taskName = name;
+                                                                taskController
+                                                                        .text =
+                                                                    name;
+                                                                isEditing =
+                                                                    true;
+                                                                editingTaskId =
+                                                                    id;
+                                                              });
                                                             },
                                                             icon: const Icon(
                                                               Icons
                                                                   .edit_rounded,
                                                               size: 18,
                                                               color: Color(
-                                                                  0xFF0052CC),
+                                                                0xFF0052CC,
+                                                              ),
                                                             ),
                                                           ),
                                                           IconButton(
                                                             tooltip: 'Delete',
                                                             onPressed: () async {
-                                                              final confirmed =
-                                                                  await showDialog<
-                                                                      bool>(
+                                                              final confirmed = await showDialog<bool>(
                                                                 context:
                                                                     dialogContext,
-                                                                builder:
-                                                                    (confirmContext) {
+                                                                builder: (confirmContext) {
                                                                   return AlertDialog(
-                                                                    shape:
-                                                                        RoundedRectangleBorder(
+                                                                    shape: RoundedRectangleBorder(
                                                                       borderRadius:
                                                                           BorderRadius.circular(
-                                                                              18),
+                                                                            18,
+                                                                          ),
                                                                     ),
-                                                                    title:
-                                                                        const Text(
+                                                                    title: const Text(
                                                                       'Delete Task?',
-                                                                      style:
-                                                                          TextStyle(
+                                                                      style: TextStyle(
                                                                         fontSize:
                                                                             17,
                                                                         fontWeight:
                                                                             FontWeight.w800,
                                                                       ),
                                                                     ),
-                                                                    content:
-                                                                        Text(
+                                                                    content: Text(
                                                                       'Remove "$name" from this role?',
-                                                                      style:
-                                                                          const TextStyle(
+                                                                      style: const TextStyle(
                                                                         fontSize:
                                                                             12,
                                                                         color: Color(
-                                                                            0xFF64748B),
+                                                                          0xFF64748B,
+                                                                        ),
                                                                       ),
                                                                     ),
                                                                     actions: [
                                                                       TextButton(
-                                                                        onPressed:
-                                                                            () =>
-                                                                                Navigator.pop(confirmContext, false),
-                                                                        child:
-                                                                            const Text(
+                                                                        onPressed: () => Navigator.pop(
+                                                                          confirmContext,
+                                                                          false,
+                                                                        ),
+                                                                        child: const Text(
                                                                           'Cancel',
                                                                         ),
                                                                       ),
                                                                       ElevatedButton(
-                                                                        onPressed:
-                                                                            () =>
-                                                                                Navigator.pop(confirmContext, true),
-                                                                        style:
-                                                                            ElevatedButton.styleFrom(
-                                                                          backgroundColor:
-                                                                              const Color(0xFFDC2626),
+                                                                        onPressed: () => Navigator.pop(
+                                                                          confirmContext,
+                                                                          true,
+                                                                        ),
+                                                                        style: ElevatedButton.styleFrom(
+                                                                          backgroundColor: const Color(
+                                                                            0xFFDC2626,
+                                                                          ),
                                                                           foregroundColor:
                                                                               Colors.white,
                                                                         ),
-                                                                        child:
-                                                                            const Text(
+                                                                        child: const Text(
                                                                           'Delete',
                                                                         ),
                                                                       ),
@@ -1037,14 +1049,16 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                                               }
 
                                                               await _deleteTask(
-                                                                  id);
+                                                                id,
+                                                              );
                                                               await _fetchTaskMaster();
 
                                                               setDialogState(() {
                                                                 taskController
                                                                     .clear();
                                                                 taskName = '';
-                                                                isEditing = false;
+                                                                isEditing =
+                                                                    false;
                                                                 editingTaskId =
                                                                     null;
                                                               });
@@ -1054,7 +1068,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                                                   .delete_outline_rounded,
                                                               size: 19,
                                                               color: Color(
-                                                                  0xFFDC2626),
+                                                                0xFFDC2626,
+                                                              ),
                                                             ),
                                                           ),
                                                         ],
@@ -1082,9 +1097,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                         decoration: const BoxDecoration(
                           color: Colors.white,
                           border: Border(
-                            top: BorderSide(
-                              color: Color(0xFFE2E8F0),
-                            ),
+                            top: BorderSide(color: Color(0xFFE2E8F0)),
                           ),
                         ),
                         child: SafeArea(
@@ -1097,18 +1110,15 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                     Navigator.pop(dialogContext);
                                   },
                                   style: OutlinedButton.styleFrom(
-                                    foregroundColor:
-                                        const Color(0xFF64748B),
+                                    foregroundColor: const Color(0xFF64748B),
                                     side: const BorderSide(
                                       color: Color(0xFFD7E0EA),
                                     ),
-                                    padding:
-                                        const EdgeInsets.symmetric(
+                                    padding: const EdgeInsets.symmetric(
                                       vertical: 13,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
                                   ),
                                   child: const Text(
@@ -1127,8 +1137,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                   onPressed: taskName.trim().isEmpty
                                       ? null
                                       : () async {
-                                          final currentName =
-                                              taskName.trim();
+                                          final currentName = taskName.trim();
 
                                           final wasEditing = isEditing;
 
@@ -1156,16 +1165,18 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                           });
 
                                           if (mounted) {
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
                                               SnackBar(
                                                 content: Text(
                                                   wasEditing
                                                       ? 'Task updated successfully.'
                                                       : 'Task added successfully.',
                                                 ),
-                                                backgroundColor:
-                                                    const Color(0xFF16A34A),
+                                                backgroundColor: const Color(
+                                                  0xFF16A34A,
+                                                ),
                                               ),
                                             );
                                           }
@@ -1177,30 +1188,27 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                     size: 18,
                                   ),
                                   label: Text(
-                                    isEditing
-                                        ? 'Update Task'
-                                        : 'Add Task',
+                                    isEditing ? 'Update Task' : 'Add Task',
                                     style: const TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w800,
                                     ),
                                   ),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor:
-                                        const Color(0xFF0052CC),
+                                    backgroundColor: const Color(0xFF0052CC),
                                     foregroundColor: Colors.white,
-                                    disabledBackgroundColor:
-                                        const Color(0xFFE2E8F0),
-                                    disabledForegroundColor:
-                                        const Color(0xFF94A3B8),
+                                    disabledBackgroundColor: const Color(
+                                      0xFFE2E8F0,
+                                    ),
+                                    disabledForegroundColor: const Color(
+                                      0xFF94A3B8,
+                                    ),
                                     elevation: 0,
-                                    padding:
-                                        const EdgeInsets.symmetric(
+                                    padding: const EdgeInsets.symmetric(
                                       vertical: 13,
                                     ),
                                     shape: RoundedRectangleBorder(
-                                      borderRadius:
-                                          BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
                                   ),
                                 ),
@@ -1237,9 +1245,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFE2E8F0),
-        ),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF0F172A).withValues(alpha: .035),
@@ -1260,11 +1266,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                   color: iconBackground,
                   borderRadius: BorderRadius.circular(11),
                 ),
-                child: Icon(
-                  icon,
-                  size: 19,
-                  color: iconColor,
-                ),
+                child: Icon(icon, size: 19, color: iconColor),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1318,15 +1320,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       ),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(
-          fontSize: 11.5,
-          color: Color(0xFF94A3B8),
-        ),
-        prefixIcon: Icon(
-          icon,
-          size: 18,
-          color: const Color(0xFF0052CC),
-        ),
+        hintStyle: const TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
+        prefixIcon: Icon(icon, size: 18, color: const Color(0xFF0052CC)),
         filled: true,
         fillColor: const Color(0xFFF8FAFC),
         contentPadding: const EdgeInsets.symmetric(
@@ -1335,36 +1330,26 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(
-            color: Color(0xFFDCE5F0),
-          ),
+          borderSide: const BorderSide(color: Color(0xFFDCE5F0)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(
-            color: Color(0xFFDCE5F0),
-          ),
+          borderSide: const BorderSide(color: Color(0xFFDCE5F0)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(
-            color: Color(0xFF0052CC),
-            width: 1.5,
-          ),
+          borderSide: const BorderSide(color: Color(0xFF0052CC), width: 1.5),
         ),
       ),
     );
   }
-  
+
   Future<void> _addNewTask(String taskName, String roleKey) async {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/task-master'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'task_name': taskName,
-          'role_key': roleKey,
-        }),
+        body: jsonEncode({'task_name': taskName, 'role_key': roleKey}),
       );
 
       if (response.statusCode != 201 && response.statusCode != 200) {
@@ -1382,10 +1367,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       debugPrint('❌ Error adding task: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -1396,10 +1378,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       final response = await http.put(
         Uri.parse('$_baseUrl/task-master/$taskId'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'task_name': taskName,
-          'role_key': roleKey,
-        }),
+        body: jsonEncode({'task_name': taskName, 'role_key': roleKey}),
       );
 
       if (response.statusCode != 200) {
@@ -1417,10 +1396,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       debugPrint('❌ Error updating task: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -1428,7 +1404,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
 
   Future<void> _deleteTask(int taskId) async {
     try {
-      final response = await http.delete(Uri.parse('$_baseUrl/task-master/$taskId'));
+      final response = await http.delete(
+        Uri.parse('$_baseUrl/task-master/$taskId'),
+      );
 
       if (response.statusCode != 200) {
         final body = jsonDecode(response.body);
@@ -1445,10 +1423,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       debugPrint('❌ Error deleting task: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -1463,7 +1438,11 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
 
     if (availableTasks.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No tasks found for ${taskRoles[roleKey] ?? roleKey}. Please add tasks in Task Master.')),
+        SnackBar(
+          content: Text(
+            'No tasks found for ${taskRoles[roleKey] ?? roleKey}. Please add tasks in Task Master.',
+          ),
+        ),
       );
       return;
     }
@@ -1508,32 +1487,55 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: const BoxDecoration(
                     color: Color(0xFF0052CC),
-                    borderRadius: BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(8),
+                      topRight: Radius.circular(8),
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(taskRoles[roleKey] ?? roleKey,
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+                      Text(
+                        taskRoles[roleKey] ?? roleKey,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
                       GestureDetector(
                         onTap: () => Navigator.pop(ctx),
-                        child: const Icon(Icons.close, size: 18, color: Colors.white),
+                        child: const Icon(
+                          Icons.close,
+                          size: 18,
+                          color: Colors.white,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
                   ),
                   child: Row(
                     children: [
                       Checkbox(
-                        value: selectedTasks.length == availableTasks.length && availableTasks.isNotEmpty,
+                        value:
+                            selectedTasks.length == availableTasks.length &&
+                            availableTasks.isNotEmpty,
                         tristate: false,
                         activeColor: const Color(0xFF0052CC),
                         onChanged: (val) {
@@ -1553,7 +1555,11 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                       ),
                       const Text(
                         "Select All",
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E293B),
+                        ),
                       ),
                     ],
                   ),
@@ -1565,16 +1571,25 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                       final task = availableTasks[index];
                       final taskId = task['id'];
                       final taskName = task['task_name'] ?? '';
-                      
-                      final selectedIndex = selectedTasks.indexWhere((t) => t['id'] == taskId);
+
+                      final selectedIndex = selectedTasks.indexWhere(
+                        (t) => t['id'] == taskId,
+                      );
                       final isSelected = selectedIndex != -1;
-                      
-                      int currentCount = isSelected ? (selectedTasks[selectedIndex]['count'] ?? 1) : 1;
+
+                      int currentCount = isSelected
+                          ? (selectedTasks[selectedIndex]['count'] ?? 1)
+                          : 1;
 
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: const BoxDecoration(
-                          border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                          border: Border(
+                            bottom: BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -1590,7 +1605,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                       'count': 1,
                                     });
                                   } else {
-                                    selectedTasks.removeWhere((t) => t['id'] == taskId);
+                                    selectedTasks.removeWhere(
+                                      (t) => t['id'] == taskId,
+                                    );
                                   }
                                 });
                               },
@@ -1598,30 +1615,66 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                             Expanded(
                               child: Text(
                                 taskName,
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF334155),
+                                ),
                               ),
                             ),
                             if (isSelected)
-                              SizedBox(
-                                width: 70,
+                              Container(
                                 height: 32,
-                                child: TextField(
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                  controller: TextEditingController(text: currentCount.toString())..selection = TextSelection.fromPosition(TextPosition(offset: currentCount.toString().length)),
-                                  decoration: const InputDecoration(
-                                    labelText: 'Count',
-                                    labelStyle: TextStyle(fontSize: 10),
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 0),
-                                    border: OutlineInputBorder(),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: const Color(0xFFDBEAFE),
                                   ),
-                                  style: const TextStyle(fontSize: 12),
-                                  onChanged: (val) {
-                                    final parsed = int.tryParse(val);
-                                    if (parsed != null && parsed > 0) {
-                                      selectedTasks[selectedIndex]['count'] = parsed;
-                                    }
-                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  color: const Color(0xFFF8FBFF),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: 'Reduce rows',
+                                      icon: const Icon(Icons.remove, size: 15),
+                                      color: const Color(0xFF0052CC),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 30,
+                                      ),
+                                      onPressed: currentCount > 1
+                                          ? () => setDialogState(() {
+                                              selectedTasks[selectedIndex]['count'] =
+                                                  currentCount - 1;
+                                            })
+                                          : null,
+                                    ),
+                                    SizedBox(
+                                      width: 26,
+                                      child: Text(
+                                        '$currentCount',
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Add row',
+                                      icon: const Icon(Icons.add, size: 15),
+                                      color: const Color(0xFF0052CC),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 30,
+                                      ),
+                                      onPressed: () => setDialogState(() {
+                                        selectedTasks[selectedIndex]['count'] =
+                                            currentCount + 1;
+                                      }),
+                                    ),
+                                  ],
                                 ),
                               ),
                           ],
@@ -1632,28 +1685,43 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                 ),
                 Container(
                   padding: const EdgeInsets.all(12),
-                  decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
+                  decoration: const BoxDecoration(
+                    border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cancel', style: TextStyle(color: Color(0xFF64748B))),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(color: Color(0xFF64748B)),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed: () {
-                          final taskString = selectedTasks.map((t) => '${t['name']} (${t['count']})').join(', ');
+                          final taskString = selectedTasks
+                              .map((t) => '${t['name']} (${t['count']})')
+                              .join(', ');
                           setState(() => row[dbFieldKey] = taskString);
                           _saveRow(row);
                           Navigator.pop(ctx);
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF0052CC),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                         ),
-                        child: const Text('Apply', style: TextStyle(color: Color(0xFFFFFFFF)),),
+                        child: const Text(
+                          'Apply',
+                          style: TextStyle(color: Color(0xFFFFFFFF)),
+                        ),
                       ),
                     ],
                   ),
@@ -1735,31 +1803,31 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
           'clientName': clientName,
           'deliverables': row['deliverables'] ?? '',
           'maintenanceDate': row['maintenance_date'] ?? '',
-          
+
           'adsHandling': _cleanRoleValue(row['ads_handling']),
           'adsPlatform': row['ads_platform'] ?? '',
-          
+
           'pageHandling': _cleanRoleValue(row['page_handling']),
           'pagesPlatform': row['pages_platform'] ?? '',
-          
+
           'designer': _cleanRoleValue(row['designer']),
           'designerTasks': row['designer_tasks'] ?? '',
-          
+
           'videographer': _cleanRoleValue(row['videographer']),
           'videographerTasks': row['videographer_tasks'] ?? '',
-          
+
           'videoEditor': _cleanRoleValue(row['video_editor']),
           'videoEditorTask': row['video_editor_task'] ?? '',
-          
+
           'uiUxDesigner': _cleanRoleValue(row['ui_ux_designer']),
           'uiUxTasks': row['ui_ux_tasks'] ?? '',
-          
+
           'developer': _cleanRoleValue(row['developer']),
           'developerTasks': row['developer_tasks'] ?? '',
-          
-          'websiteDesigner':_cleanRoleValue(row['website_designer']),
-          'websiteDesignerTasks':row['website_designer_tasks'] ?? '',
-          
+
+          'websiteDesigner': _cleanRoleValue(row['website_designer']),
+          'websiteDesignerTasks': row['website_designer_tasks'] ?? '',
+
           'deadline': _cleanRoleValue(row['deadline']),
           'comments': row['comments'] ?? '',
           'isAssigned': row['is_assigned'] == 1 || row['is_assigned'] == true,
@@ -1785,7 +1853,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   List<String> _missingFieldsFor(Map<String, dynamic> row) {
     final missing = <String>[];
     final clientName = (row['client_name'] ?? '').toString();
-    if (clientName.isEmpty || clientName == 'PENDING_SELECTION') missing.add('Client');
+    if (clientName.isEmpty || clientName == 'PENDING_SELECTION')
+      missing.add('Client');
     _requiredRoleFields.forEach((key, label) {
       if ((row[key] ?? '').toString().isEmpty) missing.add(label);
     });
@@ -1798,7 +1867,12 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       final missing = _missingFieldsFor(row);
       if (missing.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Please fill: ${missing.join(", ")} before assigning.'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text(
+              'Please fill: ${missing.join(", ")} before assigning.',
+            ),
+            backgroundColor: Colors.red,
+          ),
         );
         return;
       }
@@ -1829,9 +1903,12 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
 
   Future<void> _deleteRow(int id) async {
     if (id < 0) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This is an onboarding client, not a saved task.')),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This is an onboarding client, not a saved task.'),
+          ),
+        );
       return;
     }
     try {
@@ -1841,9 +1918,17 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   Future<void> _pickDate(Map<String, dynamic> row, String fieldKey) async {
-    final DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime(2020), lastDate: DateTime(2030));
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
     if (picked != null) {
-      setState(() => row[fieldKey] = '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}');
+      setState(
+        () => row[fieldKey] =
+            '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}',
+      );
       await _saveRow(row);
     }
   }
@@ -1852,7 +1937,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   String formatDisplayDate(dynamic value) {
     if (value == null || value.toString().trim().isEmpty) return '—';
     final val = value.toString().trim();
-    
+
     // Already dd/MM/yyyy format la irunthal athaane return pannum
     if (RegExp(r'^\d{2}/\d{2}/\d{4}$').hasMatch(val)) {
       return val;
@@ -1877,19 +1962,24 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       for (final client in allClientsData) {
         final name = (client['company_name'] ?? '').toString().trim();
         final active = client['is_active'];
-        if (name.isEmpty || (active != 1 && active != true && active != null)) continue;
+        if (name.isEmpty || (active != 1 && active != true && active != null))
+          continue;
         final key = name.toLowerCase();
         if (existingNames.contains(key)) continue;
         if (_searchQuery.trim().isNotEmpty &&
-            !key.contains(_searchQuery.trim().toLowerCase())) continue;
+            !key.contains(_searchQuery.trim().toLowerCase()))
+          continue;
         final clientId = int.tryParse('${client['id']}') ?? 0;
         if (clientId <= 0) continue;
-        final draft = _newClientDrafts.putIfAbsent(key, () => <String, dynamic>{
-          'id': -clientId,
-          'client_name': name,
-          'deliverables': '',
-          'is_assigned': 0,
-        });
+        final draft = _newClientDrafts.putIfAbsent(
+          key,
+          () => <String, dynamic>{
+            'id': -clientId,
+            'client_name': name,
+            'deliverables': '',
+            'is_assigned': 0,
+          },
+        );
         newClients.add(draft);
       }
     }
@@ -1903,7 +1993,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         return _searchQuery.trim().isEmpty;
       }
       final clientMatch = allClientsData.firstWhere(
-        (c) => (c['company_name'] ?? '').toString().trim().toLowerCase() == clientName.toLowerCase(),
+        (c) =>
+            (c['company_name'] ?? '').toString().trim().toLowerCase() ==
+            clientName.toLowerCase(),
         orElse: () => <String, dynamic>{},
       );
       if (clientMatch.isEmpty) return false;
@@ -1913,11 +2005,14 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         final currentClient = clientName.toLowerCase();
         final currentId = int.tryParse('${r['id']}') ?? 0;
         if (taskRows.any((other) {
-          final assignedOther = other['is_assigned'] == 1 || other['is_assigned'] == true;
+          final assignedOther =
+              other['is_assigned'] == 1 || other['is_assigned'] == true;
           return assignedOther &&
-              (other['client_name'] ?? '').toString().trim().toLowerCase() == currentClient &&
+              (other['client_name'] ?? '').toString().trim().toLowerCase() ==
+                  currentClient &&
               (int.tryParse('${other['id']}') ?? 0) > currentId;
-        })) return false;
+        }))
+          return false;
       }
       return _searchQuery.trim().isEmpty ||
           clientName.toLowerCase().contains(_searchQuery.trim().toLowerCase());
@@ -1929,7 +2024,13 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool loading = _loadingTasks || _loadingEmployees || _loadingClients || _loadingPackages || _loadingTaskMaster || _loadingRoles;
+    final bool loading =
+        _loadingTasks ||
+        _loadingEmployees ||
+        _loadingClients ||
+        _loadingPackages ||
+        _loadingTaskMaster ||
+        _loadingRoles;
 
     return AdminLayout(
       pageTitle: "Tasks Assign",
@@ -1968,21 +2069,33 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                 alignment: isMobile ? WrapAlignment.start : WrapAlignment.end,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () => setState(() => _showAssigned = !_showAssigned),
+                    onPressed: () =>
+                        setState(() => _showAssigned = !_showAssigned),
                     icon: Icon(
-                      _showAssigned ? Icons.pending_actions_rounded : Icons.check_circle_outline_rounded,
+                      _showAssigned
+                          ? Icons.pending_actions_rounded
+                          : Icons.check_circle_outline_rounded,
                       size: 16,
                       color: const Color(0xFF0052CC),
                     ),
                     label: Text(
                       _showAssigned ? 'New Assigned Tasks' : 'Assigned Tasks',
-                      style: const TextStyle(color: Color(0xFF0052CC), fontWeight: FontWeight.w700, fontSize: 12),
+                      style: const TextStyle(
+                        color: Color(0xFF0052CC),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
                     ),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Color(0xFF93C5FD)),
                       backgroundColor: const Color(0xFFF8FBFF),
-                      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 13,
+                        vertical: 11,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                   ),
                   IconButton(
@@ -1996,27 +2109,57 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                   ),
                   ElevatedButton.icon(
                     onPressed: _showTaskMasterDialog,
-                    icon: const Icon(Icons.tune_rounded, size: 16, color: Colors.white),
+                    icon: const Icon(
+                      Icons.tune_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFFFA500),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 13,
+                        vertical: 11,
+                      ),
                       elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                    label: const Text('Task Master', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                    label: const Text(
+                      'Task Master',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                   ElevatedButton.icon(
                     onPressed: loading ? null : _addRow,
-                    icon: const Icon(Icons.add_rounded, size: 17, color: Colors.white),
+                    icon: const Icon(
+                      Icons.add_rounded,
+                      size: 17,
+                      color: Colors.white,
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0052CC),
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 15,
+                        vertical: 11,
+                      ),
                       elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                    label: const Text('Add Section', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                    label: const Text(
+                      'Add Section',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ],
               );
@@ -2043,39 +2186,44 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             },
           ),
           const SizedBox(height: 12),
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: _showAssigned ? const Color(0xFFDCFCE7) : const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                _showAssigned
-                    ? "Showing ${_visibleRows.length} assigned task(s)"
-                    : "Showing ${_visibleRows.length} pending task(s) — assigned rows are hidden",
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: _showAssigned ? const Color(0xFF16A34A) : const Color(0xFF1D4ED8),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: _showAssigned
+                      ? const Color(0xFFDCFCE7)
+                      : const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  _showAssigned
+                      ? "Showing ${_visibleRows.length} assigned task(s)"
+                      : "Showing ${_visibleRows.length} pending task(s) — assigned rows are hidden",
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: _showAssigned
+                        ? const Color(0xFF16A34A)
+                        : const Color(0xFF1D4ED8),
+                  ),
                 ),
               ),
-            ),
-          ]),
+            ],
+          ),
           const SizedBox(height: 16),
           if (loading && taskRows.isEmpty)
             const Center(
               child: Padding(
                 padding: EdgeInsets.symmetric(vertical: 70),
-                child: CircularProgressIndicator(
-                  color: Color(0xFF0052CC),
-                ),
+                child: CircularProgressIndicator(color: Color(0xFF0052CC)),
               ),
             )
           else
-            _buildResponsiveAssignmentTable(
-              MediaQuery.of(context).size.width,
-            ),
+            _buildResponsiveAssignmentTable(MediaQuery.of(context).size.width),
         ],
       ),
     );
@@ -2087,89 +2235,146 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     const double headerHeight = 50.0;
     const double rowHeight = 60.0;
     const double rightWidth = tableWidth;
-    final double bodyHeight = MediaQuery.of(context).size.width < 700 ? 500.0 : 560.0;
+    final double bodyHeight = MediaQuery.of(context).size.width < 700
+        ? 500.0
+        : 560.0;
 
     Widget clientColumn() => SizedBox(
       width: clientWidth,
-      child: Column(children: [
-        Container(
-          width: clientWidth,
-          height: headerHeight,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          alignment: Alignment.centerLeft,
-          decoration: const BoxDecoration(color: Color(0xFF0052CC), border: Border(right: BorderSide(color: Color(0xFF0044B3)))),
-          child: const Row(children: [
-            Icon(Icons.business_rounded, size: 15, color: Colors.white),
-            SizedBox(width: 8),
-            Expanded(child: Text('CLIENT NAME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: .6))),
-          ]),
-        ),
-        SizedBox(
-          height: bodyHeight,
-          child: SingleChildScrollView(
-            controller: _leftVerticalController,
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: Column(children: [
-              ..._visibleRows.map((row) => SizedBox(height: rowHeight, child: _buildClientCell(row))),
-              ...List.generate(4, (_) => SizedBox(width: 4400, height: rowHeight, child: _buildClientCell(null))),
-            ]),
+      child: Column(
+        children: [
+          Container(
+            width: clientWidth,
+            height: headerHeight,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            alignment: Alignment.centerLeft,
+            decoration: const BoxDecoration(
+              color: Color(0xFF0052CC),
+              border: Border(right: BorderSide(color: Color(0xFF0044B3))),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.business_rounded, size: 15, color: Colors.white),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'CLIENT NAME',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: .6,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ]),
+          SizedBox(
+            height: bodyHeight,
+            child: SingleChildScrollView(
+              controller: _leftVerticalController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                children: [
+                  ..._visibleRows.map(
+                    (row) => SizedBox(
+                      height: rowHeight,
+                      child: _buildClientCell(row),
+                    ),
+                  ),
+                  ...List.generate(
+                    4,
+                    (_) => SizedBox(
+                      width: 4400,
+                      height: rowHeight,
+                      child: _buildClientCell(null),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
 
     Widget rightColumn() => SizedBox(
       width: rightWidth,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SizedBox(
-          width: rightWidth,
-          height: headerHeight,
-          child: Row(children: const [
-            _HeaderCell(width: 200, label: 'DELIVERABLES'),
-            _HeaderCell(width: 200, label: 'MAINTENANCE DATE'),
-            _HeaderCell(width: 140, label: 'ADS HANDLER'),
-            _HeaderCell(width: 160, label: 'ADS TASKS'),
-            _HeaderCell(width: 140, label: 'PAGE HANDLER'),
-            _HeaderCell(width: 160, label: 'PAGE TASKS'),
-            _HeaderCell(width: 140, label: 'DESIGNER'),
-            _HeaderCell(width: 160, label: 'DESIGN TASKS'),
-            _HeaderCell(width: 140, label: 'VIDEO EDITOR'),
-            _HeaderCell(width: 160, label: 'VIDEO EDIT TASKS'),
-            _HeaderCell(width: 140, label: 'VIDEOGRAPHER'),
-            _HeaderCell(width: 160, label: 'VIDEO TASKS'),
-            _HeaderCell(width: 140, label: 'WEBSITE DESIGNER'),
-            _HeaderCell(width: 160, label: 'WEBSITE DESIGNER TASKS'),
-            _HeaderCell(width: 140, label: 'UI/UX DESIGNER'),
-            _HeaderCell(width: 160, label: 'UI/UX TASKS'),
-            _HeaderCell(width: 140, label: 'DEVELOPER'),
-            _HeaderCell(width: 160, label: 'DEV TASKS'),
-            _HeaderCell(width: 140, label: 'DEADLINE'),
-            _HeaderCell(width: 160, label: 'COMMENTS'),
-            _HeaderCell(width: 140, label: 'ACTION'),
-          ]),
-        ),
-        Container(height: 1, width: rightWidth, color: const Color(0xFFE2E8F0)),
-        SizedBox(
-          height: bodyHeight,
-          child: Scrollbar(
-            controller: _verticalController,
-            thumbVisibility: true,
-            trackVisibility: true,
-            interactive: true,
-            thickness: 9,
-            radius: const Radius.circular(10),
-            scrollbarOrientation: ScrollbarOrientation.right,
-            child: SingleChildScrollView(
-              controller: _verticalController,
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(children: [
-                ..._visibleRows.map((row) => SizedBox(width: rightWidth, height: rowHeight, child: _buildDataRow(row))),
-                ...List.generate(4, (_) => SizedBox(width: rightWidth, height: rowHeight, child: _buildEmptyRow())),
-              ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: rightWidth,
+            height: headerHeight,
+            child: Row(
+              children: const [
+                _HeaderCell(width: 200, label: 'DELIVERABLES'),
+                _HeaderCell(width: 200, label: 'MAINTENANCE DATE'),
+                _HeaderCell(width: 140, label: 'ADS HANDLER'),
+                _HeaderCell(width: 160, label: 'ADS TASKS'),
+                _HeaderCell(width: 140, label: 'PAGE HANDLER'),
+                _HeaderCell(width: 160, label: 'PAGE TASKS'),
+                _HeaderCell(width: 140, label: 'DESIGNER'),
+                _HeaderCell(width: 160, label: 'DESIGN TASKS'),
+                _HeaderCell(width: 140, label: 'VIDEO EDITOR'),
+                _HeaderCell(width: 160, label: 'VIDEO EDIT TASKS'),
+                _HeaderCell(width: 140, label: 'VIDEOGRAPHER'),
+                _HeaderCell(width: 160, label: 'VIDEO TASKS'),
+                _HeaderCell(width: 140, label: 'WEBSITE DESIGNER'),
+                _HeaderCell(width: 160, label: 'WEBSITE DESIGNER TASKS'),
+                _HeaderCell(width: 140, label: 'UI/UX DESIGNER'),
+                _HeaderCell(width: 160, label: 'UI/UX TASKS'),
+                _HeaderCell(width: 140, label: 'DEVELOPER'),
+                _HeaderCell(width: 160, label: 'DEV TASKS'),
+                _HeaderCell(width: 140, label: 'DEADLINE'),
+                _HeaderCell(width: 160, label: 'COMMENTS'),
+                _HeaderCell(width: 140, label: 'ACTION'),
+              ],
             ),
           ),
-        ),
-      ]),
+          Container(
+            height: 1,
+            width: rightWidth,
+            color: const Color(0xFFE2E8F0),
+          ),
+          SizedBox(
+            height: bodyHeight,
+            child: Scrollbar(
+              controller: _verticalController,
+              thumbVisibility: true,
+              trackVisibility: true,
+              interactive: true,
+              thickness: 9,
+              radius: const Radius.circular(10),
+              scrollbarOrientation: ScrollbarOrientation.right,
+              child: SingleChildScrollView(
+                controller: _verticalController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  children: [
+                    ..._visibleRows.map(
+                      (row) => SizedBox(
+                        width: rightWidth,
+                        height: rowHeight,
+                        child: _buildDataRow(row),
+                      ),
+                    ),
+                    ...List.generate(
+                      4,
+                      (_) => SizedBox(
+                        width: rightWidth,
+                        height: rowHeight,
+                        child: _buildEmptyRow(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
 
     return Container(
@@ -2177,52 +2382,93 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFD8E2F0)),
-        boxShadow: [BoxShadow(color: const Color(0xFF0F172A).withValues(alpha: .06), blurRadius: 24, offset: const Offset(0, 10))],
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: .06),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(children: [
-        SizedBox(
-          height: headerHeight + bodyHeight,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            clientColumn(),
-            Expanded(
-              child: Scrollbar(
-                controller: _horizontalController,
-                thumbVisibility: true,
-                trackVisibility: true,
-                interactive: true,
-                thickness: 9,
-                radius: const Radius.circular(10),
-                scrollbarOrientation: ScrollbarOrientation.bottom,
-                child: SingleChildScrollView(
-                  controller: _horizontalController,
-                  scrollDirection: Axis.horizontal,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  child: rightColumn(),
+      child: Column(
+        children: [
+          SizedBox(
+            height: headerHeight + bodyHeight,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                clientColumn(),
+                Expanded(
+                  child: Scrollbar(
+                    controller: _horizontalController,
+                    thumbVisibility: true,
+                    trackVisibility: true,
+                    interactive: true,
+                    thickness: 9,
+                    radius: const Radius.circular(10),
+                    scrollbarOrientation: ScrollbarOrientation.bottom,
+                    child: SingleChildScrollView(
+                      controller: _horizontalController,
+                      scrollDirection: Axis.horizontal,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: rightColumn(),
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ]),
-        ),
-        Container(
-          height: 46,
-          decoration: const BoxDecoration(color: Color(0xFFF8FAFC), border: Border(top: BorderSide(color: Color(0xFFE2E8F0)))),
-          child: Row(children: [
-            SizedBox(
-              width: clientWidth,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 14),
-                child: Row(children: [
-                  Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFF0052CC)),
-                  SizedBox(width: 6),
-                  Text('CLIENT FIXED', style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: Color(0xFF0052CC), letterSpacing: .4)),
-                ]),
-              ),
+          ),
+          Container(
+            height: 46,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
             ),
-            const Expanded(child: Center(child: Text('←  Swipe / Shift + Mouse Wheel  →', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF64748B))))),
-          ]),
-        ),
-      ]),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: clientWidth,
+                  child: const Padding(
+                    padding: EdgeInsets.only(left: 14),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.lock_outline_rounded,
+                          size: 14,
+                          color: Color(0xFF0052CC),
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'CLIENT FIXED',
+                          style: TextStyle(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF0052CC),
+                            letterSpacing: .4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Expanded(
+                  child: Center(
+                    child: Text(
+                      '←  Swipe / Shift + Mouse Wheel  →',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2275,10 +2521,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                   ? 'Tasks matching this view will appear here.'
                   : 'No task matches "$_searchQuery".',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF94A3B8),
-              ),
+              style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
             ),
           ],
         ),
@@ -2385,15 +2628,16 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   Widget _buildMobileTaskCard(Map<String, dynamic> row, int index) {
-    final assigned =
-        row['is_assigned'] == 1 || row['is_assigned'] == true;
+    final assigned = row['is_assigned'] == 1 || row['is_assigned'] == true;
 
     final client = (row['client_name'] ?? '').toString().trim();
     final package = (row['deliverables'] ?? '').toString().trim();
     final maintenance = formatDisplayDate(row['maintenance_date']);
     final deadlineRaw = (row['deadline'] ?? '').toString().trim();
     // 🟢 இაქე  deadline date-ஐ correct-ஆக formatting செய்து show செய்கிறது
-    final deadline = deadlineRaw.isEmpty ? 'Not set' : formatDisplayDate(deadlineRaw);
+    final deadline = deadlineRaw.isEmpty
+        ? 'Not set'
+        : formatDisplayDate(deadlineRaw);
 
     return Container(
       width: double.infinity,
@@ -2623,11 +2867,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             color: const Color(0xFFEFF6FF),
             borderRadius: BorderRadius.circular(9),
           ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: const Color(0xFF0052CC),
-          ),
+          child: Icon(icon, size: 16, color: const Color(0xFF0052CC)),
         ),
         const SizedBox(width: 8),
         Text(
@@ -2708,8 +2948,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: TextField(
-                            onChanged: (v) =>
-                                setSheetState(() => query = v),
+                            onChanged: (v) => setSheetState(() => query = v),
                             decoration: InputDecoration(
                               hintText: 'Search package...',
                               prefixIcon: const Icon(Icons.search_rounded),
@@ -2889,9 +3128,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                     value,
                     style: TextStyle(
                       fontSize: 11,
-                      fontWeight: empty
-                          ? FontWeight.w500
-                          : FontWeight.w800,
+                      fontWeight: empty ? FontWeight.w500 : FontWeight.w800,
                       color: empty
                           ? const Color(0xFF94A3B8)
                           : const Color(0xFF334155),
@@ -2916,17 +3153,14 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }) {
     final employee = (row[employeeKey] ?? '').toString();
     final task = (row[taskKey] ?? '').toString();
-    final hasEmployee =
-        employee.isNotEmpty && employee.toUpperCase() != 'NONE';
+    final hasEmployee = employee.isNotEmpty && employee.toUpperCase() != 'NONE';
     final hasTask = task.trim().isNotEmpty;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: hasEmployee
-            ? const Color(0xFFF8FAFC)
-            : const Color(0xFFFFFBEB),
+        color: hasEmployee ? const Color(0xFFF8FAFC) : const Color(0xFFFFFBEB),
         borderRadius: BorderRadius.circular(13),
         border: Border.all(
           color: hasEmployee
@@ -2997,10 +3231,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             borderRadius: BorderRadius.circular(10),
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 9,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(10),
@@ -3055,10 +3286,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             borderRadius: BorderRadius.circular(10),
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 9,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
               decoration: BoxDecoration(
                 color: const Color(0xFFEFF6FF),
                 borderRadius: BorderRadius.circular(10),
@@ -3079,8 +3307,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 10,
-                        fontWeight:
-                            hasTask ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: hasTask ? FontWeight.w700 : FontWeight.w500,
                         color: hasTask
                             ? const Color(0xFF1D4ED8)
                             : const Color(0xFF64748B),
@@ -3096,6 +3323,30 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
               ),
             ),
           ),
+          if (hasEmployee) ...[
+            const SizedBox(height: 7),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PerformanceScreen(employeeName: employee),
+                  ),
+                ),
+                icon: const Icon(Icons.insights_rounded, size: 15),
+                label: const Text('View performance'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF0759D5),
+                  side: const BorderSide(color: Color(0xFFBFDBFE)),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  textStyle: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -3120,17 +3371,10 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
           color: Color(0xFF64748B),
         ),
         hintText: 'Add a note for this task...',
-        hintStyle: const TextStyle(
-          fontSize: 10.5,
-          color: Color(0xFF94A3B8),
-        ),
+        hintStyle: const TextStyle(fontSize: 10.5, color: Color(0xFF94A3B8)),
         prefixIcon: const Padding(
           padding: EdgeInsets.only(bottom: 28),
-          child: Icon(
-            Icons.notes_rounded,
-            size: 17,
-            color: Color(0xFF64748B),
-          ),
+          child: Icon(Icons.notes_rounded, size: 17, color: Color(0xFF64748B)),
         ),
         filled: true,
         fillColor: const Color(0xFFF8FAFC),
@@ -3145,10 +3389,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(
-            color: Color(0xFF0052CC),
-            width: 1.3,
-          ),
+          borderSide: const BorderSide(color: Color(0xFF0052CC), width: 1.3),
         ),
       ),
       style: const TextStyle(
@@ -3159,10 +3400,7 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     );
   }
 
-  Widget _buildMobileActionBar(
-    Map<String, dynamic> row,
-    bool assigned,
-  ) {
+  Widget _buildMobileActionBar(Map<String, dynamic> row, bool assigned) {
     bool isDeadlinePassed = false;
     final raw = (row['deadline'] ?? '').toString().trim();
 
@@ -3182,37 +3420,36 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
               onPressed: !assigned
                   ? () => _toggleAssign(row)
                   : isDeadlinePassed
-                      ? () async {
-                          final res = await http.post(
-                            Uri.parse(
-                              '$_baseUrl/tasks/${row['id']}/duplicate-next-month',
+                  ? () async {
+                      final res = await http.post(
+                        Uri.parse(
+                          '$_baseUrl/tasks/${row['id']}/duplicate-next-month',
+                        ),
+                      );
+
+                      if (!mounted) return;
+
+                      if (res.statusCode == 200 || res.statusCode == 201) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'New task successfully added for next cycle!',
                             ),
-                          );
-
-                          if (!mounted) return;
-
-                          if (res.statusCode == 200 ||
-                              res.statusCode == 201) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'New task successfully added for next cycle!',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                            await _fetchTasks();
-                            if (mounted) setState(() {});
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Failed: ${res.body}'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        }
-                      : null,
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                        await _fetchTasks();
+                        if (mounted) setState(() {});
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed: ${res.body}'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  : null,
               icon: Icon(
                 !assigned
                     ? Icons.check_circle_outline_rounded
@@ -3256,40 +3493,38 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                     onSubmit: () => Navigator.pop(dialogContext, true),
                     onCancel: () => Navigator.pop(dialogContext, false),
                     child: AlertDialog(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    title: const Text(
-                      'Delete Task?',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
                       ),
-                    ),
-                    content: const Text(
-                      'This task will be removed from the assignment list.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () =>
-                            Navigator.pop(dialogContext, false),
-                        child: const Text('Cancel'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () =>
-                            Navigator.pop(dialogContext, true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFDC2626),
-                          foregroundColor: Colors.white,
+                      title: const Text(
+                        'Delete Task?',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
                         ),
-                        child: const Text('Delete'),
                       ),
-                    ],
-                  ),
+                      content: const Text(
+                        'This task will be removed from the assignment list.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext, false),
+                          child: const Text('Cancel'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(dialogContext, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFDC2626),
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
                   );
                 },
               );
@@ -3323,15 +3558,24 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       barrierColor: Colors.black.withValues(alpha: 0.45),
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, refresh) {
-          final filtered = options.where((value) =>
-              value.toLowerCase().contains(query.trim().toLowerCase())).toList();
+          final filtered = options
+              .where(
+                (value) =>
+                    value.toLowerCase().contains(query.trim().toLowerCase()),
+              )
+              .toList();
           final isClient = title.toLowerCase().contains('client');
           return Dialog(
             backgroundColor: Colors.white,
             elevation: 16,
             clipBehavior: Clip.antiAlias,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+            insetPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 24,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 495, maxHeight: 630),
               child: Column(
@@ -3347,46 +3591,59 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                         end: Alignment.centerRight,
                       ),
                     ),
-                    child: Row(children: [
-                      Container(
-                        width: 38,
-                        height: 38,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(11),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: Icon(
+                            isClient
+                                ? Icons.business_rounded
+                                : Icons.inventory_2_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
-                        child: Icon(
-                          isClient ? Icons.business_rounded : Icons.inventory_2_rounded,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(title,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 17,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 17,
+                                ),
                               ),
-                            ),
-                            Text(
-                              isClient ? 'Find and select a client' : 'Find and select a package',
-                              style: const TextStyle(color: Colors.white70, fontSize: 11),
-                            ),
-                          ],
+                              Text(
+                                isClient
+                                    ? 'Find and select a client'
+                                    : 'Find and select a package',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      IconButton(
-                        tooltip: 'Close',
-                        onPressed: () => Navigator.pop(dialogContext),
-                        icon: const Icon(Icons.close_rounded, color: Colors.white),
-                      ),
-                    ]),
+                        IconButton(
+                          tooltip: 'Close',
+                          onPressed: () => Navigator.pop(dialogContext),
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
@@ -3394,22 +3651,37 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                       autofocus: true,
                       onChanged: (text) => refresh(() => query = text),
                       decoration: InputDecoration(
-                        hintText: isClient ? 'Search client...' : 'Search package...',
-                        prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF64748B)),
+                        hintText: isClient
+                            ? 'Search client...'
+                            : 'Search package...',
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          color: Color(0xFF64748B),
+                        ),
                         filled: true,
                         fillColor: const Color(0xFFF8FAFC),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 13,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFE2E8F0),
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFF1477E8), width: 1.5),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF1477E8),
+                            width: 1.5,
+                          ),
                         ),
                       ),
                     ),
@@ -3417,13 +3689,23 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                   Flexible(
                     child: filtered.isEmpty
                         ? const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 46, horizontal: 20),
+                            padding: EdgeInsets.symmetric(
+                              vertical: 46,
+                              horizontal: 20,
+                            ),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.search_off_rounded, size: 32, color: Color(0xFF94A3B8)),
+                                Icon(
+                                  Icons.search_off_rounded,
+                                  size: 32,
+                                  color: Color(0xFF94A3B8),
+                                ),
                                 SizedBox(height: 8),
-                                Text('No matching results', style: TextStyle(color: Color(0xFF64748B))),
+                                Text(
+                                  'No matching results',
+                                  style: TextStyle(color: Color(0xFF64748B)),
+                                ),
                               ],
                             ),
                           )
@@ -3437,27 +3719,46 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 9),
                                 child: Material(
-                                  color: selected ? const Color(0xFFEAF3FF) : const Color(0xFFF7FAFF),
+                                  color: selected
+                                      ? const Color(0xFFEAF3FF)
+                                      : const Color(0xFFF7FAFF),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                     side: BorderSide(
-                                      color: selected ? const Color(0xFF93C5FD) : const Color(0xFFDCE7F4),
+                                      color: selected
+                                          ? const Color(0xFF93C5FD)
+                                          : const Color(0xFFDCE7F4),
                                     ),
                                   ),
                                   child: ListTile(
                                     dense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
-                                    title: Text(value,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 3,
+                                    ),
+                                    title: Text(
+                                      value,
                                       style: TextStyle(
                                         fontSize: 13,
-                                        fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                                        fontWeight: selected
+                                            ? FontWeight.w800
+                                            : FontWeight.w600,
                                         color: const Color(0xFF1E293B),
                                       ),
                                     ),
                                     trailing: selected
-                                        ? const Icon(Icons.check_circle_rounded, color: Color(0xFF1468D4), size: 20)
-                                        : const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 19),
-                                    onTap: () => Navigator.pop(dialogContext, value),
+                                        ? const Icon(
+                                            Icons.check_circle_rounded,
+                                            color: Color(0xFF1468D4),
+                                            size: 20,
+                                          )
+                                        : const Icon(
+                                            Icons.chevron_right_rounded,
+                                            color: Color(0xFF94A3B8),
+                                            size: 19,
+                                          ),
+                                    onTap: () =>
+                                        Navigator.pop(dialogContext, value),
                                   ),
                                 ),
                               );
@@ -3466,16 +3767,22 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                    child: Row(children: [
-                      Text('${filtered.length} result(s)',
-                        style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                      ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialogContext),
-                        child: const Text('Cancel'),
-                      ),
-                    ]),
+                    child: Row(
+                      children: [
+                        Text(
+                          '${filtered.length} result(s)',
+                          style: const TextStyle(
+                            color: Color(0xFF64748B),
+                            fontSize: 11,
+                          ),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          child: const Text('Cancel'),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -3484,7 +3791,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         },
       ),
     );
-  }  Widget _buildClientCell(Map<String, dynamic>? row) {
+  }
+
+  Widget _buildClientCell(Map<String, dynamic>? row) {
     if (row == null) {
       return Container(height: 54, color: const Color(0xFF0052CC));
     }
@@ -3492,7 +3801,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     return InkWell(
       onTap: () async {
         final selected = await _pickTaskOption(
-          title: 'Search client', options: clients, current: currentClient,
+          title: 'Search client',
+          options: clients,
+          current: currentClient,
         );
         if (selected == null || selected == currentClient || !mounted) return;
         setState(() => row['client_name'] = selected);
@@ -3502,15 +3813,25 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         height: 54,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         color: const Color(0xFF0052CC),
-        child: Row(children: [
-          Expanded(child: Text(
-            currentClient.isEmpty || currentClient == 'PENDING_SELECTION'
-                ? '— Select client name —' : currentClient,
-            maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-          )),
-          const Icon(Icons.search, color: Colors.white, size: 17),
-        ]),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                currentClient.isEmpty || currentClient == 'PENDING_SELECTION'
+                    ? '— Select client name —'
+                    : currentClient,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            const Icon(Icons.search, color: Colors.white, size: 17),
+          ],
+        ),
       ),
     );
   }
@@ -3519,33 +3840,47 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     final current = (row['deliverables'] ?? '').toString();
     final titles = packagesList
         .map((p) => (p['title'] ?? '').toString())
-        .where((p) => p.isNotEmpty).toSet().toList();
+        .where((p) => p.isNotEmpty)
+        .toSet()
+        .toList();
     return InkWell(
       onTap: () async {
         final selected = await _pickTaskOption(
-          title: 'Search package', options: titles, current: current,
+          title: 'Search package',
+          options: titles,
+          current: current,
         );
         if (selected != null && selected != current && mounted) {
           await _onPackageSelected(row, selected);
         }
       },
       child: Container(
-        width: width, height: 54,
+        width: width,
+        height: 54,
         padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
-        child: Row(children: [
-          Expanded(child: Text(current.isEmpty ? '— Select Package —' : current,
-            maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 10))),
-          const Icon(Icons.search, size: 16, color: Color(0xFF64748B)),
-        ]),
+        decoration: const BoxDecoration(
+          border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                current.isEmpty ? '— Select Package —' : current,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 10),
+              ),
+            ),
+            const Icon(Icons.search, size: 16, color: Color(0xFF64748B)),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildDataRow(Map<String, dynamic> row) {
     final bool assigned = row['is_assigned'] == 1 || row['is_assigned'] == true;
-   
+
     const noneMarker = 'NONE';
     final empItems = <DropdownMenuItem<String>>[
       const DropdownMenuItem(
@@ -3555,7 +3890,13 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       ),
       const DropdownMenuItem(
         value: noneMarker,
-        child: Text('None (Not Assigned)', style: TextStyle(color: Color(0xFF64748B), fontStyle: FontStyle.italic)),
+        child: Text(
+          'None (Not Assigned)',
+          style: TextStyle(
+            color: Color(0xFF64748B),
+            fontStyle: FontStyle.italic,
+          ),
+        ),
       ),
       ...employees.map((e) => DropdownMenuItem(value: e, child: Text(e))),
     ];
@@ -3571,14 +3912,14 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     String formatOnlyDay(dynamic rawDate) {
       if (rawDate == null || rawDate.toString().trim().isEmpty) return '—';
       final val = rawDate.toString().trim();
-      
+
       if (val.contains('/')) {
         final parts = val.split('/');
         if (parts.isNotEmpty) {
           return parts[0];
         }
       }
-      
+
       try {
         final parsed = DateTime.parse(val);
         return parsed.day.toString().padLeft(2, '0');
@@ -3589,27 +3930,45 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
 
     Widget taskCell(double width, String roleKey, String dbFieldKey) {
       return GestureDetector(
-        onTap: () => _showTaskSelectionPopup(roleKey: roleKey, row: row, dbFieldKey: dbFieldKey),
+        onTap: () => _showTaskSelectionPopup(
+          roleKey: roleKey,
+          row: row,
+          dbFieldKey: dbFieldKey,
+        ),
         child: Container(
           width: width,
           height: 54,
           padding: const EdgeInsets.symmetric(horizontal: 10),
-          decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
-          child: Row(children: [
-            Expanded(
-              child: Text(
-                row[dbFieldKey]?.toString().isEmpty ?? true ? '—' : row[dbFieldKey].toString(),
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: (row[dbFieldKey]?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,
-                  color: (row[dbFieldKey]?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF1D4ED8),
+          decoration: const BoxDecoration(
+            border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  row[dbFieldKey]?.toString().isEmpty ?? true
+                      ? '—'
+                      : row[dbFieldKey].toString(),
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: (row[dbFieldKey]?.toString().isEmpty ?? true)
+                        ? FontWeight.normal
+                        : FontWeight.w600,
+                    color: (row[dbFieldKey]?.toString().isEmpty ?? true)
+                        ? const Color(0xFFCBD5E1)
+                        : const Color(0xFF1D4ED8),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            const Icon(Icons.arrow_drop_down, size: 16, color: Color(0xFF64748B)),
-          ]),
+              const Icon(
+                Icons.arrow_drop_down,
+                size: 16,
+                color: Color(0xFF64748B),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -3624,7 +3983,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             onTap: () => _pickDate(row, 'maintenance_date'),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+              decoration: const BoxDecoration(
+                border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+              ),
               alignment: Alignment.centerLeft,
               child: Row(
                 children: [
@@ -3633,28 +3994,117 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                       formatOnlyDay(row['maintenance_date']),
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: (row['maintenance_date']?.toString().isEmpty ?? true) ? FontWeight.normal : FontWeight.w600,
-                        color: (row['maintenance_date']?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF334155),
+                        fontWeight:
+                            (row['maintenance_date']?.toString().isEmpty ??
+                                true)
+                            ? FontWeight.normal
+                            : FontWeight.w600,
+                        color:
+                            (row['maintenance_date']?.toString().isEmpty ??
+                                true)
+                            ? const Color(0xFFCBD5E1)
+                            : const Color(0xFF334155),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Icon(Icons.calendar_today, size: 14, color: (row['maintenance_date']?.toString().isEmpty ?? true) ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC)),
+                  Icon(
+                    Icons.calendar_today,
+                    size: 14,
+                    color: (row['maintenance_date']?.toString().isEmpty ?? true)
+                        ? const Color(0xFFCBD5E1)
+                        : const Color(0xFF0052CC),
+                  ),
                 ],
               ),
             ),
           ),
         ),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('ads_handling'), empItems, roleField: 'ads_handling', onChanged: (v) { setState(() => row['ads_handling'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'ads_handler_task', 'ads_platform')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('page_handling'), empItems, roleField: 'page_handling', onChanged: (v) { setState(() => row['page_handling'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'page_handler_task', 'pages_platform')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('designer'), empItems, roleField: 'designer', onChanged: (v) { setState(() => row['designer'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'graphic_designer_task', 'designer_tasks')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('video_editor'), empItems, roleField: 'video_editor', onChanged: (v) { setState(() => row['video_editor'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'video_editor_task', 'video_editor_task')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('videographer'), empItems, roleField: 'videographer', onChanged: (v) { setState(() => row['videographer'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'videographer_task', 'videographer_tasks')),
+        SizedBox(
+          width: 140,
+          child: _empDropCell(
+            140,
+            empVal('ads_handling'),
+            empItems,
+            roleField: 'ads_handling',
+            onChanged: (v) {
+              setState(() => row['ads_handling'] = v);
+              _saveRow(row);
+            },
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: taskCell(160, 'ads_handler_task', 'ads_platform'),
+        ),
+        SizedBox(
+          width: 140,
+          child: _empDropCell(
+            140,
+            empVal('page_handling'),
+            empItems,
+            roleField: 'page_handling',
+            onChanged: (v) {
+              setState(() => row['page_handling'] = v);
+              _saveRow(row);
+            },
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: taskCell(160, 'page_handler_task', 'pages_platform'),
+        ),
+        SizedBox(
+          width: 140,
+          child: _empDropCell(
+            140,
+            empVal('designer'),
+            empItems,
+            roleField: 'designer',
+            onChanged: (v) {
+              setState(() => row['designer'] = v);
+              _saveRow(row);
+            },
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: taskCell(160, 'graphic_designer_task', 'designer_tasks'),
+        ),
+        SizedBox(
+          width: 140,
+          child: _empDropCell(
+            140,
+            empVal('video_editor'),
+            empItems,
+            roleField: 'video_editor',
+            onChanged: (v) {
+              setState(() => row['video_editor'] = v);
+              _saveRow(row);
+            },
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: taskCell(160, 'video_editor_task', 'video_editor_task'),
+        ),
+        SizedBox(
+          width: 140,
+          child: _empDropCell(
+            140,
+            empVal('videographer'),
+            empItems,
+            roleField: 'videographer',
+            onChanged: (v) {
+              setState(() => row['videographer'] = v);
+              _saveRow(row);
+            },
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: taskCell(160, 'videographer_task', 'videographer_tasks'),
+        ),
         SizedBox(
           width: 140,
           child: _empDropCell(
@@ -3678,10 +4128,40 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             'website_designer_tasks',
           ),
         ),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('ui_ux_designer'), empItems, roleField: 'ui_ux_designer', onChanged: (v) { setState(() => row['ui_ux_designer'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'ui_ux_designer_task', 'ui_ux_tasks')),
-        SizedBox(width: 140, child: _empDropCell(140, empVal('developer'), empItems, roleField: 'developer', onChanged: (v) { setState(() => row['developer'] = v); _saveRow(row); })),
-        SizedBox(width: 160, child: taskCell(160, 'developer_task', 'developer_tasks')),
+        SizedBox(
+          width: 140,
+          child: _empDropCell(
+            140,
+            empVal('ui_ux_designer'),
+            empItems,
+            roleField: 'ui_ux_designer',
+            onChanged: (v) {
+              setState(() => row['ui_ux_designer'] = v);
+              _saveRow(row);
+            },
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: taskCell(160, 'ui_ux_designer_task', 'ui_ux_tasks'),
+        ),
+        SizedBox(
+          width: 140,
+          child: _empDropCell(
+            140,
+            empVal('developer'),
+            empItems,
+            roleField: 'developer',
+            onChanged: (v) {
+              setState(() => row['developer'] = v);
+              _saveRow(row);
+            },
+          ),
+        ),
+        SizedBox(
+          width: 160,
+          child: taskCell(160, 'developer_task', 'developer_tasks'),
+        ),
         SizedBox(width: 140, child: _deadlineCell(140, row)),
         SizedBox(width: 160, child: _commentCell(160, row)),
         SizedBox(width: 140, child: _actionCell(140, row, assigned)),
@@ -3699,13 +4179,31 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         width: width,
         height: 54,
         padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+        decoration: const BoxDecoration(
+          border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+        ),
         alignment: Alignment.centerLeft,
         child: Row(
           children: [
-            Expanded(child: Text(formattedDate, style: TextStyle(fontSize: 11, color: value.toString().trim().isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF334155)))),
+            Expanded(
+              child: Text(
+                formattedDate,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: value.toString().trim().isEmpty
+                      ? const Color(0xFFCBD5E1)
+                      : const Color(0xFF334155),
+                ),
+              ),
+            ),
             const SizedBox(width: 8),
-            Icon(Icons.calendar_today, size: 14, color: value.toString().trim().isEmpty ? const Color(0xFFCBD5E1) : const Color(0xFF0052CC)),
+            Icon(
+              Icons.calendar_today,
+              size: 14,
+              color: value.toString().trim().isEmpty
+                  ? const Color(0xFFCBD5E1)
+                  : const Color(0xFF0052CC),
+            ),
           ],
         ),
       ),
@@ -3716,14 +4214,19 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     return Container(
       width: width,
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+      decoration: const BoxDecoration(
+        border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+      ),
       child: Center(
         child: SizedBox(
           height: 32,
           child: TextField(
             controller: TextEditingController(text: row['comments'] ?? ''),
             style: const TextStyle(fontSize: 10),
-            onSubmitted: (v) { row['comments'] = v; _saveRow(row); },
+            onSubmitted: (v) {
+              row['comments'] = v;
+              _saveRow(row);
+            },
           ),
         ),
       ),
@@ -3732,7 +4235,8 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
 
   Widget _actionCell(double width, Map<String, dynamic> row, bool assigned) {
     bool isDeadlinePassed = false;
-    if (row['deadline'] != null && row['deadline'].toString().trim().isNotEmpty) {
+    if (row['deadline'] != null &&
+        row['deadline'].toString().trim().isNotEmpty) {
       try {
         DateTime deadlineDate = DateTime.parse(row['deadline'].toString());
         if (deadlineDate.isBefore(DateTime.now())) {
@@ -3752,8 +4256,20 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                 height: 32,
                 child: ElevatedButton(
                   onPressed: () => _toggleAssign(row),
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0052CC), padding: EdgeInsets.zero),
-                  child: const FittedBox(child: Text("ASSIGN", style: TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.w900))),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0052CC),
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: const FittedBox(
+                    child: Text(
+                      "ASSIGN",
+                      style: TextStyle(
+                        fontSize: 8,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -3764,21 +4280,45 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                 height: 32,
                 child: ElevatedButton(
                   onPressed: () async {
-                    final res = await http.post(Uri.parse('$_baseUrl/tasks/${row['id']}/duplicate-next-month'));
+                    final res = await http.post(
+                      Uri.parse(
+                        '$_baseUrl/tasks/${row['id']}/duplicate-next-month',
+                      ),
+                    );
                     if (res.statusCode == 200 || res.statusCode == 201) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('✅ New task successfully added for next cycle!'), backgroundColor: Colors.green)
+                        const SnackBar(
+                          content: Text(
+                            '✅ New task successfully added for next cycle!',
+                          ),
+                          backgroundColor: Colors.green,
+                        ),
                       );
-                      await _fetchTasks(); 
-                      setState(() {}); 
+                      await _fetchTasks();
+                      setState(() {});
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('❌ Failed: ${res.body}'), backgroundColor: Colors.red)
+                        SnackBar(
+                          content: Text('❌ Failed: ${res.body}'),
+                          backgroundColor: Colors.red,
+                        ),
                       );
                     }
                   },
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF16A34A), padding: EdgeInsets.zero),
-                  child: const FittedBox(child: Text("NEXT CYCLE", style: TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.w900))),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF16A34A),
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: const FittedBox(
+                    child: Text(
+                      "NEXT CYCLE",
+                      style: TextStyle(
+                        fontSize: 7,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -3786,7 +4326,19 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
           ],
           GestureDetector(
             onTap: () => _deleteRow(row['id']),
-            child: Container(width: 24, height: 24, decoration: BoxDecoration(color: const Color(0xFFFEE2E2), borderRadius: BorderRadius.circular(4)), child: const Icon(Icons.delete_outline, size: 12, color: Color(0xFFDC2626))),
+            child: Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Icon(
+                Icons.delete_outline,
+                size: 12,
+                color: Color(0xFFDC2626),
+              ),
+            ),
           ),
         ],
       ),
@@ -3811,13 +4363,21 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       if (client.isEmpty || !activeClients.contains(client)) continue;
       final previous = latestByClient[client];
       final id = int.tryParse('${row['id']}') ?? 0;
-      final previousId = previous == null ? -1 : (int.tryParse('${previous['id']}') ?? 0);
+      final previousId = previous == null
+          ? -1
+          : (int.tryParse('${previous['id']}') ?? 0);
       if (previous == null || id > previousId) latestByClient[client] = row;
     }
 
     const roleFields = [
-      'ads_handling', 'page_handling', 'designer', 'videographer',
-      'video_editor', 'ui_ux_designer', 'developer', 'website_designer',
+      'ads_handling',
+      'page_handling',
+      'designer',
+      'videographer',
+      'video_editor',
+      'ui_ux_designer',
+      'developer',
+      'website_designer',
     ];
     final distinctClients = <String, Map<String, Set<String>>>{};
     for (final entry in latestByClient.entries) {
@@ -3827,7 +4387,9 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
         final employee = (row[field] ?? '').toString().trim().toUpperCase();
         if (employee.isEmpty || employee == 'NONE') continue;
         distinctClients.putIfAbsent(employee, () => <String, Set<String>>{});
-        distinctClients[employee]!.putIfAbsent(field, () => <String>{}).add(client);
+        distinctClients[employee]!
+            .putIfAbsent(field, () => <String>{})
+            .add(client);
       }
     }
     return distinctClients.map(
@@ -3838,11 +4400,11 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     );
   }
 
- Future<void> _showEmployeePicker({
-  required String current,
-  required String roleField,
-  required ValueChanged<String> onChanged,
-}) async {
+  Future<void> _showEmployeePicker({
+    required String current,
+    required String roleField,
+    required ValueChanged<String> onChanged,
+  }) async {
     final searchController = TextEditingController();
     String query = '';
 
@@ -3869,25 +4431,38 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
-            final all = <String>['NONE', ...employees.where((e) => e.trim().isNotEmpty)];
+            final all = <String>[
+              'NONE',
+              ...employees.where((e) => e.trim().isNotEmpty),
+            ];
             final filtered = all.where((name) {
               if (query.trim().isEmpty) return true;
               return name.toLowerCase().contains(query.toLowerCase());
             }).toList();
 
             return Dialog(
-              insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 24,
+              ),
               backgroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 430, maxHeight: 650),
+                constraints: const BoxConstraints(
+                  maxWidth: 430,
+                  maxHeight: 650,
+                ),
                 child: Column(
                   children: [
                     Container(
                       padding: const EdgeInsets.fromLTRB(18, 16, 12, 14),
                       decoration: const BoxDecoration(
                         color: Color(0xFF0052CC),
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(20),
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -3898,23 +4473,44 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                               color: Colors.white.withValues(alpha: .13),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Icon(Icons.person_search_rounded, color: Colors.white, size: 21),
+                            child: const Icon(
+                              Icons.person_search_rounded,
+                              color: Colors.white,
+                              size: 21,
+                            ),
                           ),
                           const SizedBox(width: 11),
                           const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Select Employee', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Colors.white)),
+                                Text(
+                                  'Select Employee',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                  ),
+                                ),
                                 SizedBox(height: 3),
-                                Text('Choose who should handle this role', style: TextStyle(fontSize: 10.5, color: Colors.white70)),
+                                Text(
+                                  'Choose who should handle this role',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: Colors.white70,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
                           IconButton(
                             tooltip: 'Close',
                             onPressed: () => Navigator.pop(dialogContext),
-                            icon: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
                           ),
                         ],
                       ),
@@ -3924,34 +4520,55 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                       child: TextField(
                         controller: searchController,
                         autofocus: true,
-                        onChanged: (value) => setDialogState(() => query = value),
+                        onChanged: (value) =>
+                            setDialogState(() => query = value),
                         decoration: InputDecoration(
                           hintText: 'Search employee...',
-                          hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-                          prefixIcon: const Icon(Icons.search_rounded, size: 19, color: Color(0xFF64748B)),
+                          hintStyle: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF94A3B8),
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 19,
+                            color: Color(0xFF64748B),
+                          ),
                           suffixIcon: query.isNotEmpty
                               ? IconButton(
                                   onPressed: () {
                                     searchController.clear();
                                     setDialogState(() => query = '');
                                   },
-                                  icon: const Icon(Icons.close_rounded, size: 17),
+                                  icon: const Icon(
+                                    Icons.close_rounded,
+                                    size: 17,
+                                  ),
                                 )
                               : null,
                           filled: true,
                           fillColor: const Color(0xFFF8FAFC),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2E8F0),
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE2E8F0),
+                            ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Color(0xFF0052CC), width: 1.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF0052CC),
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
@@ -3962,39 +4579,61 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.person_off_outlined, size: 32, color: Color(0xFFCBD5E1)),
+                                  Icon(
+                                    Icons.person_off_outlined,
+                                    size: 32,
+                                    color: Color(0xFFCBD5E1),
+                                  ),
                                   SizedBox(height: 8),
-                                  Text('No employee found', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF64748B))),
+                                  Text(
+                                    'No employee found',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
                                 ],
                               ),
                             )
                           : ListView.separated(
                               padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
                               itemCount: filtered.length,
-                              separatorBuilder: (_, _) => const SizedBox(height: 5),
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 5),
                               itemBuilder: (_, index) {
                                 final name = filtered[index];
                                 final isNone = name == 'NONE';
-                                final selected = current.toUpperCase() == name.toUpperCase();
+                                final selected =
+                                    current.toUpperCase() == name.toUpperCase();
                                 final clientCount = isNone
                                     ? 0
-                                    : (employeeRoleCounts[name.trim().toUpperCase()]?[roleField] ?? 0);
+                                    : (employeeRoleCounts[name
+                                              .trim()
+                                              .toUpperCase()]?[roleField] ??
+                                          0);
 
                                 return InkWell(
                                   borderRadius: BorderRadius.circular(12),
-                                  onTap: () => Navigator.pop(dialogContext, name),
+                                  onTap: () =>
+                                      Navigator.pop(dialogContext, name),
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 120),
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: selected
                                           ? const Color(0xFFEFF6FF)
                                           : isNone
-                                              ? const Color(0xFFF8FAFC)
-                                              : Colors.white,
+                                          ? const Color(0xFFF8FAFC)
+                                          : Colors.white,
                                       borderRadius: BorderRadius.circular(12),
                                       border: Border.all(
-                                        color: selected ? const Color(0xFF93C5FD) : const Color(0xFFE2E8F0),
+                                        color: selected
+                                            ? const Color(0xFF93C5FD)
+                                            : const Color(0xFFE2E8F0),
                                       ),
                                     ),
                                     child: Row(
@@ -4003,47 +4642,71 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                           width: 38,
                                           height: 38,
                                           decoration: BoxDecoration(
-                                            color: isNone ? const Color(0xFFF1F5F9) : const Color(0xFFEFF6FF),
-                                            borderRadius: BorderRadius.circular(11),
+                                            color: isNone
+                                                ? const Color(0xFFF1F5F9)
+                                                : const Color(0xFFEFF6FF),
+                                            borderRadius: BorderRadius.circular(
+                                              11,
+                                            ),
                                           ),
                                           child: Icon(
-                                            isNone ? Icons.person_off_outlined : Icons.person_outline_rounded,
+                                            isNone
+                                                ? Icons.person_off_outlined
+                                                : Icons.person_outline_rounded,
                                             size: 19,
-                                            color: isNone ? const Color(0xFF64748B) : const Color(0xFF0052CC),
+                                            color: isNone
+                                                ? const Color(0xFF64748B)
+                                                : const Color(0xFF0052CC),
                                           ),
                                         ),
                                         const SizedBox(width: 11),
                                         Expanded(
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
                                               Text(
-                                                isNone ? 'None (Not Assigned)' : name,
+                                                isNone
+                                                    ? 'None (Not Assigned)'
+                                                    : name,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
                                                   fontSize: 12,
                                                   fontWeight: FontWeight.w800,
-                                                  fontStyle: isNone ? FontStyle.italic : FontStyle.normal,
-                                                  color: isNone ? const Color(0xFF64748B) : const Color(0xFF0F172A),
+                                                  fontStyle: isNone
+                                                      ? FontStyle.italic
+                                                      : FontStyle.normal,
+                                                  color: isNone
+                                                      ? const Color(0xFF64748B)
+                                                      : const Color(0xFF0F172A),
                                                 ),
                                               ),
                                               const SizedBox(height: 2),
                                               Text(
-                                                isNone ? 'Leave this role unassigned' : 'Available employee',
-                                                style: const TextStyle(fontSize: 9.5, color: Color(0xFF94A3B8)),
+                                                isNone
+                                                    ? 'Leave this role unassigned'
+                                                    : 'Available employee',
+                                                style: const TextStyle(
+                                                  fontSize: 9.5,
+                                                  color: Color(0xFF94A3B8),
+                                                ),
                                               ),
                                             ],
                                           ),
                                         ),
                                         if (!isNone) ...[
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 6,
+                                            ),
                                             decoration: BoxDecoration(
                                               color: clientCount > 0
                                                   ? const Color(0xFFEFF6FF)
                                                   : const Color(0xFFF1F5F9),
-                                              borderRadius: BorderRadius.circular(8),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
                                             ),
                                             child: Text(
                                               '$clientCount clients',
@@ -4059,10 +4722,18 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                                           const SizedBox(width: 8),
                                         ],
                                         if (selected)
-                                          const Icon(Icons.check_circle_rounded, size: 20, color: Color(0xFF0052CC)),
+                                          const Icon(
+                                            Icons.check_circle_rounded,
+                                            size: 20,
+                                            color: Color(0xFF0052CC),
+                                          ),
                                         const SizedBox(width: 3),
                                         if (!selected)
-                                          const Icon(Icons.chevron_right_rounded, size: 18, color: Color(0xFF94A3B8)),
+                                          const Icon(
+                                            Icons.chevron_right_rounded,
+                                            size: 18,
+                                            color: Color(0xFF94A3B8),
+                                          ),
                                       ],
                                     ),
                                   ),
@@ -4074,19 +4745,41 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 13),
                       decoration: const BoxDecoration(
                         color: Color(0xFFF8FAFC),
-                        border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-                        borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+                        border: Border(
+                          top: BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        borderRadius: BorderRadius.vertical(
+                          bottom: Radius.circular(20),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.touch_app_rounded, size: 15, color: Color(0xFF94A3B8)),
+                          const Icon(
+                            Icons.touch_app_rounded,
+                            size: 15,
+                            color: Color(0xFF94A3B8),
+                          ),
                           const SizedBox(width: 6),
                           const Expanded(
-                            child: Text('Tap an employee to assign this role.', style: TextStyle(fontSize: 9.5, color: Color(0xFF64748B))),
+                            child: Text(
+                              'Tap an employee to assign this role.',
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
                           ),
                           TextButton(
-                            onPressed: () => Navigator.pop(dialogContext, 'NONE'),
-                            child: const Text('Clear', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFDC2626))),
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, 'NONE'),
+                            child: const Text(
+                              'Clear',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFFDC2626),
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -4112,16 +4805,24 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
     required ValueChanged<String> onChanged,
   }) {
     final isUnselected = current.isEmpty || current.toUpperCase() == 'NONE';
-    final display = current.isEmpty || current.toUpperCase() == 'NONE' ? '— Select —' : current;
+    final display = current.isEmpty || current.toUpperCase() == 'NONE'
+        ? '— Select —'
+        : current;
 
     return InkWell(
-      onTap: () => _showEmployeePicker(current: current, roleField: roleField, onChanged: onChanged),
+      onTap: () => _showEmployeePicker(
+        current: current,
+        roleField: roleField,
+        onChanged: onChanged,
+      ),
       child: Container(
         width: width,
         height: 54,
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
         decoration: BoxDecoration(
-          color: isUnselected ? const Color(0xFFFFFBEB) : const Color(0xFFF8FAFC),
+          color: isUnselected
+              ? const Color(0xFFFFFBEB)
+              : const Color(0xFFF8FAFC),
           border: const Border(right: BorderSide(color: Color(0xFFE2E8F0))),
         ),
         child: Container(
@@ -4130,15 +4831,21 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
             color: isUnselected ? const Color(0xFFFFFBEB) : Colors.white,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isUnselected ? const Color(0xFFFCD34D) : const Color(0xFFDCE5F0),
+              color: isUnselected
+                  ? const Color(0xFFFCD34D)
+                  : const Color(0xFFDCE5F0),
             ),
           ),
           child: Row(
             children: [
               Icon(
-                isUnselected ? Icons.person_add_alt_1_rounded : Icons.person_rounded,
+                isUnselected
+                    ? Icons.person_add_alt_1_rounded
+                    : Icons.person_rounded,
                 size: 15,
-                color: isUnselected ? const Color(0xFFD97706) : const Color(0xFF0052CC),
+                color: isUnselected
+                    ? const Color(0xFFD97706)
+                    : const Color(0xFF0052CC),
               ),
               const SizedBox(width: 7),
               Expanded(
@@ -4149,11 +4856,38 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
                   style: TextStyle(
                     fontSize: 10.5,
                     fontWeight: FontWeight.w800,
-                    color: isUnselected ? const Color(0xFFB45309) : const Color(0xFF0052CC),
+                    color: isUnselected
+                        ? const Color(0xFFB45309)
+                        : const Color(0xFF0052CC),
                   ),
                 ),
               ),
-              const Icon(Icons.keyboard_arrow_down_rounded, size: 17, color: Color(0xFF64748B)),
+              if (!isUnselected)
+                IconButton(
+                  tooltip: 'View employee performance',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 25,
+                    height: 25,
+                  ),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PerformanceScreen(employeeName: current),
+                    ),
+                  ),
+                  icon: const Icon(
+                    Icons.insights_rounded,
+                    size: 15,
+                    color: Color(0xFF0052CC),
+                  ),
+                )
+              else
+                const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 17,
+                  color: Color(0xFF64748B),
+                ),
             ],
           ),
         ),
@@ -4162,8 +4896,44 @@ class _TasksAssignScreenState extends State<TasksAssignScreen> {
   }
 
   Widget _buildEmptyRow() {
-    const widths = [200, 200, 140, 160, 140, 160, 140, 160, 140, 160, 140, 160, 140, 160, 140, 160, 140, 160, 140, 160, 140];
-    return Row(children: widths.map((w) => SizedBox(width: w.toDouble(), height: 54, child: Container(decoration: const BoxDecoration(border: Border(right: BorderSide(color: Color(0xFFE2E8F0))))))).toList());
+    const widths = [
+      200,
+      200,
+      140,
+      160,
+      140,
+      160,
+      140,
+      160,
+      140,
+      160,
+      140,
+      160,
+      140,
+      160,
+      140,
+      160,
+      140,
+      160,
+      140,
+      160,
+      140,
+    ];
+    return Row(
+      children: widths
+          .map(
+            (w) => SizedBox(
+              width: w.toDouble(),
+              height: 54,
+              child: Container(
+                decoration: const BoxDecoration(
+                  border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+                ),
+              ),
+            ),
+          )
+          .toList(),
+    );
   }
 }
 
@@ -4171,10 +4941,7 @@ class _HeaderCell extends StatelessWidget {
   final double? width;
   final String label;
 
-  const _HeaderCell({
-    this.width,
-    required this.label,
-  });
+  const _HeaderCell({this.width, required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -4184,12 +4951,7 @@ class _HeaderCell extends StatelessWidget {
       alignment: Alignment.centerLeft,
       decoration: const BoxDecoration(
         color: Color(0xFF0052CC),
-        border: Border(
-          right: BorderSide(
-            color: Color(0xFF0044B3),
-            width: 1,
-          ),
-        ),
+        border: Border(right: BorderSide(color: Color(0xFF0044B3), width: 1)),
       ),
       child: Text(
         label,
@@ -4205,18 +4967,9 @@ class _HeaderCell extends StatelessWidget {
     );
 
     if (width != null) {
-      return SizedBox(
-        width: width,
-        height: 50,
-        child: child,
-      );
+      return SizedBox(width: width, height: 50, child: child);
     }
 
-    return Expanded(
-      child: SizedBox(
-        height: 50,
-        child: child,
-      ),
-    );
+    return Expanded(child: SizedBox(height: 50, child: child));
   }
 }

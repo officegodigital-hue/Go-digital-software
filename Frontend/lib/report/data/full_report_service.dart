@@ -507,6 +507,43 @@ class FullReportService {
         : <Map<String, dynamic>>[];
   }
 
+  /// Per-platform submission status for a client (optionally one month):
+  /// `[{company_name, report_month, report_year, platform_key, status,
+  /// submitted_by_name, updated_at}]`, where status is pending | approved |
+  /// rejected. Platforms with no row have not been submitted yet.
+  Future<List<Map<String, dynamic>>> listPlatformStatus({
+    required String company,
+    int? month,
+    int? year,
+  }) async {
+    final uri = Uri.parse('$_apiBaseUrl/report-export/platform-status').replace(
+      queryParameters: {
+        'company': company,
+        if (month != null && year != null) ...{
+          'month': '$month',
+          'year': '$year',
+        },
+      },
+    );
+    final response = await http.get(
+      uri,
+      headers: {'Authorization': 'Bearer ${AuthSession.requireToken()}'},
+    );
+    final body = _decodeMap(response.body);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw FullReportException(
+        body['message']?.toString() ?? 'Unable to load platform status.',
+      );
+    }
+    return body['statuses'] is List
+        ? List<Map<String, dynamic>>.from(
+            (body['statuses'] as List).map(
+              (e) => Map<String, dynamic>.from(e as Map),
+            ),
+          )
+        : <Map<String, dynamic>>[];
+  }
+
   Future<void> reviewSubmission(
     int id, {
     required bool approve,

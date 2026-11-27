@@ -9,6 +9,7 @@ import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/services/push_notification_service.dart';
 import 'package:godigital_portal/services/app_notification_center.dart';
 import 'package:godigital_portal/services/api_config.dart';
+import 'package:godigital_portal/services/mimi_voice.dart';
 import 'package:godigital_portal/core/keyboard/keyboard_shortcuts.dart';
 import '../core/widgets/notification_robot.dart';
 import '../screens/admin_dashboard/privacy_policy_screen.dart';
@@ -120,7 +121,9 @@ class _AdminLayoutState extends State<AdminLayout>
   }
 
   void _startPolling() {
-    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    // 20s fallback sync (was 5s). New notifications already arrive instantly
+    // over the socket, so this only tops up the unread count periodically.
+    _pollingTimer = Timer.periodic(const Duration(seconds: 20), (timer) async {
       await _checkNewNotifications();
     });
   }
@@ -145,6 +148,7 @@ class _AdminLayoutState extends State<AdminLayout>
         Set<int> currentIds = {};
         bool hasNewNotification = false;
         String? latestMsgText;
+        String? latestSender;
         RobotEvent latestEvent = RobotEvent.generic;
 
         for (var row in rows) {
@@ -170,6 +174,8 @@ class _AdminLayoutState extends State<AdminLayout>
                 parseNotificationMessage(row["message"]?.toString() ?? '');
             if (parsed.preview.trim().isNotEmpty) {
               latestMsgText = parsed.preview;
+              latestSender = row["senderName"]?.toString() ??
+                  parsed.decoded?["senderName"]?.toString();
               latestEvent = classifyNotificationEvent(
                 row is Map ? row : null,
                 parsed.decoded,
@@ -189,10 +195,10 @@ class _AdminLayoutState extends State<AdminLayout>
         });
 
         if (hasNewNotification) {
-          _playNotificationSound();
           _triggerTopRightPopup(
             latestMsgText ?? "You have a new notification",
             event: latestEvent,
+            sender: latestSender,
           );
         }
       }
@@ -204,6 +210,7 @@ class _AdminLayoutState extends State<AdminLayout>
   void _triggerTopRightPopup(
     String message, {
     RobotEvent event = RobotEvent.generic,
+    String? sender,
   }) {
     if (!mounted) return;
     _popupTimer?.cancel();
@@ -214,6 +221,9 @@ class _AdminLayoutState extends State<AdminLayout>
       _robotEvent = event;
       _showPopup = true;
     });
+
+    // MIMI speaks the message out loud (names the sender for a chat).
+    MimiVoice.instance.announce(sender: sender, message: message);
 
     // Robot walks in, extends its hand, fires the laser, reveals the panel.
     if (wasVisible) {

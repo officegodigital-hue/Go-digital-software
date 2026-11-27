@@ -5,6 +5,29 @@ const router  = express.Router();
 const db      = require('../config/db');
 const { createNotification } = require('./notifications');
 const { syncDayPlanStatus, localDay } = require('../lib/dayPlanSync');
+const workspaceTasks = require('./workspaceTasks');
+
+let submissionPeriodColumnReady;
+async function ensureSubmissionPeriodColumn() {
+  if (!submissionPeriodColumnReady) {
+    submissionPeriodColumnReady = db.query(
+      'ALTER TABLE day_plan_rows ADD COLUMN submitted_period VARCHAR(16) NULL',
+    ).catch((error) => {
+      if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+    });
+  }
+  return submissionPeriodColumnReady;
+}
+
+function submissionPeriod(now = new Date()) {
+  const hour = Number(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata', hour: '2-digit', hourCycle: 'h23',
+  }).format(now));
+  if (hour < 12) return 'Morning';
+  if (hour < 17) return 'Afternoon';
+  if (hour < 21) return 'Evening';
+  return 'Night';
+}
 
 // GET /api/day-planner?employeeName=Arun&date=2026-07-09
 router.get('/', async (req, res) => {
@@ -512,6 +535,7 @@ router.post('/submit', async (req, res) => {
   }
 
   const currentReportType = reportType || "Morning";
+  const currentSubmissionPeriod = submissionPeriod();
 
   try {
     const [runningEmployeeTasks] = await db.query(
@@ -551,17 +575,10 @@ router.post('/submit', async (req, res) => {
       });
     }
 
-    // 1. Calculate total working hours for this employee on this date from time_tracking_task_items
-    const [timeRows] = await db.query(
-      `SELECT SUM(tti.duration_secs) AS total_secs
-       FROM time_tracking_task_items tti
-       JOIN task_list tl ON tl.id = tti.task_list_id
-       WHERE tl.employee_name = ? 
-       AND DATE(tti.updated_at) = ?`,
-      [employeeName, date]
-    );
-
-    const totalWorkingSecs = timeRows[0]?.total_secs || 0;
+    // The planner records the identical total shown in Live Tracking and the
+    // employee top bar. This includes Content Calendar and Tech Workspace.
+    const live = await workspaceTasks.dayWork(employeeName, date);
+    const totalWorkingSecs = live.totalSecs;
 
     // 2. Get planner rows
     const [plannerRows] = await db.query(
@@ -588,18 +605,21 @@ router.post('/submit', async (req, res) => {
     }
 
     // 3. Mark submitted AND save total working seconds into the row / records
+    await ensureSubmissionPeriodColumn();
     await db.query(
       `
       UPDATE day_plan_rows
       SET
           is_submitted = 1,
           submitted_at = NOW(),
+          submitted_period = ?,
           total_working_secs = ?
       WHERE employee_name = ?
       AND plan_date = ?
       AND report_type = ?
       `,
       [
+        currentSubmissionPeriod,
         totalWorkingSecs,
         employeeName,
         date,
@@ -625,12 +645,12 @@ router.post('/submit', async (req, res) => {
         senderName: employeeName,
         recipientName: mainAdmin.full_name,
         message: JSON.stringify({
-          preview: `${employeeName} submitted ${currentReportType} Day Planner`,
+          preview: `${employeeName} submitted ${currentSubmissionPeriod} Day Planner`,
           payload: {
             type: "PLAN_SUBMITTED",
             sender: employeeName,
             recipient: mainAdmin.full_name,
-            reportType: currentReportType,
+            reportType: currentSubmissionPeriod,
             date,
             totalWorkingSecs,
             plannerData: plannerRows
@@ -641,7 +661,9 @@ router.post('/submit', async (req, res) => {
 
     return res.json({
       success: true,
-      message: `${currentReportType} Day Planner submitted successfully.`
+      message: `${currentSubmissionPeriod} Day Planner submitted successfully.`,
+      reportType: currentSubmissionPeriod,
+      totalWorkingSecs,
     });
 
   } catch (err) {
@@ -673,18 +695,19 @@ router.get("/today/:employee", async (req, res) => {
       }
     }
 
+    const hasReportType = String(reportType || '').trim().length > 0;
     const sql = `
       SELECT *, DATE_FORMAT(plan_date, '%Y-%m-%d') AS plan_date_str
       FROM day_plan_rows
       WHERE employee_name = ?
       AND DATE(plan_date) = ${date ? '?' : 'CURDATE()'}
-      AND report_type=?
+      ${hasReportType ? 'AND report_type = ?' : ''}
       ORDER BY id
     `;
 
-    const params = date
-    ? [employee, date, reportType || "Morning"]
-    : [employee, reportType || "Morning"];
+    const params = [employee];
+    if (date) params.push(date);
+    if (hasReportType) params.push(reportType);
     const [rows] = await db.query(sql, params);
 
     const data = rows.map((r) => ({
@@ -859,7 +882,7 @@ router.get('/submissions', async (req, res) => {
   const { date, type } = req.query;
 
   const targetDate = date || new Date().toISOString().split('T')[0];
-  const reportType = type || "Morning";
+  const reportType = type || null;
 
   try {
     // 🟢 Active employees matrum admin/inactive-ai exclude seithu attendance status-ai edukkirathu
@@ -876,50 +899,46 @@ router.get('/submissions', async (req, res) => {
           END AS attendanceStatus
       FROM employee_users e
       LEFT JOIN attendance_records ar ON ar.employee_id = e.id AND ar.attendance_date = ?
-      WHERE e.is_active = 1 
-        AND e.user_type != 'admin' 
-        AND (e.is_main_admin = 0 OR e.is_main_admin IS NULL)
-        AND NOT EXISTS (
-          SELECT 1
-          FROM employee_application_access eaa
-          WHERE eaa.employee_id = e.id
-            AND LOWER(TRIM(eaa.access_type)) = 'admin'
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM role_application_access raa
-          JOIN user_roles ur ON ur.id = raa.role_id
-          WHERE UPPER(TRIM(ur.role_name)) COLLATE utf8mb4_general_ci
-          = UPPER(TRIM(e.role)) COLLATE utf8mb4_general_ci
-            AND LOWER(TRIM(raa.access_type)) = 'admin'
-            AND NOT EXISTS (
-              SELECT 1
-              FROM employee_application_access own_access
-              WHERE own_access.employee_id = e.id
-            )
-        )
+      -- This is the complete company planner. Do not omit people because an
+      -- account is inactive, has Admin access, or has a legacy/null active
+      -- flag: the admin must be able to see every employee's report.
       ORDER BY e.full_name
       `,
       [targetDate]
     );
 
+    await ensureSubmissionPeriodColumn();
     const [submissions] = await db.query(
       `
       SELECT
           employee_name AS employeeName,
           MAX(is_submitted) AS submitted,
-          MAX(total_working_secs) AS total_working_secs
+          MAX(total_working_secs) AS total_working_secs,
+          SUBSTRING_INDEX(GROUP_CONCAT(report_type ORDER BY submitted_at DESC), ',', 1) AS report_type,
+          SUBSTRING_INDEX(GROUP_CONCAT(submitted_period ORDER BY submitted_at DESC), ',', 1) AS submitted_period
       FROM day_plan_rows
       WHERE
           plan_date = ?
-          AND report_type = ?
+          AND (? IS NULL OR report_type = ? OR submitted_period = ?)
       GROUP BY employee_name
       `,
       [
         targetDate,
-        reportType
+        reportType, reportType, reportType
       ]
     );
+    const isToday = targetDate === localDay(new Date());
+    const liveByEmployee = new Map(await Promise.all(
+      employees.map(async (employee) => {
+        if (!isToday) return [employee.fullName, null];
+        try {
+          const live = await workspaceTasks.dayWork(employee.fullName, targetDate);
+          return [employee.fullName, live.totalSecs];
+        } catch (_) {
+          return [employee.fullName, null];
+        }
+      }),
+    ));
 
     return res.json({
       success: true,
@@ -927,7 +946,8 @@ router.get('/submissions', async (req, res) => {
       submissions: submissions.map((row) => ({
         employeeName: row.employeeName,
         submitted: row.submitted == 1,
-        total_working_secs: row.total_working_secs || 0
+        total_working_secs: liveByEmployee.get(row.employeeName) ?? row.total_working_secs ?? 0,
+        submitted_period: row.submitted_period || row.report_type || 'Day Planner',
       }))
     });
 

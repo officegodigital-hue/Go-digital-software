@@ -9,6 +9,7 @@ import 'package:flutter/gestures.dart';
 import 'dart:async';
 import '../../services/api_config.dart';
 import '../../services/app_notification_center.dart';
+import '../../core/keyboard/keyboard_shortcuts.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
 
@@ -52,7 +53,9 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
       filteredRows.where((e) => (e['status'] ?? '') == 'PROCESSING').length;
 
   int get holdCount => filteredRows
-      .where((e) => (e['status'] ?? '') == 'HOLD' || (e['status'] ?? '') == 'REWORK')
+      .where(
+        (e) => (e['status'] ?? '') == 'HOLD' || (e['status'] ?? '') == 'REWORK',
+      )
       .length;
 
   int get notStartCount =>
@@ -62,6 +65,7 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   String employeeName = '';
   String employeeRole = '';
   Timer? _autoSaveTimer;
+  Timer? _workingTimeTimer;
   late IO.Socket socket;
 
   // Unique clients opened in planner rows vs Total unique assigned clients to this employee
@@ -168,16 +172,19 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
       return;
     }
     try {
-      final res = await http.get(Uri.parse('$_baseUrl/workspace-tasks/items-by-ref').replace(
-        queryParameters: {'employee': employeeName, 'refs': refs.join(',')},
-      ));
+      final res = await http.get(
+        Uri.parse('$_baseUrl/workspace-tasks/items-by-ref').replace(
+          queryParameters: {'employee': employeeName, 'refs': refs.join(',')},
+        ),
+      );
       if (res.statusCode != 200 || !mounted) return;
       final data = jsonDecode(res.body)['data'];
       if (data is! Map) return;
       setState(() {
         _planItems = {
           for (final e in data.entries)
-            if (e.value is Map) '${e.key}': Map<String, dynamic>.from(e.value as Map),
+            if (e.value is Map)
+              '${e.key}': Map<String, dynamic>.from(e.value as Map),
         };
       });
     } catch (e) {
@@ -346,6 +353,9 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
     // the backend with a blank name.
     _checkDeadlineStatus();
     _initSocketListener();
+    _workingTimeTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && isToday()) _fetchTotalWorkingHours();
+    });
   }
 
   // void _initSocketListener() {
@@ -372,7 +382,8 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   void _initSocketListener() {
     socket = IO.io(
       ApiConfig.socketUrl,
-      IO.OptionBuilder().setAuthFn(authenticateSocket)
+      IO.OptionBuilder()
+          .setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
@@ -415,6 +426,7 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   void dispose() {
     _horizontalController.dispose();
     _autoSaveTimer?.cancel();
+    _workingTimeTimer?.cancel();
     socket.dispose();
     super.dispose();
   }
@@ -731,7 +743,8 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
   Future<void> _carryForwardHeldTasks() async {
     final todayKey =
         "${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}";
-    if (!isToday() || _carriedForDay == todayKey || employeeName.trim().isEmpty) return;
+    if (!isToday() || _carriedForDay == todayKey || employeeName.trim().isEmpty)
+      return;
     _carriedForDay = todayKey;
     try {
       final res = await http.post(
@@ -1114,7 +1127,7 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text("Row deleted successfully"),
             backgroundColor: Colors.green,
           ),
@@ -1241,23 +1254,28 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text("Delete Row"),
-          content: const Text("Are you sure you want to delete this row?"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text(
-                "Delete",
-                style: TextStyle(color: Colors.white),
+        return KeyboardSubmit(
+          autofocus: true,
+          onSubmit: () => Navigator.pop(context, true),
+          onCancel: () => Navigator.pop(context, false),
+          child: AlertDialog(
+            title: const Text("Delete Row"),
+            content: const Text("Are you sure you want to delete this row?"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text("Cancel"),
               ),
-            ),
-          ],
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(
+                  "Delete",
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -1272,176 +1290,181 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
           context: context,
           barrierDismissible: false,
           builder: (context) {
-            return Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Container(
-                width: 420,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.12),
-                      blurRadius: 30,
-                      offset: const Offset(0, 12),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // ICON
-                    Container(
-                      width: 62,
-                      height: 62,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF),
-                        shape: BoxShape.circle,
+            return KeyboardSubmit(
+              autofocus: true,
+              onSubmit: () => Navigator.pop(context, true),
+              onCancel: () => Navigator.pop(context, false),
+              child: Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Container(
+                  width: 420,
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.12),
+                        blurRadius: 30,
+                        offset: const Offset(0, 12),
                       ),
-                      child: const Icon(
-                        Icons.task_alt_rounded,
-                        color: Color(0xFF2563EB),
-                        size: 31,
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // ICON
+                      Container(
+                        width: 62,
+                        height: 62,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.task_alt_rounded,
+                          color: Color(0xFF2563EB),
+                          size: 31,
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 18),
+                      const SizedBox(height: 18),
 
-                    // TITLE
-                    const Text(
-                      "Submit Day Planner?",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
+                      // TITLE
+                      const Text(
+                        "Submit Day Planner?",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 10),
+                      const SizedBox(height: 10),
 
-                    // DESCRIPTION
-                    const Text(
-                      "Once you submit today's planner, "
-                      "you won't be able to edit it.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.5,
-                        color: Color(0xFF64748B),
+                      // DESCRIPTION
+                      const Text(
+                        "Once you submit today's planner, "
+                        "you won't be able to edit it.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.5,
+                          color: Color(0xFF64748B),
+                        ),
                       ),
-                    ),
 
-                    const SizedBox(height: 14),
+                      const SizedBox(height: 14),
 
-                    // ENCOURAGEMENT BOX
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 13,
+                      // ENCOURAGEMENT BOX
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 13,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FDF4),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFBBF7D0)),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.check_circle_rounded,
+                              size: 19,
+                              color: Color(0xFF16A34A),
+                            ),
+                            SizedBox(width: 9),
+                            Expanded(
+                              child: Text(
+                                "Make sure today's plan and status "
+                                "are completely filled before submitting. "
+                                "Keep your day plan updated and stay on track!",
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  height: 1.45,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF166534),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0FDF4),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFBBF7D0)),
-                      ),
-                      child: const Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+
+                      const SizedBox(height: 22),
+
+                      // BUTTONS
+                      Row(
                         children: [
-                          Icon(
-                            Icons.check_circle_rounded,
-                            size: 19,
-                            color: Color(0xFF16A34A),
-                          ),
-                          SizedBox(width: 9),
                           Expanded(
-                            child: Text(
-                              "Make sure today's plan and status "
-                              "are completely filled before submitting. "
-                              "Keep your day plan updated and stay on track!",
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                height: 1.45,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF166534),
+                            child: SizedBox(
+                              height: 44,
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF475569),
+                                  side: const BorderSide(
+                                    color: Color(0xFFCBD5E1),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: const Text(
+                                  "Cancel",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(width: 10),
+
+                          Expanded(
+                            child: SizedBox(
+                              height: 44,
+                              child: ElevatedButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF16A34A),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle_outline_rounded,
+                                      size: 17,
+                                    ),
+                                    SizedBox(width: 7),
+                                    Text(
+                                      "Submit",
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-
-                    const SizedBox(height: 22),
-
-                    // BUTTONS
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SizedBox(
-                            height: 44,
-                            child: OutlinedButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFF475569),
-                                side: const BorderSide(
-                                  color: Color(0xFFCBD5E1),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                              child: const Text(
-                                "Cancel",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        const SizedBox(width: 10),
-
-                        Expanded(
-                          child: SizedBox(
-                            height: 44,
-                            child: ElevatedButton(
-                              onPressed: () => Navigator.pop(context, true),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF16A34A),
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.check_circle_outline_rounded,
-                                    size: 17,
-                                  ),
-                                  SizedBox(width: 7),
-                                  Text(
-                                    "Submit",
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             );
@@ -1483,7 +1506,7 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
           body: jsonEncode({
             'employeeName': employeeName,
             'date': formattedDate,
-            'reportType': 'Morning', // or dynamic if you have reportType state
+            'reportType': 'Morning',
             'totalWorkingSecs': totalSumSeconds,
           }),
         );
@@ -1521,14 +1544,17 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
       );
 
       if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
         await _checkDeadlineStatus();
 
         // Confirmed → employee top bar shows the "day planner submitted" robot.
         AppNotificationCenter.emitTaskAction('day_planner_submit');
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ Day plan submitted & Admin notified!'),
+          SnackBar(
+            content: Text(
+              '✅ ${body['reportType'] ?? 'Day Planner'} submitted & Admin notified!',
+            ),
             backgroundColor: Color(0xFF16A34A),
             duration: Duration(seconds: 2),
           ),
@@ -1578,25 +1604,28 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
     final action = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('A task is still running'),
-        content: Text(
-          '$title\n\nHold or complete this task before submitting today’s plan.',
+      builder: (dialogContext) => KeyboardSubmit(
+        onCancel: () => Navigator.pop(dialogContext),
+        child: AlertDialog(
+          title: const Text('A task is still running'),
+          content: Text(
+            '$title\n\nHold or complete this task before submitting today’s plan.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            OutlinedButton(
+              onPressed: () => Navigator.pop(dialogContext, 'hold'),
+              child: const Text('Hold'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, 'complete'),
+              child: const Text('Complete'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          OutlinedButton(
-            onPressed: () => Navigator.pop(dialogContext, 'hold'),
-            child: const Text('Hold'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, 'complete'),
-            child: const Text('Complete'),
-          ),
-        ],
       ),
     );
     if (action == null) return false;
@@ -1607,30 +1636,33 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
       reason = await showDialog<String>(
         context: context,
         barrierDismissible: false,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Why are you holding this task?'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Hold reason *',
-              border: OutlineInputBorder(),
+        builder: (dialogContext) => KeyboardSubmit(
+          onCancel: () => Navigator.pop(dialogContext),
+          child: AlertDialog(
+            title: const Text('Why are you holding this task?'),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Hold reason *',
+                border: OutlineInputBorder(),
+              ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final value = controller.text.trim();
+                  if (value.isNotEmpty) Navigator.pop(dialogContext, value);
+                },
+                child: const Text('Hold task'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final value = controller.text.trim();
-                if (value.isNotEmpty) Navigator.pop(dialogContext, value);
-              },
-              child: const Text('Hold task'),
-            ),
-          ],
         ),
       );
       controller.dispose();
@@ -2767,7 +2799,11 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
           summary.isEmpty ? '—' : summary,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Color(0xFF334D70)),
+          style: const TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF334D70),
+          ),
         ),
       ),
     );
@@ -2790,7 +2826,11 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
         ),
       ),
       alignment: Alignment.centerLeft,
-      child: _statusBadgeOrText(current.isEmpty ? 'NOT START' : current, colorPair, true),
+      child: _statusBadgeOrText(
+        current.isEmpty ? 'NOT START' : current,
+        colorPair,
+        true,
+      ),
     );
   }
 
@@ -3328,32 +3368,37 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
                 _scheduleAutoSave(row);
               },
             )
-          : linked && (widget.onOpenWorkspace != null || widget.onOpenTech != null)
-              // Task / category / tech row → tap to open it in its workspace.
-              ? InkWell(
-                  onTap: () => _openInWorkspace(row),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          value.isEmpty ? '—' : value,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF0757D5),
-                            decoration: TextDecoration.underline,
-                            decorationColor: Color(0x660757D5),
-                          ),
-                        ),
+          : linked &&
+                (widget.onOpenWorkspace != null || widget.onOpenTech != null)
+          // Task / category / tech row → tap to open it in its workspace.
+          ? InkWell(
+              onTap: () => _openInWorkspace(row),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      value.isEmpty ? '—' : value,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0757D5),
+                        decoration: TextDecoration.underline,
+                        decorationColor: Color(0x660757D5),
                       ),
-                      const SizedBox(width: 4),
-                      const Icon(Icons.open_in_new_rounded, size: 12, color: Color(0xFF0757D5)),
-                    ],
+                    ),
                   ),
-                )
-              : Text(
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.open_in_new_rounded,
+                    size: 12,
+                    color: Color(0xFF0757D5),
+                  ),
+                ],
+              ),
+            )
+          : Text(
               value.isEmpty ? '—' : value,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
@@ -3599,27 +3644,35 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
                     ),
                   )
                 : client.isEmpty
-                    ? const SizedBox.shrink()
-                    // Client row → choose which of the client's tasks to act on.
-                    : Align(
-                        alignment: Alignment.centerLeft,
-                        child: OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: const Color(0xFF0757D5),
-                            visualDensity: VisualDensity.compact,
-                            minimumSize: const Size(0, 30),
-                          ),
-                          onPressed: () => TaskActionsSheet.show(
-                            context,
-                            employeeName: employeeName,
-                            clientName: client,
-                            token: token,
-                          ),
-                          icon: const Icon(Icons.play_circle_outline_rounded, size: 14),
-                          label: const Text('Tasks',
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+                ? const SizedBox.shrink()
+                // Client row → choose which of the client's tasks to act on.
+                : Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0757D5),
+                        visualDensity: VisualDensity.compact,
+                        minimumSize: const Size(0, 30),
+                      ),
+                      onPressed: () => TaskActionsSheet.show(
+                        context,
+                        employeeName: employeeName,
+                        clientName: client,
+                        token: token,
+                      ),
+                      icon: const Icon(
+                        Icons.play_circle_outline_rounded,
+                        size: 14,
+                      ),
+                      label: const Text(
+                        'Tasks',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
+                    ),
+                  ),
           ),
           if (widget.onOpenWorkspace != null && client.isNotEmpty) ...[
             const SizedBox(width: 4),
@@ -3635,7 +3688,11 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
                     color: const Color(0xFFEAF2FF),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFF0757D5)),
+                  child: const Icon(
+                    Icons.open_in_new_rounded,
+                    size: 15,
+                    color: Color(0xFF0757D5),
+                  ),
                 ),
               ),
             ),
@@ -3653,7 +3710,11 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
                   color: const Color(0xFFFDEEEE),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.delete_outline_rounded, size: 15, color: Color(0xFFB42318)),
+                child: const Icon(
+                  Icons.delete_outline_rounded,
+                  size: 15,
+                  color: Color(0xFFB42318),
+                ),
               ),
             ),
           ),
@@ -3824,12 +3885,10 @@ class _DayPlannerScreenState extends State<DayPlannerScreen> {
 class _HeaderCell extends StatelessWidget {
   final String label;
   final double width;
-  
 
   const _HeaderCell({required this.width, required this.label});
 
-
-  @override 
+  @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,

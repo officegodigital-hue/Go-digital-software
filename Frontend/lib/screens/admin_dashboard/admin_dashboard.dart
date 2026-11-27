@@ -16,6 +16,7 @@
 // - Alerts preserved
 
 import 'dart:convert';
+import 'package:godigital_portal/widgets/employee_performance.dart';
 
 import 'package:flutter/material.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
@@ -194,7 +195,7 @@ class _AdminDashboardState extends State<AdminDashboard>
         http
             .get(
               Uri.parse(
-                '$_baseUrl/performance/overview?mode=daily&date=$today',
+                '$_baseUrl/workspace-tasks/performance/overview',
               ),
               headers: headers,
             )
@@ -288,16 +289,9 @@ class _AdminDashboardState extends State<AdminDashboard>
         );
 
         if (employees.isNotEmpty) {
-          final totalScore = employees.fold<num>(
-            0,
-            (sum, employee) {
-              return sum + _toDouble(
-                employee['performancePct'],
-              );
-            },
-          );
-
-          _avgPerformance = totalScore / employees.length;
+          final data = body['data'];
+          final team = data is Map ? data['team'] : null;
+          _avgPerformance = _toDouble(team is Map ? team['avgScore'] : null);
 
           _totalPendingTasks = employees.fold<int>(
             0,
@@ -313,7 +307,9 @@ class _AdminDashboardState extends State<AdminDashboard>
             },
           );
 
-          final sorted = [...employees];
+          final sorted = employees
+              .where((employee) => employee['performanceGrade'] != 'No Activity')
+              .toList();
 
           sorted.sort(
             (a, b) {
@@ -1053,6 +1049,7 @@ class _AdminDashboardState extends State<AdminDashboard>
               iconColor: const Color(0xFF93C5FD),
               text: 'LIVE DASHBOARD',
             ),
+            const EmployeePerformanceButton(),
           ],
         ),
 

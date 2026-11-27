@@ -2,6 +2,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:godigital_portal/services/api_config.dart';
@@ -796,6 +797,7 @@ class _MenuButton extends StatefulWidget {
 class _MenuButtonState extends State<_MenuButton> {
   bool isHovered = false;
   bool isPressed = false;
+  bool isFocused = false;
 
   @override
   Widget build(BuildContext context) {
@@ -808,101 +810,128 @@ class _MenuButtonState extends State<_MenuButton> {
           isPressed = false;
         });
       },
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => isPressed = true),
-        onTapCancel: () => setState(() => isPressed = false),
-        onTap: () {
-          setState(() => isPressed = false);
-          widget.onPressed();
+      child: FocusableActionDetector(
+        onShowFocusHighlight: (focused) => setState(() => isFocused = focused),
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.enter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.numpadEnter): ActivateIntent(),
+          SingleActivator(LogicalKeyboardKey.space): ActivateIntent(),
         },
-        child: AnimatedScale(
-          scale: isPressed ? 0.975 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            height: 165,
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isHovered
-                    ? widget.accent.withValues(alpha: 0.48)
-                    : const Color(0xFFD5E5FF),
-                width: isHovered ? 1.5 : 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: widget.accent.withValues(
-                    alpha: isHovered ? 0.12 : 0.05,
+        actions: <Type, Action<Intent>>{
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onPressed();
+              return null;
+            },
+          ),
+        },
+        child: Semantics(
+          button: true,
+          label: '${widget.label}. ${widget.description}',
+          child: GestureDetector(
+            onTapDown: (_) => setState(() => isPressed = true),
+            onTapCancel: () => setState(() => isPressed = false),
+            onTap: () {
+              setState(() => isPressed = false);
+              widget.onPressed();
+            },
+            child: AnimatedScale(
+              scale: isPressed ? 0.975 : 1,
+              duration: const Duration(milliseconds: 110),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                height: 165,
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isHovered || isFocused
+                        ? widget.accent.withValues(alpha: 0.48)
+                        : const Color(0xFFD5E5FF),
+                    width: isHovered || isFocused ? 2 : 1,
                   ),
-                  blurRadius: isHovered ? 22 : 14,
-                  offset: Offset(0, isHovered ? 8 : 5),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  height: 44,
-                  width: 44,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFFE9F2FF),
-                    border: Border.all(color: const Color(0xFFC9DDFF)),
-                  ),
-                  child: Icon(widget.icon, size: 22, color: widget.accent),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  widget.label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: isHovered ? widget.accent : const Color(0xFF17213D),
-                  ),
-                ),
-                const SizedBox(height: 3),
-                SizedBox(
-                  height: 26,
-                  child: Text(
-                    widget.description,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      height: 1.25,
-                      color: const Color(0xFF7585A0),
+                  boxShadow: [
+                    BoxShadow(
+                      color: widget.accent.withValues(
+                        alpha: isHovered || isFocused ? 0.12 : 0.05,
+                      ),
+                      blurRadius: isHovered ? 22 : 14,
+                      offset: Offset(0, isHovered || isFocused ? 8 : 5),
                     ),
-                  ),
+                  ],
                 ),
-                const SizedBox(height: 6),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  height: 25,
-                  width: 25,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: isHovered
-                        ? LinearGradient(
-                            colors: [widget.accent, const Color(0xFF2D8CFF)],
-                          )
-                        : const LinearGradient(
-                            colors: [Color(0xFFF0F6FF), Color(0xFFE4EEFF)],
-                          ),
-                  ),
-                  child: Icon(
-                    Icons.arrow_forward_rounded,
-                    size: 14,
-                    color: isHovered ? Colors.white : widget.accent,
-                  ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      height: 44,
+                      width: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFFE9F2FF),
+                        border: Border.all(color: const Color(0xFFC9DDFF)),
+                      ),
+                      child: Icon(widget.icon, size: 22, color: widget.accent),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: isHovered || isFocused
+                            ? widget.accent
+                            : const Color(0xFF17213D),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    SizedBox(
+                      height: 26,
+                      child: Text(
+                        widget.description,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          height: 1.25,
+                          color: const Color(0xFF7585A0),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      height: 25,
+                      width: 25,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: isHovered || isFocused
+                            ? LinearGradient(
+                                colors: [
+                                  widget.accent,
+                                  const Color(0xFF2D8CFF),
+                                ],
+                              )
+                            : const LinearGradient(
+                                colors: [Color(0xFFF0F6FF), Color(0xFFE4EEFF)],
+                              ),
+                      ),
+                      child: Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 14,
+                        color: isHovered || isFocused
+                            ? Colors.white
+                            : widget.accent,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

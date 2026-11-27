@@ -59,6 +59,35 @@ function ensureHoldColumns() {
 }
 ensureHoldColumns();
 
+// Keep the first recorded completion independent of subsequent client edits.
+let completionColumnsReady;
+function ensureCompletionColumns() {
+  if (!completionColumnsReady) {
+    completionColumnsReady = (async () => {
+      for (const column of ['onboarding_completed_by INT NULL', 'onboarding_completed_at DATETIME NULL']) {
+        try {
+          await db.query(`ALTER TABLE clients ADD COLUMN ${column}`);
+        } catch (error) {
+          if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+        }
+      }
+    })().catch((error) => {
+      completionColumnsReady = null;
+      throw error;
+    });
+  }
+  return completionColumnsReady;
+}
+
+const completesOnboarding = (req) => String(req.body?.status || '').trim().toLowerCase() === 'complete';
+function requireCompletionActor(req, res, next) {
+  return completesOnboarding(req) ? authenticateToken(req, res, next) : next();
+}
+
+const recordCompletion = `onboarding_completed_by = IF(COALESCE(status, '') <> 'complete' AND onboarding_completed_at IS NULL,
+       ?, onboarding_completed_by),
+     onboarding_completed_at = IF(COALESCE(status, '') <> 'complete' AND onboarding_completed_at IS NULL, NOW(), onboarding_completed_at)`;
+
 function clientState(c) {
   if (Number(c.is_on_hold) === 1) return 'hold';
   return Number(c.is_active) === 1 || c.is_active == null ? 'active' : 'inactive';
@@ -312,15 +341,19 @@ router.post('/', authenticateToken, async (req, res) => {
   const adminId = req.user.id; // ✅ Yaru create pandrangalo avanga ID
 
   try {
+    const completing = completesOnboarding(req);
+    if (completing) await ensureCompletionColumns();
     const [result] = await db.query(
       `INSERT INTO clients
         (company_name, industry, contact_person, email, address,
-         bank_account_name, bank_name, bank_account_number, bank_ifsc, status, client_phone, gst_number, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         bank_account_name, bank_name, bank_account_number, bank_ifsc, status, client_phone, gst_number, created_by
+         ${completing ? ', onboarding_completed_by, onboarding_completed_at' : ''})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${completing ? ', ?, NOW()' : ''})`,
       [
         companyName, industry || '', contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
-        status || 'draft', clientPhone || '', gstNumber || '', adminId
+        completing ? 'complete' : status || 'draft', clientPhone || '', gstNumber || '', adminId,
+        ...(completing ? [adminId] : []),
       ]
     );
 
@@ -396,7 +429,7 @@ router.post('/', authenticateToken, async (req, res) => {
 // });
 
 // PUT /api/clients/:id — Update client & cascade company name changes to all related tables
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireCompletionActor, async (req, res) => {
   const {
     companyName,  industry, contactPerson, email, address,
     bankAccountName, bankName, bankAccountNumber, bankIfsc, status,
@@ -407,9 +440,12 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ success: false, message: 'companyName is required' });
 
   const clientId = req.params.id;
-  const connection = await db.getConnection();
+  let connection;
 
   try {
+    const completing = completesOnboarding(req);
+    if (completing) await ensureCompletionColumns();
+    connection = await db.getConnection();
     await connection.beginTransaction();
 
     // 1. Fetch old client details to get the previous company name
@@ -426,12 +462,13 @@ router.put('/:id', async (req, res) => {
       `UPDATE clients
        SET company_name = ?,  industry = ?, contact_person = ?, email = ?, address = ?,
            bank_account_name = ?, bank_name = ?, bank_account_number = ?, bank_ifsc = ?,
-           status = ?, client_phone = ?, gst_number = ?
+           ${completing ? recordCompletion + ',' : ''} status = ?, client_phone = ?, gst_number = ?
        WHERE id = ?`,
       [
         newCompanyName,  industry || '', contactPerson || '', email || '', address || '',
         bankAccountName || '', bankName || '', bankAccountNumber || '', bankIfsc || '',
-        status || 'draft', clientPhone || '', gstNumber || '', clientId
+        ...(completing ? [req.user.id] : []),
+        completing ? 'complete' : status || 'draft', clientPhone || '', gstNumber || '', clientId
       ]
     );
     
@@ -489,11 +526,11 @@ router.put('/:id', async (req, res) => {
     await connection.commit();
     return res.json({ success: true, message: 'Client updated successfully', completion_percent: completionPercent });
   } catch (err) {
-    await connection.rollback();
+    await connection?.rollback();
     console.error('PUT /clients/:id ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   } finally {
-    connection.release();
+    connection?.release();
   }
 });
 
@@ -501,7 +538,7 @@ router.put('/:id', async (req, res) => {
 //   { state: 'active' | 'hold' | 'inactive' }  — Active / On Hold / Inactive
 //   { isActive: true | false }                 — old toggle (still works)
 //   { status: 'draft' | 'pending' | 'verified' | 'complete' } — onboarding step
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requireCompletionActor, async (req, res) => {
   try {
     await ensureHoldColumns();
     const { isActive, state, status } = req.body || {};
@@ -522,6 +559,11 @@ router.patch('/:id', async (req, res) => {
       const st = String(status).trim().toLowerCase();
       if (!['draft', 'pending', 'verified', 'complete'].includes(st)) {
         return res.status(400).json({ success: false, message: 'Unknown onboarding status' });
+      }
+      if (st === 'complete') {
+        await ensureCompletionColumns();
+        sets.push(recordCompletion);
+        vals.push(req.user.id);
       }
       sets.push('status = ?');
       vals.push(st);

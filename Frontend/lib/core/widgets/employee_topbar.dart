@@ -16,6 +16,7 @@ import '../../services/auth_service.dart';
 import '../../services/api_config.dart';
 import '../../services/app_notification_center.dart';
 import '../../services/push_notification_service.dart';
+import '../../services/mimi_voice.dart';
 import '../keyboard/keyboard_shortcuts.dart';
 import 'package:godigital_portal/screens/employee_dashboard/task_actions.dart';
 
@@ -84,13 +85,7 @@ enum RobotEvent {
     _Face.attentive,
     _Badge.review,
   ),
-  taskRework(
-    Color(0xFFD97706),
-    Icons.refresh,
-    7000,
-    _Face.sad,
-    _Badge.rework,
-  ),
+  taskRework(Color(0xFFD97706), Icons.refresh, 7000, _Face.sad, _Badge.rework),
   taskApproved(
     Color(0xFF16A34A),
     Icons.verified_outlined,
@@ -164,7 +159,8 @@ ParsedNotification parseNotificationMessage(String raw) {
     final decoded = jsonDecode(raw);
     if (decoded is Map) {
       decodedMap = decoded;
-      preview = decoded['preview']?.toString() ??
+      preview =
+          decoded['preview']?.toString() ??
           decoded['text']?.toString() ??
           (decoded['fileName'] != null ? '📎 ${decoded['fileName']}' : raw);
     }
@@ -208,8 +204,9 @@ RobotEvent classifyNotificationEvent(
   // Review / planner notifications carry their real event under a nested
   // `payload` map ({type: "TASK_REVIEW", action: "APPROVED", ...}); scan it
   // too so the event is read from the backend's own fields, not just text.
-  final Map? nested =
-      (decoded != null && decoded['payload'] is Map) ? decoded['payload'] as Map : null;
+  final Map? nested = (decoded != null && decoded['payload'] is Map)
+      ? decoded['payload'] as Map
+      : null;
 
   final buf = StringBuffer();
   bool structuredHint = false;
@@ -235,7 +232,8 @@ RobotEvent classifyNotificationEvent(
     return RobotEvent.generic;
   }
 
-  const rework = r'rework|re-work|sent back|send back|returned|return for|revision';
+  const rework =
+      r'rework|re-work|sent back|send back|returned|return for|revision';
 
   if (isPlanner) {
     if (has(rework)) return RobotEvent.plannerRework;
@@ -301,8 +299,9 @@ class NotificationRobotScene extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const double robotTail = _robotW - _handDX;
-    final double panelW =
-        (maxWidth - _beamLen - robotTail).clamp(180.0, 320.0).toDouble();
+    final double panelW = (maxWidth - _beamLen - robotTail)
+        .clamp(180.0, 320.0)
+        .toDouble();
     final double sceneW = panelW + _beamLen + robotTail;
     const double handY = _sceneH / 2;
 
@@ -323,14 +322,15 @@ class NotificationRobotScene extends StatelessWidget {
           final double reveal = _phase(t, 0.70, 1.0, Curves.easeInOutCubic);
 
           final bool walking = walkRaw > 0 && walkRaw < 1;
-          final double stride =
-              walking ? math.sin(walkRaw * math.pi * 8) : 0.0;
+          final double stride = walking ? math.sin(walkRaw * math.pi * 8) : 0.0;
           final double bob = walking ? -2.5 * stride.abs() : 0.0;
 
           // ON HOLD: after the panel is up the hand lowers and the laser
           // switches off, leaving the pause symbol.
           final double handLower = event == RobotEvent.taskHold
-              ? Curves.easeInOut.transform(((act - 0.55) / 0.45).clamp(0.0, 1.0))
+              ? Curves.easeInOut.transform(
+                  ((act - 0.55) / 0.45).clamp(0.0, 1.0),
+                )
               : 0.0;
           final double extendNow = extend * (1 - 0.8 * handLower);
           final double beamNow = beam * (1 - handLower);
@@ -339,8 +339,9 @@ class NotificationRobotScene extends StatelessWidget {
           final double hop = event.celebrates
               ? -4.0 * Curves.easeInOut.transform(loop) * act
               : 0.0;
-          final double sway =
-              event == RobotEvent.taskRejected ? (loop - 0.5) * 0.09 * act : 0.0;
+          final double sway = event == RobotEvent.taskRejected
+              ? (loop - 0.5) * 0.09 * act
+              : 0.0;
 
           return Stack(
             clipBehavior: Clip.none,
@@ -543,7 +544,11 @@ class _ScanPainter extends CustomPainter {
       ..strokeWidth = 5
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
     final core = Paint()
-      ..color = Color.lerp(color, Colors.white, 0.4)!.withValues(alpha: 0.9 * fade)
+      ..color = Color.lerp(
+        color,
+        Colors.white,
+        0.4,
+      )!.withValues(alpha: 0.9 * fade)
       ..strokeWidth = 1.4;
     final edge = Paint()
       ..color = color.withValues(alpha: 0.35 * fade)
@@ -782,7 +787,11 @@ class _NotificationRobotPainter extends CustomPainter {
       if (face == _Face.happy) {
         // Smiling "^" eyes
         canvas.drawArc(
-          Rect.fromCenter(center: Offset(e.dx, e.dy + 2.5), width: 10, height: 9),
+          Rect.fromCenter(
+            center: Offset(e.dx, e.dy + 2.5),
+            width: 10,
+            height: 9,
+          ),
           math.pi,
           math.pi,
           false,
@@ -1032,8 +1041,9 @@ class _NotificationRobotPainter extends CustomPainter {
         );
         c.drawLine(const Offset(-2.4, -3.4), const Offset(2.4, -3.4), thin);
         c.drawLine(const Offset(-2.4, -1), const Offset(2.4, -1), thin);
-        final double prog =
-            Curves.easeOut.transform(((act - 0.3) / 0.7).clamp(0.0, 1.0));
+        final double prog = Curves.easeOut.transform(
+          ((act - 0.3) / 0.7).clamp(0.0, 1.0),
+        );
         final Path check = Path()
           ..moveTo(-2.8, 3.0)
           ..lineTo(-0.8, 4.8)
@@ -1066,8 +1076,16 @@ class _NotificationRobotPainter extends CustomPainter {
       ..color = _ink
       ..strokeWidth = 1.4
       ..strokeCap = StrokeCap.round;
-    canvas.drawLine(const Offset(cx - 22, 17), const Offset(cx - 27, 7), antenna);
-    canvas.drawLine(const Offset(cx + 22, 17), const Offset(cx + 27, 7), antenna);
+    canvas.drawLine(
+      const Offset(cx - 22, 17),
+      const Offset(cx - 27, 7),
+      antenna,
+    );
+    canvas.drawLine(
+      const Offset(cx + 22, 17),
+      const Offset(cx + 27, 7),
+      antenna,
+    );
     canvas.drawCircle(const Offset(cx - 27, 6), 2.6, ink);
     canvas.drawCircle(const Offset(cx + 27, 6), 2.6, ink);
     canvas.drawRRect(
@@ -1082,7 +1100,11 @@ class _NotificationRobotPainter extends CustomPainter {
     for (final s in const [-1.0, 1.0]) {
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromCenter(center: Offset(cx + s * 31, 35), width: 9, height: 21),
+          Rect.fromCenter(
+            center: Offset(cx + s * 31, 35),
+            width: 9,
+            height: 21,
+          ),
           const Radius.circular(4.5),
         ),
         ink,
@@ -1105,11 +1127,8 @@ class _NotificationRobotPainter extends CustomPainter {
     // Right arm (screen right): relaxed, or raised and waving when celebrating.
     final double up = celebrate ? Curves.easeOutCubic.transform(act) : 0.0;
     final double wave = (loop - 0.5) * 6 * up;
-    final Offset wristR = Offset.lerp(
-          const Offset(cx + 28, 92),
-          const Offset(cx + 31, 52),
-          up,
-        )! +
+    final Offset wristR =
+        Offset.lerp(const Offset(cx + 28, 92), const Offset(cx + 31, 52), up)! +
         Offset(wave, 0);
     _limb(canvas, const Offset(cx + 25, 72), wristR);
     canvas.drawCircle(wristR, 3.2, ink);
@@ -1185,8 +1204,9 @@ class _NotificationRobotPainter extends CustomPainter {
     // Boots (swing and lift while walking)
     for (final s in const [-1.0, 1.0]) {
       final double dx = s < 0 ? swing * 3 : -swing * 3;
-      final double lift =
-          s < 0 ? math.max(0.0, swing) * 3 : math.max(0.0, -swing) * 3;
+      final double lift = s < 0
+          ? math.max(0.0, swing) * 3
+          : math.max(0.0, -swing) * 3;
       final double bx = cx + s * 9 + dx;
       final double by = 108 - lift;
 
@@ -1212,8 +1232,11 @@ class _NotificationRobotPainter extends CustomPainter {
     );
 
     // Visor
-    final visorRect =
-        Rect.fromCenter(center: const Offset(cx, 36), width: 44, height: 31);
+    final visorRect = Rect.fromCenter(
+      center: const Offset(cx, 36),
+      width: 44,
+      height: 31,
+    );
     canvas.drawRRect(
       RRect.fromRectAndRadius(visorRect, const Radius.circular(14)),
       Paint()
@@ -1255,6 +1278,7 @@ class EmployeeTopbar extends StatefulWidget {
   final VoidCallback? onOpenAssignedTasks;
   final VoidCallback? onTapWorkingHours;
   final VoidCallback? onOpenRunningTask;
+
   /// Tapping the running chip: gets the running item
   /// ({client, due_date, section: 'My Tasks' | 'Content Calendar', task_id, …})
   /// so the dashboard can open that client's workspace on that tab.
@@ -1276,7 +1300,8 @@ class EmployeeTopbar extends StatefulWidget {
   State<EmployeeTopbar> createState() => _EmployeeTopbarState();
 }
 
-class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStateMixin {
+class _EmployeeTopbarState extends State<EmployeeTopbar>
+    with TickerProviderStateMixin {
   Timer? _pollingTimer;
   int _unreadCount = 0;
   String? _latestMessage;
@@ -1294,19 +1319,21 @@ class _EmployeeTopbarState extends State<EmployeeTopbar> with TickerProviderStat
   int? _workingRemainingSecs;
   final _workingElapsed = Stopwatch();
   int _workingHoursRequest = 0;
-  int _baseTotalSecs = 0;               // seconds worked today when last fetched
-  DateTime _baseAt = DateTime.now();    // local time of that fetch
+  int _baseTotalSecs = 0; // seconds worked today when last fetched
+  DateTime _baseAt = DateTime.now(); // local time of that fetch
   Duration _serverOffset = Duration.zero;
-  Map<String, dynamic>? _running;       // {trackingItemId, client, task, sessionStartedAt}
+  Map<String, dynamic>?
+  _running; // {trackingItemId, client, task, sessionStartedAt}
   Timer? _tickTimer;
   List<String> _runningMeetings = const [];
   int _meetingRequest = 0;
 
-  late AnimationController _rotateController;
+  // This pulse belongs to the notification robot only. The work-time badge
+  // below is intentionally static and no longer rotates.
   late AnimationController _glowController;
-  late Animation<double> _glowAnimation;
   late final AnimationController _robotController;
-late final AnimationController _actionController; // event-specific robot action
+  late final AnimationController
+  _actionController; // event-specific robot action
   final AudioPlayer _audioPlayer = AudioPlayer();
   RobotEvent _robotEvent = RobotEvent.generic;
   Timer? _actionTimer;
@@ -1314,7 +1341,6 @@ late final AnimationController _actionController; // event-specific robot action
   // app (Start / Hold / Complete / Restart / Approve / Rework / Reject).
   StreamSubscription<TaskActionSignal>? _taskActionSub;
 
-  bool _isPaused = false;
   bool _isBroadcastPopupShowing = false;
 
   @override
@@ -1323,10 +1349,6 @@ late final AnimationController _actionController; // event-specific robot action
     // This top bar alerts for the notifications list itself (no double sound).
     AppNotificationCenter.layoutPollers++;
 
-    _rotateController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 5),
-    )..repeat();
     // Drives the whole robot + laser + panel sequence (see NotificationRobotScene).
     _robotController = AnimationController(
       vsync: this,
@@ -1343,10 +1365,6 @@ late final AnimationController _actionController; // event-specific robot action
     _actionController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
-    );
-
-    _glowAnimation = Tween<double>(begin: 4.0, end: 16.0).animate(
-      CurvedAnimation(parent: _glowController, curve: Curves.easeInOut),
     );
 
     _startPolling();
@@ -1436,8 +1454,11 @@ late final AnimationController _actionController; // event-specific robot action
         child: ListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          leading: Icon(Icons.person_outline_rounded,
-              size: 20, color: AppColors.textGrey),
+          leading: Icon(
+            Icons.person_outline_rounded,
+            size: 20,
+            color: AppColors.textGrey,
+          ),
           title: Text('Profile', style: TextStyle(fontSize: 13)),
         ),
       ),
@@ -1447,9 +1468,15 @@ late final AnimationController _actionController; // event-specific robot action
         child: ListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          leading: Icon(Icons.logout_rounded, size: 20, color: Color(0xFFEF4444)),
-          title: Text('Logout',
-              style: TextStyle(fontSize: 13, color: Color(0xFFEF4444))),
+          leading: Icon(
+            Icons.logout_rounded,
+            size: 20,
+            color: Color(0xFFEF4444),
+          ),
+          title: Text(
+            'Logout',
+            style: TextStyle(fontSize: 13, color: Color(0xFFEF4444)),
+          ),
         ),
       ),
     ];
@@ -1465,8 +1492,9 @@ late final AnimationController _actionController; // event-specific robot action
   void _onTaskAction(TaskActionSignal signal) {
     if (!mounted) return;
     // Friendly, locally generated wishes — not backend text.
-    final String name =
-        signal.title.trim().isEmpty ? 'your task' : signal.title.trim();
+    final String name = signal.title.trim().isEmpty
+        ? 'your task'
+        : signal.title.trim();
     final RobotEvent event;
     final String message;
     switch (signal.action.toLowerCase()) {
@@ -1563,7 +1591,6 @@ late final AnimationController _actionController; // event-specific robot action
     _audioPlayer.dispose();
     _actionTimer?.cancel();
     _actionController.dispose();
-    _rotateController.dispose();
     _robotController.dispose();
     _glowController.dispose();
     super.dispose();
@@ -1573,242 +1600,242 @@ late final AnimationController _actionController; // event-specific robot action
     return ApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/api/?$'), '');
   }
 
-void _playNotificationSound() async {
-  try {
-    await _audioPlayer.play(AssetSource('sounds/notification.mp3'));
-  } catch (e) {
-    debugPrint("Audio play error: $e");
+  void _playNotificationSound() async {
+    try {
+      await _audioPlayer.play(AssetSource('sounds/notification.mp3'));
+    } catch (e) {
+      debugPrint("Audio play error: $e");
+    }
   }
-}
 
-// Future<void> _checkActiveBroadcast() async {
-//     final authService = Provider.of<AuthService>(context, listen: false);
-//     final employeeId = authService.user?['id'];
-//     final employeeName =
-//         authService.user?['fullName'] ?? authService.user?['name'] ?? '';
+  // Future<void> _checkActiveBroadcast() async {
+  //     final authService = Provider.of<AuthService>(context, listen: false);
+  //     final employeeId = authService.user?['id'];
+  //     final employeeName =
+  //         authService.user?['fullName'] ?? authService.user?['name'] ?? '';
 
-//     if (employeeId == null || employeeName.toString().trim().isEmpty) return;
+  //     if (employeeId == null || employeeName.toString().trim().isEmpty) return;
 
-//     try {
-//       final response =
-//           await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
+  //     try {
+  //       final response =
+  //           await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
 
-//       if (response.statusCode != 200) return;
+  //       if (response.statusCode != 200) return;
 
-//       final data = jsonDecode(response.body) as Map<String, dynamic>;
+  //       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
-//       final bool isActive = data['isActive'] ?? false;
-//       final bool newClientOn = data['newClientEnabled'] ?? true;
-//       final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
-//       final String adminMessage = (data['message'] ?? '').toString().trim();
-//       final String severity =
-//           (data['severity'] ?? 'Warning').toString().trim();
+  //       final bool isActive = data['isActive'] ?? false;
+  //       final bool newClientOn = data['newClientEnabled'] ?? true;
+  //       final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
+  //       final String adminMessage = (data['message'] ?? '').toString().trim();
+  //       final String severity =
+  //           (data['severity'] ?? 'Warning').toString().trim();
 
-//       final dynamic targetEmpId = data['targetEmployeeId'];
-//       final String dbBroadcastId = (data['id'] ?? 0).toString();
+  //       final dynamic targetEmpId = data['targetEmployeeId'];
+  //       final String dbBroadcastId = (data['id'] ?? 0).toString();
 
-//       if (!isActive) return;
+  //       if (!isActive) return;
 
-//       if (targetEmpId != null &&
-//           targetEmpId.toString() != employeeId.toString()) {
-//         return;
-//       }
+  //       if (targetEmpId != null &&
+  //           targetEmpId.toString() != employeeId.toString()) {
+  //         return;
+  //       }
 
-//       final prefs = await SharedPreferences.getInstance();
+  //       final prefs = await SharedPreferences.getInstance();
 
-//       // 1. ADMIN MANUAL MESSAGE
-//       if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
-//         final manualKey = 'manual_agreed_$employeeId';
-//         final savedMsg = prefs.getString(manualKey) ?? '';
+  //       // 1. ADMIN MANUAL MESSAGE
+  //       if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
+  //         final manualKey = 'manual_agreed_$employeeId';
+  //         final savedMsg = prefs.getString(manualKey) ?? '';
 
-//         // Puthu message-ah iruntha mattum thaan open aagum, same message-ku open aagathu
-//         if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
-//           _showBlueWhiteAgreePopup(
-//             adminMessage,
-//             severity,
-//             manualKey,
-//             adminMessage,
-//             employeeId,
-//           );
-//           return;
-//         }
-//       }
+  //         // Puthu message-ah iruntha mattum thaan open aagum, same message-ku open aagathu
+  //         if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
+  //           _showBlueWhiteAgreePopup(
+  //             adminMessage,
+  //             severity,
+  //             manualKey,
+  //             adminMessage,
+  //             employeeId,
+  //           );
+  //           return;
+  //         }
+  //       }
 
-//       // 2. AUTOMATED CLIENT / TASK POPUPS
-//       final summaryRes = await http.get(
-//         Uri.parse(
-//           '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
-//         ),
-//       );
+  //       // 2. AUTOMATED CLIENT / TASK POPUPS
+  //       final summaryRes = await http.get(
+  //         Uri.parse(
+  //           '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
+  //         ),
+  //       );
 
-//       if (summaryRes.statusCode != 200) return;
+  //       if (summaryRes.statusCode != 200) return;
 
-//       final summaryData =
-//           (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
+  //       final summaryData =
+  //           (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
 
-//       // 2A. New client task assigned
-//       final newClientsList =
-//           List<dynamic>.from(summaryData['newClientsList'] ?? []);
+  //       // 2A. New client task assigned
+  //       final newClientsList =
+  //           List<dynamic>.from(summaryData['newClientsList'] ?? []);
 
-//       if (newClientOn && newClientsList.isNotEmpty) {
-//         final clientNames = newClientsList
-//             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
-//             .where((name) => name.isNotEmpty)
-//             .toSet()
-//             .toList()
-//           ..sort();
+  //       if (newClientOn && newClientsList.isNotEmpty) {
+  //         final clientNames = newClientsList
+  //             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+  //             .where((name) => name.isNotEmpty)
+  //             .toSet()
+  //             .toList()
+  //           ..sort();
 
-//         if (clientNames.isNotEmpty) {
-//           final namesStr = clientNames.join(', ');
-//           final triggerMsg =
-//               'New client task assigned for: $namesStr. '
-//               'Please check your task panel.';
+  //         if (clientNames.isNotEmpty) {
+  //           final namesStr = clientNames.join(', ');
+  //           final triggerMsg =
+  //               'New client task assigned for: $namesStr. '
+  //               'Please check your task panel.';
 
-//           final newClientKey = 'new_client_agreed_$employeeId';
-//           final savedNewClient = prefs.getString(newClientKey) ?? '';
+  //           final newClientKey = 'new_client_agreed_$employeeId';
+  //           final savedNewClient = prefs.getString(newClientKey) ?? '';
 
-//           if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
-//             _showBlueWhiteAgreePopup(
-//               triggerMsg,
-//               'Information',
-//               newClientKey,
-//               namesStr,
-//               employeeId,
-//             );
-//             return;
-//           }
-//         }
-//       }
+  //           if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
+  //             _showBlueWhiteAgreePopup(
+  //               triggerMsg,
+  //               'Information',
+  //               newClientKey,
+  //               namesStr,
+  //               employeeId,
+  //             );
+  //             return;
+  //           }
+  //         }
+  //       }
 
-//       // 2B. Inactive client
-//       final inactiveList =
-//           List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
+  //       // 2B. Inactive client
+  //       final inactiveList =
+  //           List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
 
-//       if (inactiveClientOn && inactiveList.isNotEmpty) {
-//         final clientNames = inactiveList
-//             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
-//             .where((name) => name.isNotEmpty)
-//             .toSet()
-//             .toList()
-//           ..sort();
+  //       if (inactiveClientOn && inactiveList.isNotEmpty) {
+  //         final clientNames = inactiveList
+  //             .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+  //             .where((name) => name.isNotEmpty)
+  //             .toSet()
+  //             .toList()
+  //           ..sort();
 
-//         if (clientNames.isNotEmpty) {
-//           final namesStr = clientNames.join(', ');
-//           final triggerMsg =
-//               'Assigned client(s) marked inactive: $namesStr.';
+  //         if (clientNames.isNotEmpty) {
+  //           final namesStr = clientNames.join(', ');
+  //           final triggerMsg =
+  //               'Assigned client(s) marked inactive: $namesStr.';
 
-//           final inactiveKey = 'inactive_client_agreed_$employeeId';
-//           final savedInactive = prefs.getString(inactiveKey) ?? '';
+  //           final inactiveKey = 'inactive_client_agreed_$employeeId';
+  //           final savedInactive = prefs.getString(inactiveKey) ?? '';
 
-//           if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
-//             _showBlueWhiteAgreePopup(
-//               triggerMsg,
-//               'Information',
-//               inactiveKey,
-//               namesStr,
-//               employeeId,
-//             );
-//             return;
-//           }
-//         }
-//       }
-//     } catch (e) {
-//       debugPrint("Broadcast check error: $e");
-//     }
-//   }
+  //           if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
+  //             _showBlueWhiteAgreePopup(
+  //               triggerMsg,
+  //               'Information',
+  //               inactiveKey,
+  //               namesStr,
+  //               employeeId,
+  //             );
+  //             return;
+  //           }
+  //         }
+  //       }
+  //     } catch (e) {
+  //       debugPrint("Broadcast check error: $e");
+  //     }
+  //   }
 
-//   void _showBlueWhiteAgreePopup(String message, String severity, String storageKey, String contentValue, dynamic employeeId) {
-//     if (!mounted) return;
-//     setState(() {
-//       _isBroadcastPopupShowing = true;
-//     });
+  //   void _showBlueWhiteAgreePopup(String message, String severity, String storageKey, String contentValue, dynamic employeeId) {
+  //     if (!mounted) return;
+  //     setState(() {
+  //       _isBroadcastPopupShowing = true;
+  //     });
 
-//     showDialog(
-//       context: context,
-//       barrierDismissible: false,
-//       builder: (BuildContext dialogContext) {
-//         return PopScope(
-//           canPop: false,
-//           child: AlertDialog(
-//             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-//             contentPadding: EdgeInsets.zero,
-//             content: Container(
-//               width: 420,
-//               padding: const EdgeInsets.all(24),
-//               decoration: BoxDecoration(
-//                 borderRadius: BorderRadius.circular(20),
-//                 gradient: const LinearGradient(
-//                   begin: Alignment.topCenter,
-//                   end: Alignment.bottomCenter,
-//                   colors: [Color(0xFFF0F5FF), Colors.white],
-//                 ),
-//               ),
-//               child: Column(
-//                 mainAxisSize: MainAxisSize.min,
-//                 children: [
-//                   Container(
-//                     padding: const EdgeInsets.all(12),
-//                     decoration: BoxDecoration(
-//                       color: const Color(0xFF0757D5).withValues(alpha: 0.1),
-//                       shape: BoxShape.circle,
-//                     ),
-//                     child: Icon(
-//                       severity == 'Emergency' 
-//                           ? Icons.error_outline 
-//                           : severity == 'Warning' 
-//                               ? Icons.warning_amber_rounded 
-//                               : Icons.info_outline_rounded,
-//                       color: const Color(0xFF0757D5),
-//                       size: 32,
-//                     ),
-//                   ),
-//                   const SizedBox(height: 14),
-//                   Text(
-//                     '$severity Alert',
-//                     style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF04296B)),
-//                   ),
-//                   const SizedBox(height: 10),
-//                   Text(
-//                     message,
-//                     textAlign: TextAlign.center,
-//                     style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
-//                   ),
-//                   const SizedBox(height: 24),
-//                   SizedBox(
-//                     width: double.infinity,
-//                     child: ElevatedButton(
-//                       style: ElevatedButton.styleFrom(
-//                         backgroundColor: const Color(0xFF0757D5),
-//                         padding: const EdgeInsets.symmetric(vertical: 14),
-//                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-//                         elevation: 0,
-//                       ),
-//                       onPressed: () async {
-//                         final prefs = await SharedPreferences.getInstance();
-//                         // Indha specific message / client string-ah save seithu viduvathal, adutha murai same message-ku popup varaathu
-//                         await prefs.setString(storageKey, contentValue);
+  //     showDialog(
+  //       context: context,
+  //       barrierDismissible: false,
+  //       builder: (BuildContext dialogContext) {
+  //         return PopScope(
+  //           canPop: false,
+  //           child: AlertDialog(
+  //             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  //             contentPadding: EdgeInsets.zero,
+  //             content: Container(
+  //               width: 420,
+  //               padding: const EdgeInsets.all(24),
+  //               decoration: BoxDecoration(
+  //                 borderRadius: BorderRadius.circular(20),
+  //                 gradient: const LinearGradient(
+  //                   begin: Alignment.topCenter,
+  //                   end: Alignment.bottomCenter,
+  //                   colors: [Color(0xFFF0F5FF), Colors.white],
+  //                 ),
+  //               ),
+  //               child: Column(
+  //                 mainAxisSize: MainAxisSize.min,
+  //                 children: [
+  //                   Container(
+  //                     padding: const EdgeInsets.all(12),
+  //                     decoration: BoxDecoration(
+  //                       color: const Color(0xFF0757D5).withValues(alpha: 0.1),
+  //                       shape: BoxShape.circle,
+  //                     ),
+  //                     child: Icon(
+  //                       severity == 'Emergency'
+  //                           ? Icons.error_outline
+  //                           : severity == 'Warning'
+  //                               ? Icons.warning_amber_rounded
+  //                               : Icons.info_outline_rounded,
+  //                       color: const Color(0xFF0757D5),
+  //                       size: 32,
+  //                     ),
+  //                   ),
+  //                   const SizedBox(height: 14),
+  //                   Text(
+  //                     '$severity Alert',
+  //                     style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Color(0xFF04296B)),
+  //                   ),
+  //                   const SizedBox(height: 10),
+  //                   Text(
+  //                     message,
+  //                     textAlign: TextAlign.center,
+  //                     style: const TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
+  //                   ),
+  //                   const SizedBox(height: 24),
+  //                   SizedBox(
+  //                     width: double.infinity,
+  //                     child: ElevatedButton(
+  //                       style: ElevatedButton.styleFrom(
+  //                         backgroundColor: const Color(0xFF0757D5),
+  //                         padding: const EdgeInsets.symmetric(vertical: 14),
+  //                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  //                         elevation: 0,
+  //                       ),
+  //                       onPressed: () async {
+  //                         final prefs = await SharedPreferences.getInstance();
+  //                         // Indha specific message / client string-ah save seithu viduvathal, adutha murai same message-ku popup varaathu
+  //                         await prefs.setString(storageKey, contentValue);
 
-//                         if (dialogContext.mounted) {
-//                           Navigator.of(dialogContext).pop();
-//                         }
-//                         setState(() {
-//                           _isBroadcastPopupShowing = false;
-//                         });
-//                       },
-//                       child: const Text(
-//                         'Agree',
-//                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-//                       ),
-//                     ),
-//                   ),
-//                 ],
-//               ),
-//             ),
-//           ),
-//         );
-//       },
-//     );
-//   }
+  //                         if (dialogContext.mounted) {
+  //                           Navigator.of(dialogContext).pop();
+  //                         }
+  //                         setState(() {
+  //                           _isBroadcastPopupShowing = false;
+  //                         });
+  //                       },
+  //                       child: const Text(
+  //                         'Agree',
+  //                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+  //                       ),
+  //                     ),
+  //                   ),
+  //                 ],
+  //               ),
+  //             ),
+  //           ),
+  //         );
+  //       },
+  //     );
+  //   }
 
   // Independent client-status broadcast checker.
   // Uses the existing blue-and-white Agree popup.
@@ -1821,9 +1848,9 @@ void _playNotificationSound() async {
     try {
       final auth = Provider.of<AuthService>(context, listen: false);
       final employeeId = (auth.user?['id'] ?? '').toString();
-      final employeeName =
-          (auth.user?['fullName'] ?? auth.user?['name'] ?? '')
-              .toString().trim();
+      final employeeName = (auth.user?['fullName'] ?? auth.user?['name'] ?? '')
+          .toString()
+          .trim();
 
       if (employeeId.isEmpty || employeeName.isEmpty) return;
 
@@ -1875,8 +1902,7 @@ void _playNotificationSound() async {
         return;
       }
 
-      final oldStatuses =
-          Map<String, dynamic>.from(jsonDecode(oldText) as Map);
+      final oldStatuses = Map<String, dynamic>.from(jsonDecode(oldText) as Map);
 
       final pendingText = prefs.getString(pendingKey);
       final pending = pendingText == null
@@ -1903,9 +1929,9 @@ void _playNotificationSound() async {
           'eventId': eventId,
           'message': entry.value
               ? 'Your assigned client $clientName has been marked Active. '
-                'Please review your assigned tasks.'
+                    'Please review your assigned tasks.'
               : 'Your assigned client $clientName has been marked Inactive. '
-                'Please review your assigned tasks.',
+                    'Please review your assigned tasks.',
         });
       }
 
@@ -1948,399 +1974,404 @@ void _playNotificationSound() async {
       _clientStatusCheckRunning = false;
     }
   }
-Future<void> _checkActiveBroadcast() async {
-  final authService = Provider.of<AuthService>(context, listen: false);
-  final employeeId = authService.user?['id'];
-  final employeeName =
-      authService.user?['fullName'] ?? authService.user?['name'] ?? '';
 
-  if (employeeId == null || employeeName.toString().trim().isEmpty) return;
+  Future<void> _checkActiveBroadcast() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final employeeId = authService.user?['id'];
+    final employeeName =
+        authService.user?['fullName'] ?? authService.user?['name'] ?? '';
 
-  try {
-    final response =
-        await http.get(Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'));
+    if (employeeId == null || employeeName.toString().trim().isEmpty) return;
 
-    if (response.statusCode != 200) return;
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConfig.baseUrl}/broadcast/settings'),
+      );
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode != 200) return;
 
-    final bool isActive = data['isActive'] ?? false;
-    final bool newClientOn = data['newClientEnabled'] ?? true;
-    final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
-    final String adminMessage = (data['message'] ?? '').toString().trim();
-    final String severity =
-        (data['severity'] ?? 'Warning').toString().trim();
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
 
-    final dynamic targetEmpId = data['targetEmployeeId'];
-    final String dbBroadcastId = (data['id'] ?? 0).toString();
+      final bool isActive = data['isActive'] ?? false;
+      final bool newClientOn = data['newClientEnabled'] ?? true;
+      final bool inactiveClientOn = data['inactiveClientEnabled'] ?? true;
+      final String adminMessage = (data['message'] ?? '').toString().trim();
+      final String severity = (data['severity'] ?? 'Warning').toString().trim();
 
-    if (!isActive) return;
+      final dynamic targetEmpId = data['targetEmployeeId'];
+      final String dbBroadcastId = (data['id'] ?? 0).toString();
 
-    if (targetEmpId != null &&
-        targetEmpId.toString() != employeeId.toString()) {
-      return;
-    }
+      if (!isActive) return;
 
-    final prefs = await SharedPreferences.getInstance();
-
-    // 1. ADMIN MANUAL MESSAGE
-    if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
-      final manualKey = 'manual_agreed_$employeeId';
-      final savedMsg = prefs.getString(manualKey) ?? '';
-
-      // Puthu message-ah iruntha mattum popup open aagum
-      if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
-        _showBlueWhiteAgreePopup(
-          adminMessage,
-          severity,
-          manualKey,
-          adminMessage,
-          employeeId,
-        );
+      if (targetEmpId != null &&
+          targetEmpId.toString() != employeeId.toString()) {
         return;
       }
-    }
 
-    // 2. AUTOMATED CLIENT / TASK POPUPS
-    final summaryRes = await http.get(
-      Uri.parse(
-        '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
-      ),
-    );
+      final prefs = await SharedPreferences.getInstance();
 
-    if (summaryRes.statusCode != 200) return;
+      // 1. ADMIN MANUAL MESSAGE
+      if (adminMessage.isNotEmpty && dbBroadcastId != '0') {
+        final manualKey = 'manual_agreed_$employeeId';
+        final savedMsg = prefs.getString(manualKey) ?? '';
 
-    final summaryData =
-        (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
-
-    // 2A. New client task assigned
-    final newClientsList =
-        List<dynamic>.from(summaryData['newClientsList'] ?? []);
-
-    if (newClientOn && newClientsList.isNotEmpty) {
-      final clientNames = newClientsList
-          .map((c) => (c['clientName'] ?? 'Client').toString().trim())
-          .where((name) => name.isNotEmpty)
-          .toSet()
-          .toList()
-        ..sort();
-
-      if (clientNames.isNotEmpty) {
-        final namesStr = clientNames.join(', ');
-        final triggerMsg =
-            'New client task assigned for: $namesStr. '
-            'Please check your task panel.';
-
-        final newClientKey = 'new_client_agreed_$employeeId';
-        final savedNewClient = prefs.getString(newClientKey) ?? '';
-
-        if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
+        // Puthu message-ah iruntha mattum popup open aagum
+        if (savedMsg != adminMessage && !_isBroadcastPopupShowing) {
           _showBlueWhiteAgreePopup(
-            triggerMsg,
-            'Information',
-            newClientKey,
-            namesStr,
+            adminMessage,
+            severity,
+            manualKey,
+            adminMessage,
             employeeId,
           );
           return;
         }
       }
-    }
 
-    // 2B. Inactive client
-    final inactiveList =
-        List<dynamic>.from(summaryData['inactiveTodayList'] ?? []);
+      // 2. AUTOMATED CLIENT / TASK POPUPS
+      final summaryRes = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}/dashboard/summary/${Uri.encodeComponent(employeeName.toString())}',
+        ),
+      );
 
-    if (inactiveClientOn && inactiveList.isNotEmpty) {
-      final clientNames = inactiveList
-          .map((c) => (c['clientName'] ?? 'Client').toString().trim())
-          .where((name) => name.isNotEmpty)
-          .toSet()
-          .toList()
-        ..sort();
+      if (summaryRes.statusCode != 200) return;
 
-      if (clientNames.isNotEmpty) {
-        final namesStr = clientNames.join(', ');
-        final triggerMsg =
-            'Assigned client(s) marked inactive: $namesStr.';
+      final summaryData =
+          (jsonDecode(summaryRes.body)['data'] ?? {}) as Map<String, dynamic>;
 
-        final inactiveKey = 'inactive_client_agreed_$employeeId';
-        final savedInactive = prefs.getString(inactiveKey) ?? '';
+      // 2A. New client task assigned
+      final newClientsList = List<dynamic>.from(
+        summaryData['newClientsList'] ?? [],
+      );
 
-        if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
-          _showBlueWhiteAgreePopup(
-            triggerMsg,
-            'Information',
-            inactiveKey,
-            namesStr,
-            employeeId,
-          );
-          return;
+      if (newClientOn && newClientsList.isNotEmpty) {
+        final clientNames =
+            newClientsList
+                .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+                .where((name) => name.isNotEmpty)
+                .toSet()
+                .toList()
+              ..sort();
+
+        if (clientNames.isNotEmpty) {
+          final namesStr = clientNames.join(', ');
+          final triggerMsg =
+              'New client task assigned for: $namesStr. '
+              'Please check your task panel.';
+
+          final newClientKey = 'new_client_agreed_$employeeId';
+          final savedNewClient = prefs.getString(newClientKey) ?? '';
+
+          if (savedNewClient != namesStr && !_isBroadcastPopupShowing) {
+            _showBlueWhiteAgreePopup(
+              triggerMsg,
+              'Information',
+              newClientKey,
+              namesStr,
+              employeeId,
+            );
+            return;
+          }
         }
       }
+
+      // 2B. Inactive client
+      final inactiveList = List<dynamic>.from(
+        summaryData['inactiveTodayList'] ?? [],
+      );
+
+      if (inactiveClientOn && inactiveList.isNotEmpty) {
+        final clientNames =
+            inactiveList
+                .map((c) => (c['clientName'] ?? 'Client').toString().trim())
+                .where((name) => name.isNotEmpty)
+                .toSet()
+                .toList()
+              ..sort();
+
+        if (clientNames.isNotEmpty) {
+          final namesStr = clientNames.join(', ');
+          final triggerMsg = 'Assigned client(s) marked inactive: $namesStr.';
+
+          final inactiveKey = 'inactive_client_agreed_$employeeId';
+          final savedInactive = prefs.getString(inactiveKey) ?? '';
+
+          if (savedInactive != namesStr && !_isBroadcastPopupShowing) {
+            _showBlueWhiteAgreePopup(
+              triggerMsg,
+              'Information',
+              inactiveKey,
+              namesStr,
+              employeeId,
+            );
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("Broadcast check error: $e");
     }
-  } catch (e) {
-    debugPrint("Broadcast check error: $e");
   }
-}
 
+  // ============================================================
+  // BLUE + WHITE BROADCAST POPUP
+  // ============================================================
 
-// ============================================================
-// BLUE + WHITE BROADCAST POPUP
-// ============================================================
+  void _showBlueWhiteAgreePopup(
+    String message,
+    String severity,
+    String storageKey,
+    String contentValue,
+    dynamic employeeId,
+  ) {
+    if (!mounted) return;
 
-void _showBlueWhiteAgreePopup(
-  String message,
-  String severity,
-  String storageKey,
-  String contentValue,
-  dynamic employeeId,
-) {
-  if (!mounted) return;
+    setState(() {
+      _isBroadcastPopupShowing = true;
+    });
 
-  setState(() {
-    _isBroadcastPopupShowing = true;
-  });
-
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (BuildContext dialogContext) {
-      return PopScope(
-        canPop: false,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          contentPadding: EdgeInsets.zero,
-          content: Container(
-            width: 420,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(20),
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFFF0F5FF),
-                  Colors.white,
+            ),
+            contentPadding: EdgeInsets.zero,
+            content: Container(
+              width: 420,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFFF0F5FF), Colors.white],
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ------------------------------------------------
+                  // ICON
+                  // ------------------------------------------------
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0757D5).withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      severity == 'Emergency'
+                          ? Icons.error_outline
+                          : severity == 'Warning'
+                          ? Icons.warning_amber_rounded
+                          : Icons.info_outline_rounded,
+                      color: const Color(0xFF0757D5),
+                      size: 32,
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // ------------------------------------------------
+                  // TITLE
+                  // ------------------------------------------------
+                  Text(
+                    '$severity Alert',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 18,
+                      color: Color(0xFF04296B),
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // ------------------------------------------------
+                  // MESSAGE WITH HIGHLIGHT
+                  // ------------------------------------------------
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: SelectableText.rich(
+                      TextSpan(children: _buildHighlightedMessage(message)),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        color: Color(0xFF475569),
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // ------------------------------------------------
+                  // AGREE BUTTON
+                  // ------------------------------------------------
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0757D5),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      onPressed: () async {
+                        final prefs = await SharedPreferences.getInstance();
+
+                        // Same message / same client list-ku
+                        // next time popup varaama irukka save pannum.
+                        await prefs.setString(storageKey, contentValue);
+
+                        if (dialogContext.mounted) {
+                          Navigator.of(dialogContext).pop();
+                        }
+
+                        if (mounted) {
+                          setState(() {
+                            _isBroadcastPopupShowing = false;
+                          });
+                        }
+                      },
+                      child: const Text(
+                        'Agree',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ------------------------------------------------
-                // ICON
-                // ------------------------------------------------
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0757D5).withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    severity == 'Emergency'
-                        ? Icons.error_outline
-                        : severity == 'Warning'
-                            ? Icons.warning_amber_rounded
-                            : Icons.info_outline_rounded,
-                    color: const Color(0xFF0757D5),
-                    size: 32,
-                  ),
-                ),
-
-                const SizedBox(height: 14),
-
-                // ------------------------------------------------
-                // TITLE
-                // ------------------------------------------------
-                Text(
-                  '$severity Alert',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 18,
-                    color: Color(0xFF04296B),
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
-                // ------------------------------------------------
-                // MESSAGE WITH HIGHLIGHT
-                // ------------------------------------------------
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  child: SelectableText.rich(
-                    TextSpan(
-                      children: _buildHighlightedMessage(message),
-                    ),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      color: Color(0xFF475569),
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // ------------------------------------------------
-                // AGREE BUTTON
-                // ------------------------------------------------
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0757D5),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 14,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 0,
-                    ),
-                    onPressed: () async {
-                      final prefs =
-                          await SharedPreferences.getInstance();
-
-                      // Same message / same client list-ku
-                      // next time popup varaama irukka save pannum.
-                      await prefs.setString(
-                        storageKey,
-                        contentValue,
-                      );
-
-                      if (dialogContext.mounted) {
-                        Navigator.of(dialogContext).pop();
-                      }
-
-                      if (mounted) {
-                        setState(() {
-                          _isBroadcastPopupShowing = false;
-                        });
-                      }
-                    },
-                    child: const Text(
-                      'Agree',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
-        ),
-      );
-    },
-  );
-}
-
-
-// ============================================================
-// MESSAGE HIGHLIGHTER
-// ============================================================
-
-List<TextSpan> _buildHighlightedMessage(String message) {
-  final List<TextSpan> spans = [];
-
-  final RegExp regex = RegExp(
-    r'https?:\/\/[^\s]+|'
-    r'@[A-Za-z0-9_.]+|'
-    r'\b(?:click here|click|here|important|urgent|'
-    r'action required|please note|warning|emergency|'
-    r'new client|task assigned|inactive)\b',
-    caseSensitive: false,
-  );
-
-  final List<_HighlightPart> highlights = [];
-
-  // ---------------------------------------------
-  // Keyword / URL / @employee highlight
-  // ---------------------------------------------
-  for (final match in regex.allMatches(message)) {
-    highlights.add(
-      _HighlightPart(
-        start: match.start,
-        end: match.end,
-      ),
+        );
+      },
     );
   }
 
-  // ---------------------------------------------
-  // Highlight value after ":"
-  //
-  // Example:
-  // Assigned client(s) marked inactive: JEYASRI HOSTAL.
-  //
-  // "JEYASRI HOSTAL" will also be highlighted.
-  // ---------------------------------------------
-  final colonIndex = message.indexOf(':');
+  // ============================================================
+  // MESSAGE HIGHLIGHTER
+  // ============================================================
 
-  if (colonIndex != -1) {
-    final valueStart = colonIndex + 1;
+  List<TextSpan> _buildHighlightedMessage(String message) {
+    final List<TextSpan> spans = [];
 
-    final value = message
-        .substring(valueStart)
-        .trim();
+    final RegExp regex = RegExp(
+      r'https?:\/\/[^\s]+|'
+      r'@[A-Za-z0-9_.]+|'
+      r'\b(?:click here|click|here|important|urgent|'
+      r'action required|please note|warning|emergency|'
+      r'new client|task assigned|inactive)\b',
+      caseSensitive: false,
+    );
 
-    if (value.isNotEmpty) {
-      final actualStart =
-          message.indexOf(value, valueStart);
+    final List<_HighlightPart> highlights = [];
 
-      if (actualStart >= 0) {
-        highlights.add(
-          _HighlightPart(
-            start: actualStart,
-            end: actualStart + value.length,
+    // ---------------------------------------------
+    // Keyword / URL / @employee highlight
+    // ---------------------------------------------
+    for (final match in regex.allMatches(message)) {
+      highlights.add(_HighlightPart(start: match.start, end: match.end));
+    }
+
+    // ---------------------------------------------
+    // Highlight value after ":"
+    //
+    // Example:
+    // Assigned client(s) marked inactive: JEYASRI HOSTAL.
+    //
+    // "JEYASRI HOSTAL" will also be highlighted.
+    // ---------------------------------------------
+    final colonIndex = message.indexOf(':');
+
+    if (colonIndex != -1) {
+      final valueStart = colonIndex + 1;
+
+      final value = message.substring(valueStart).trim();
+
+      if (value.isNotEmpty) {
+        final actualStart = message.indexOf(value, valueStart);
+
+        if (actualStart >= 0) {
+          highlights.add(
+            _HighlightPart(start: actualStart, end: actualStart + value.length),
+          );
+        }
+      }
+    }
+
+    // Sort
+    highlights.sort((a, b) => a.start.compareTo(b.start));
+
+    // Remove overlapping ranges
+    final List<_HighlightPart> cleanHighlights = [];
+
+    int lastEnd = -1;
+
+    for (final item in highlights) {
+      if (item.start >= lastEnd) {
+        cleanHighlights.add(item);
+        lastEnd = item.end;
+      }
+    }
+
+    // ---------------------------------------------
+    // Create TextSpans
+    // ---------------------------------------------
+    int lastIndex = 0;
+
+    for (final item in cleanHighlights) {
+      // Normal text
+      if (item.start > lastIndex) {
+        spans.add(
+          TextSpan(
+            text: message.substring(lastIndex, item.start),
+            style: const TextStyle(
+              color: Color(0xFF475569),
+              fontWeight: FontWeight.w500,
+            ),
           ),
         );
       }
-    }
-  }
 
-  // Sort
-  highlights.sort(
-    (a, b) => a.start.compareTo(b.start),
-  );
-
-  // Remove overlapping ranges
-  final List<_HighlightPart> cleanHighlights = [];
-
-  int lastEnd = -1;
-
-  for (final item in highlights) {
-    if (item.start >= lastEnd) {
-      cleanHighlights.add(item);
-      lastEnd = item.end;
-    }
-  }
-
-  // ---------------------------------------------
-  // Create TextSpans
-  // ---------------------------------------------
-  int lastIndex = 0;
-
-  for (final item in cleanHighlights) {
-    // Normal text
-    if (item.start > lastIndex) {
+      // Highlight
       spans.add(
         TextSpan(
-          text: message.substring(
-            lastIndex,
-            item.start,
+          text: message.substring(item.start, item.end),
+          style: const TextStyle(
+            color: Color(0xFF0757D5),
+            fontWeight: FontWeight.w900,
+            decoration: TextDecoration.underline,
+            decorationColor: Color(0xFF0757D5),
+            decorationThickness: 1.5,
           ),
+        ),
+      );
+
+      lastIndex = item.end;
+    }
+
+    // Remaining text
+    if (lastIndex < message.length) {
+      spans.add(
+        TextSpan(
+          text: message.substring(lastIndex),
           style: const TextStyle(
             color: Color(0xFF475569),
             fontWeight: FontWeight.w500,
@@ -2349,41 +2380,8 @@ List<TextSpan> _buildHighlightedMessage(String message) {
       );
     }
 
-    // Highlight
-    spans.add(
-      TextSpan(
-        text: message.substring(
-          item.start,
-          item.end,
-        ),
-        style: const TextStyle(
-          color: Color(0xFF0757D5),
-          fontWeight: FontWeight.w900,
-          decoration: TextDecoration.underline,
-          decorationColor: Color(0xFF0757D5),
-          decorationThickness: 1.5,
-        ),
-      ),
-    );
-
-    lastIndex = item.end;
+    return spans;
   }
-
-  // Remaining text
-  if (lastIndex < message.length) {
-    spans.add(
-      TextSpan(
-        text: message.substring(lastIndex),
-        style: const TextStyle(
-          color: Color(0xFF475569),
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  return spans;
-}
 
   void _connectNotificationSocket() {
     final authService = Provider.of<AuthService>(context, listen: false);
@@ -2405,11 +2403,13 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         if (!mounted || payload is! Map) return;
         final recipient = payload['recipientName']?.toString() ?? '';
         final sender = payload['senderName']?.toString() ?? '';
-        final isGroup = payload['isGroup'] == true ||
+        final isGroup =
+            payload['isGroup'] == true ||
             payload['isGroup'] == 1 ||
             payload['isGroup']?.toString() == '1';
 
-        if (isGroup || recipient != employeeName || sender == employeeName) return;
+        if (isGroup || recipient != employeeName || sender == employeeName)
+          return;
 
         final id = int.tryParse(payload['id']?.toString() ?? '') ?? 0;
         if (id != 0 && _knownNotificationIds.contains(id)) return;
@@ -2420,10 +2420,15 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         final raw = payload['message']?.toString() ?? 'New message';
         final parsed = parseNotificationMessage(raw);
 
-        _playNotificationSound();
+        // MIMI speaks it (names the sender). No beep — her voice replaces it.
         _triggerTopRightPopup(
           parsed.preview,
-          event: classifyNotificationEvent(payload, parsed.decoded, parsed.preview),
+          event: classifyNotificationEvent(
+            payload,
+            parsed.decoded,
+            parsed.preview,
+          ),
+          sender: sender,
         );
       }
 
@@ -2443,7 +2448,10 @@ List<TextSpan> _buildHighlightedMessage(String message) {
   }
 
   void _startPolling() {
-    _pollingTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    // 20s fallback sync. Live notifications already arrive instantly over the
+    // socket, and the working-hours clock ticks locally every second, so this
+    // only re-syncs with the server — a longer interval cuts server load.
+    _pollingTimer = Timer.periodic(const Duration(seconds: 20), (timer) async {
       unawaited(_fetchRunningMeetings());
       await _checkNewNotifications();
       await _fetchTodayWorkingHours();
@@ -2458,10 +2466,14 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     if (name == null || name.trim().isEmpty) return;
     final request = ++_meetingRequest;
     try {
-      final response = await http.get(Uri.parse(
-        '${ApiConfig.baseUrl}/chat/meetings/live/${Uri.encodeComponent(name)}',
-      ));
-      if (!mounted || request != _meetingRequest || response.statusCode != 200) {
+      final response = await http.get(
+        Uri.parse(
+          '${ApiConfig.baseUrl}/chat/meetings/live/${Uri.encodeComponent(name)}',
+        ),
+      );
+      if (!mounted ||
+          request != _meetingRequest ||
+          response.statusCode != 200) {
         return;
       }
       final data = jsonDecode(response.body)['data'];
@@ -2482,31 +2494,48 @@ List<TextSpan> _buildHighlightedMessage(String message) {
   Future<void> _fetchTodayWorkingHours() async {
     if (!mounted) return;
     final authService = Provider.of<AuthService>(context, listen: false);
-    final employeeName = authService.user?['fullName'] ?? authService.user?['name'] ?? authService.user?['username'];
+    final employeeName =
+        authService.user?['fullName'] ??
+        authService.user?['name'] ??
+        authService.user?['username'];
     if (employeeName == null || employeeName.toString().isEmpty) return;
     final request = ++_workingHoursRequest;
     try {
       final now = DateTime.now();
-      final formattedDate = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final formattedDate =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
       // Running item (task or Content Calendar category) + today's total —
       // the same numbers My Tasks, Live Tracking and the Day Planner use.
-      final url = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/running').replace(
-        queryParameters: {'employee': employeeName.toString(), 'date': formattedDate},
-      );
+      final url = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/running')
+          .replace(
+            queryParameters: {
+              'employee': employeeName.toString(),
+              'date': formattedDate,
+            },
+          );
       final r = await http.get(url);
       if (r.statusCode == 200 && mounted && request == _workingHoursRequest) {
         final body = jsonDecode(r.body);
-        final serverNow = DateTime.tryParse((body['serverNow'] ?? '').toString());
+        final serverNow = DateTime.tryParse(
+          (body['serverNow'] ?? '').toString(),
+        );
         setState(() {
           _baseTotalSecs =
-              ((body['workingSecsWithMeetings'] ?? body['totalSecs']) as num?)?.toInt() ?? 0;
-          _workingRemainingSecs = (body['workingRemainingSecs'] as num?)?.toInt();
+              ((body['workingSecsWithMeetings'] ?? body['totalSecs']) as num?)
+                  ?.toInt() ??
+              0;
+          _workingRemainingSecs = (body['workingRemainingSecs'] as num?)
+              ?.toInt();
           _workingElapsed
             ..reset()
             ..start();
           _baseAt = DateTime.now();
-          _serverOffset = serverNow != null ? serverNow.difference(DateTime.now()) : Duration.zero;
-          _running = body['running'] is Map ? Map<String, dynamic>.from(body['running'] as Map) : null;
+          _serverOffset = serverNow != null
+              ? serverNow.difference(DateTime.now())
+              : Duration.zero;
+          _running = body['running'] is Map
+              ? Map<String, dynamic>.from(body['running'] as Map)
+              : null;
         });
         _recomputeWorkingDisplay();
       }
@@ -2518,7 +2547,8 @@ List<TextSpan> _buildHighlightedMessage(String message) {
   // Today's work only: the server counts sessions started today, and the
   // total ticks only while such a session is running. A task left running
   // from an earlier day adds nothing until it is held and restarted.
-  bool get _runningToday => _running != null && _running!['today_running'] == true;
+  bool get _runningToday =>
+      _running != null && _running!['today_running'] == true;
 
   void _recomputeWorkingDisplay() {
     int total = _baseTotalSecs;
@@ -2532,7 +2562,8 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     final m = (total % 3600) ~/ 60;
     final sec = total % 60;
     // Runs live with seconds while something is in progress.
-    final text = '${h.toString().padLeft(2, '0')}h ${m.toString().padLeft(2, '0')}m '
+    final text =
+        '${h.toString().padLeft(2, '0')}h ${m.toString().padLeft(2, '0')}m '
         '${sec.toString().padLeft(2, '0')}s';
     if (_runningToday || text != formattedTotalWorkingTime) {
       setState(() => formattedTotalWorkingTime = text);
@@ -2546,7 +2577,9 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     if (base != null) {
       secs = base + DateTime.now().difference(_baseAt).inSeconds;
     } else {
-      final started = DateTime.tryParse((_running?['sessionStartedAt'] ?? '').toString());
+      final started = DateTime.tryParse(
+        (_running?['sessionStartedAt'] ?? '').toString(),
+      );
       if (started == null) return '00:00:00';
       secs = DateTime.now().add(_serverOffset).difference(started).inSeconds;
     }
@@ -2564,7 +2597,11 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     // TaskActions.run emits a confirmed-action signal on success, which the
     // listener below turns into the ON HOLD robot — no manual trigger here.
     await TaskActions.run(
-      context, Map<String, dynamic>.from(running), 'hold', token: token);
+      context,
+      Map<String, dynamic>.from(running),
+      'hold',
+      token: token,
+    );
     await _fetchTodayWorkingHours();
   }
 
@@ -2583,7 +2620,11 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.video_camera_front_rounded, size: 17, color: Color(0xFF0369A1)),
+            const Icon(
+              Icons.video_camera_front_rounded,
+              size: 17,
+              color: Color(0xFF0369A1),
+            ),
             if (!compact) ...[
               const SizedBox(width: 6),
               Text(
@@ -2620,7 +2661,11 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         message: 'Task running: $title',
         child: IconButton(
           onPressed: openTask,
-          icon: const Icon(Icons.play_circle_outline, size: 18, color: Color(0xFF166534)),
+          icon: const Icon(
+            Icons.play_circle_outline,
+            size: 18,
+            color: Color(0xFF166534),
+          ),
           padding: const EdgeInsets.all(6),
           constraints: const BoxConstraints(),
           visualDensity: VisualDensity.compact,
@@ -2647,20 +2692,36 @@ List<TextSpan> _buildHighlightedMessage(String message) {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(stale ? Icons.warning_amber_rounded : Icons.circle,
-                    size: stale ? 13 : 9, color: stale ? const Color(0xFFDC2626) : const Color(0xFF16A34A)),
+                Icon(
+                  stale ? Icons.warning_amber_rounded : Icons.circle,
+                  size: stale ? 13 : 9,
+                  color: stale
+                      ? const Color(0xFFDC2626)
+                      : const Color(0xFF16A34A),
+                ),
                 const SizedBox(width: 6),
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Color(0xFF14532D))),
-                    Text(stale ? staleText : _runningTimerText(),
-                        style: TextStyle(
-                            fontSize: stale ? 10 : 11.5,
-                            fontWeight: FontWeight.w900,
-                            color: stale ? const Color(0xFFB91C1C) : const Color(0xFF166534))),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF14532D),
+                      ),
+                    ),
+                    Text(
+                      stale ? staleText : _runningTimerText(),
+                      style: TextStyle(
+                        fontSize: stale ? 10 : 11.5,
+                        fontWeight: FontWeight.w900,
+                        color: stale
+                            ? const Color(0xFFB91C1C)
+                            : const Color(0xFF166534),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(width: 8),
@@ -2668,13 +2729,22 @@ List<TextSpan> _buildHighlightedMessage(String message) {
                   onTap: _holdRunningTask,
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF3C7),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Text('Hold',
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFFB45309))),
+                    child: const Text(
+                      'Hold',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFFB45309),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -2688,11 +2758,13 @@ List<TextSpan> _buildHighlightedMessage(String message) {
   Future<void> _checkNewNotifications() async {
     final authService = Provider.of<AuthService>(context, listen: false);
     final employeeName = authService.user?['fullName'];
-    
+
     if (employeeName == null || employeeName.isEmpty) return;
 
     try {
-      final url = Uri.parse('${ApiConfig.baseUrl}/notifications/${Uri.encodeComponent(employeeName)}');
+      final url = Uri.parse(
+        '${ApiConfig.baseUrl}/notifications/${Uri.encodeComponent(employeeName)}',
+      );
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -2703,6 +2775,7 @@ List<TextSpan> _buildHighlightedMessage(String message) {
         Set<int> currentIds = {};
         bool hasNewNotification = false;
         String? latestMsgText;
+        String? latestSender;
         RobotEvent latestEvent = RobotEvent.generic;
 
         for (var row in rows) {
@@ -2710,17 +2783,28 @@ List<TextSpan> _buildHighlightedMessage(String message) {
           currentIds.add(id);
 
           bool isSentByMe = row["type"] == "SENT";
-          bool isSeen = row["isSeen"] == true || row["isSeen"] == 1 || row["isSeen"].toString() == "true";
+          bool isSeen =
+              row["isSeen"] == true ||
+              row["isSeen"] == 1 ||
+              row["isSeen"].toString() == "true";
 
           if (!isSentByMe && !isSeen) {
             unread++;
           }
 
-          if (_knownNotificationIds.isNotEmpty && !_knownNotificationIds.contains(id) && !isSentByMe && !isSeen) {
+          if (_knownNotificationIds.isNotEmpty &&
+              !_knownNotificationIds.contains(id) &&
+              !isSentByMe &&
+              !isSeen) {
             hasNewNotification = true;
-            final parsed = parseNotificationMessage(row["message"]?.toString() ?? '');
+            final parsed = parseNotificationMessage(
+              row["message"]?.toString() ?? '',
+            );
             if (parsed.preview.trim().isNotEmpty) {
               latestMsgText = parsed.preview;
+              latestSender =
+                  row["senderName"]?.toString() ??
+                  parsed.decoded?["senderName"]?.toString();
               latestEvent = classifyNotificationEvent(
                 row is Map ? row : null,
                 parsed.decoded,
@@ -2739,11 +2823,11 @@ List<TextSpan> _buildHighlightedMessage(String message) {
           }
         });
 
-         if (hasNewNotification) {
-          _playNotificationSound();
+        if (hasNewNotification) {
           _triggerTopRightPopup(
             latestMsgText ?? "You have a new notification",
             event: latestEvent,
+            sender: latestSender,
           );
         }
       }
@@ -2752,68 +2836,76 @@ List<TextSpan> _buildHighlightedMessage(String message) {
     }
   }
 
-void _triggerTopRightPopup(String message, {RobotEvent event = RobotEvent.generic}) {
-  if (!mounted) return;
+  void _triggerTopRightPopup(
+    String message, {
+    RobotEvent event = RobotEvent.generic,
+    String? sender,
+  }) {
+    if (!mounted) return;
 
-  _popupTimer?.cancel();
+    _popupTimer?.cancel();
 
-  final bool wasVisible = _showPopup;
+    final bool wasVisible = _showPopup;
 
-  setState(() {
-    _latestMessage = message;
-    _robotEvent = event;
-    _showPopup = true;
-  });
+    setState(() {
+      _latestMessage = message;
+      _robotEvent = event;
+      _showPopup = true;
+    });
 
-  // Robot walks in, extends its hand, fires the laser, panel is revealed.
-  if (wasVisible) {
-    _robotController.forward();
-  } else {
-    _robotController.forward(from: 0);
+    // MIMI speaks the message out loud (names the sender for a chat).
+    MimiVoice.instance.announce(sender: sender, message: message);
+
+    // Robot walks in, extends its hand, fires the laser, panel is revealed.
+    if (wasVisible) {
+      _robotController.forward();
+    } else {
+      _robotController.forward(from: 0);
+    }
+
+    // The event-specific action (pause symbol, celebration, ...) plays once
+    // the panel starts to reveal (70% of the opening animation).
+    _actionController.stop();
+    _actionController.value = 0;
+    final int actionDelayMs = wasVisible
+        ? 0
+        : ((0.70 - _robotController.value).clamp(0.0, 1.0) *
+                  _robotController.duration!.inMilliseconds)
+              .round();
+    _actionTimer?.cancel();
+    _actionTimer = Timer(Duration(milliseconds: actionDelayMs), () {
+      if (!mounted || !_showPopup) return;
+      _actionController.forward(from: 0);
+    });
+
+    // Panel stays open for the event's hold time (5-7 s) once fully revealed.
+    final int remainingOpenMs =
+        ((1 - _robotController.value) *
+                _robotController.duration!.inMilliseconds)
+            .round();
+    _popupTimer = Timer(
+      Duration(milliseconds: remainingOpenMs + event.holdMs),
+      _dismissPopup,
+    );
   }
 
-  // The event-specific action (pause symbol, celebration, ...) plays once
-  // the panel starts to reveal (70% of the opening animation).
-  _actionController.stop();
-  _actionController.value = 0;
-  final int actionDelayMs = wasVisible
-      ? 0
-      : ((0.70 - _robotController.value).clamp(0.0, 1.0) *
-              _robotController.duration!.inMilliseconds)
-          .round();
-  _actionTimer?.cancel();
-  _actionTimer = Timer(Duration(milliseconds: actionDelayMs), () {
-    if (!mounted || !_showPopup) return;
-    _actionController.forward(from: 0);
-  });
-
-  // Panel stays open for the event's hold time (5-7 s) once fully revealed.
-  final int remainingOpenMs = ((1 - _robotController.value) *
-          _robotController.duration!.inMilliseconds)
-      .round();
-  _popupTimer = Timer(
-    Duration(milliseconds: remainingOpenMs + event.holdMs),
-    _dismissPopup,
-  );
-}
-
-// Panel closes, laser retracts, hand lowers, robot walks away.
-void _dismissPopup() {
-  if (!mounted) return;
-
-  _robotController.reverse().whenComplete(() {
+  // Panel closes, laser retracts, hand lowers, robot walks away.
+  void _dismissPopup() {
     if (!mounted) return;
-    if (_robotController.status == AnimationStatus.dismissed) {
-      _actionController.stop();
-      _actionController.value = 0;
-      setState(() {
-        _showPopup = false;
-      });
-    }
-  });
-}
 
- @override
+    _robotController.reverse().whenComplete(() {
+      if (!mounted) return;
+      if (_robotController.status == AnimationStatus.dismissed) {
+        _actionController.stop();
+        _actionController.value = 0;
+        setState(() {
+          _showPopup = false;
+        });
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final bool isDesktop = MediaQuery.of(context).size.width >= 900;
     final bool isSmallMobile = MediaQuery.of(context).size.width < 450;
@@ -2828,9 +2920,7 @@ void _dismissPopup() {
             padding: EdgeInsets.symmetric(horizontal: isSmallMobile ? 8 : 18),
             decoration: const BoxDecoration(
               color: Colors.white,
-              border: Border(
-                bottom: BorderSide(color: AppColors.border),
-              ),
+              border: Border(bottom: BorderSide(color: AppColors.border)),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -2838,7 +2928,10 @@ void _dismissPopup() {
                 if (!isDesktop) ...[
                   Builder(
                     builder: (ctx) => IconButton(
-                      icon: const Icon(Icons.menu_rounded, color: AppColors.textDark),
+                      icon: const Icon(
+                        Icons.menu_rounded,
+                        color: AppColors.textDark,
+                      ),
                       onPressed: () => Scaffold.of(ctx).openDrawer(),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
@@ -2860,7 +2953,11 @@ void _dismissPopup() {
                       child: Row(
                         children: [
                           const SizedBox(width: 8),
-                          const Icon(Icons.search, size: 16, color: AppColors.textGrey),
+                          const Icon(
+                            Icons.search,
+                            size: 16,
+                            color: AppColors.textGrey,
+                          ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: TextField(
@@ -2876,7 +2973,10 @@ void _dismissPopup() {
                               },
                               decoration: const InputDecoration(
                                 hintText: 'Search client name…  (Ctrl+K)',
-                                hintStyle: TextStyle(fontSize: 12, color: AppColors.textGrey),
+                                hintStyle: TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textGrey,
+                                ),
                                 // No theme box: no blue focus line, no white fill.
                                 border: InputBorder.none,
                                 enabledBorder: InputBorder.none,
@@ -2894,9 +2994,16 @@ void _dismissPopup() {
                           ),
                           if (_searchController.text.isNotEmpty)
                             IconButton(
-                              icon: const Icon(Icons.close, size: 16, color: AppColors.textGrey),
+                              icon: const Icon(
+                                Icons.close,
+                                size: 16,
+                                color: AppColors.textGrey,
+                              ),
                               padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+                              constraints: const BoxConstraints(
+                                minWidth: 30,
+                                minHeight: 30,
+                              ),
                               onPressed: () {
                                 _searchController.clear();
                                 widget.onSearch?.call('');
@@ -2909,138 +3016,61 @@ void _dismissPopup() {
                     ),
                   ),
                 ),
-                
+
                 const SizedBox(width: 8),
 
-                MouseRegion(
-                  onEnter: (_) {
-                    setState(() {
-                      _isPaused = true;
-                      _rotateController.stop();
-                    });
-                  },
-                  onExit: (_) {
-                    setState(() {
-                      _isPaused = false;
-                      _rotateController.repeat();
-                    });
-                  },
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _isPaused = !_isPaused;
-                        if (_isPaused) {
-                          _rotateController.stop();
-                        } else {
-                          _rotateController.repeat();
-                        }
-                      });
-                      widget.onTapWorkingHours?.call();
-                    },
-                    child: AnimatedBuilder(
-                      animation: Listenable.merge([_rotateController, _glowAnimation]),
-                      builder: (context, child) {
-                        final double angle = _isPaused 
-                            ? 0.0 
-                            : _rotateController.value * 2 * 3.141592653589793;
-                        final bool isBackSide = angle > (3.141592653589793 / 2) && angle < (3 * 3.141592653589793 / 2);
-                        final double currentGlow = _glowAnimation.value;
-
-                        return Transform(
-                          transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.001)
-                            ..rotateY(angle),
-                          alignment: Alignment.center,
-                          child: Transform(
-                            transform: Matrix4.identity()
-                              ..rotateY(isBackSide ? 3.141592653589793 : 0.0),
-                            alignment: Alignment.center,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                boxShadow: [
-                                  // Soft, readable glow (deep blue / violet).
-                                  BoxShadow(
-                                    color: const Color(0xFF1D4ED8).withValues(alpha: 0.22),
-                                    blurRadius: currentGlow * 1.2,
-                                    spreadRadius: currentGlow * 0.15,
-                                  ),
-                                  BoxShadow(
-                                    color: const Color(0xFF7C3AED).withValues(alpha: 0.16),
-                                    blurRadius: currentGlow * 1.6,
-                                    spreadRadius: currentGlow * 0.1,
-                                  ),
-                                ],
-                              ),
-                              child: child,
-                            ),
+                Tooltip(
+                  message: 'Worked time recorded today',
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: widget.onTapWorkingHours,
+                      child: Container(
+                        height: 38,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallMobile ? 7 : 12,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFEFF6FF), Color(0xFFDBEAFE)],
                           ),
-                        );
-                      },
-                      child: Material(
-                        color: const Color(0xFFF1F6FF),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () {},
-                          child: CustomPaint(
-                            painter: MovingNeonBorderPainter(
-                              animationValue: _isPaused ? 0.0 : _rotateController.value,
-                              borderRadius: BorderRadius.circular(8),
-                              strokeWidth: 2.5,
+                          border: Border.all(color: const Color(0xFF2563EB)),
+                          borderRadius: BorderRadius.circular(10),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x1A2563EB),
+                              blurRadius: 8,
+                              offset: Offset(0, 2),
                             ),
-                            child: Container(
-                              height: 38,
-                              padding: EdgeInsets.symmetric(horizontal: isSmallMobile ? 6 : 12),
-                              decoration: BoxDecoration(
-                                color: const Color.fromARGB(0, 14, 65, 141),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.bolt_rounded, size: 16, color: Color(0xFFD97706)),
-                                  const SizedBox(width: 4),
-                                  ShaderMask(
-                                    shaderCallback: (bounds) {
-                                      return LinearGradient(
-                                        // Dark, high-contrast colours on the light
-                                        // pill (navy → royal blue → violet → teal).
-                                        colors: const [
-                                          Color(0xFF0A3D91),
-                                          Color(0xFF1D4ED8),
-                                          Color(0xFF6D28D9),
-                                          Color(0xFF0F766E),
-                                          Color(0xFF0A3D91),
-                                        ],
-                                        stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
-                                        transform: GradientRotation(_isPaused ? 0.0 : _rotateController.value * 2 * 3.141592653589793),
-                                      ).createShader(bounds);
-                                    },
-                                    child: SizedBox(
-                                      width: isSmallMobile ? 58 : null,
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          isSmallMobile
-                                              ? formattedTotalWorkingTime.replaceAll(RegExp(r'[hm] '), ':').replaceFirst('s', '')
-                                              : "Today Working Hours: $formattedTotalWorkingTime",
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w900,
-                                            color: Colors.white,
-                                            letterSpacing: 0.3,
-                                          ),
-                                          semanticsLabel: isSmallMobile
-                                              ? 'Today working hours: $formattedTotalWorkingTime'
-                                              : null,
-                                        ),
-                                      ),
-                                    ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.timer_outlined,
+                              size: 17,
+                              color: Color(0xFF1D4ED8),
+                            ),
+                            const SizedBox(width: 5),
+                            SizedBox(
+                              width: isSmallMobile ? 58 : null,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  isSmallMobile
+                                      ? formattedTotalWorkingTime
+                                      : 'Today Working Hours: $formattedTotalWorkingTime',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF123A8C),
                                   ),
-                                ],
+                                ),
                               ),
                             ),
-                          ),
+                          ],
                         ),
                       ),
                     ),
@@ -3050,11 +3080,15 @@ void _dismissPopup() {
                 if (_runningMeetings.isNotEmpty)
                   _buildRunningMeetingChip(compact: !isDesktop),
                 const SizedBox(width: 8),
-                
+
                 Stack(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.notifications_none_rounded, size: 20, color: AppColors.textDark),
+                      icon: const Icon(
+                        Icons.notifications_none_rounded,
+                        size: 20,
+                        color: AppColors.textDark,
+                      ),
                       onPressed: widget.onOpenNotifications,
                       padding: const EdgeInsets.all(4),
                       constraints: const BoxConstraints(),
@@ -3069,17 +3103,24 @@ void _dismissPopup() {
                             color: Colors.red,
                             shape: BoxShape.circle,
                           ),
-                          constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
                           child: Text(
                             '$_unreadCount',
-                            style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                         ),
                       ),
                   ],
                 ),
-                
+
                 const SizedBox(width: 8),
                 const KeyboardHelpButton(size: 18, color: AppColors.textDark),
                 if (!isSmallMobile) ...[
@@ -3093,10 +3134,16 @@ void _dismissPopup() {
                     final user = authService.user;
                     final employeeName = user?['fullName'] ?? 'Employee';
                     final employeeRole = user?['role'] ?? widget.role.title;
-                    final initials = user?['initials'] ?? _generateInitials(employeeName);
+                    final initials =
+                        user?['initials'] ?? _generateInitials(employeeName);
 
-                    final String? profilePhoto = user?['profile_photo']?.toString() ?? user?['profilePhoto']?.toString();
-                    final String avatarColorHex = user?['avatar_color']?.toString() ?? user?['avatarColor']?.toString() ?? '';
+                    final String? profilePhoto =
+                        user?['profile_photo']?.toString() ??
+                        user?['profilePhoto']?.toString();
+                    final String avatarColorHex =
+                        user?['avatar_color']?.toString() ??
+                        user?['avatarColor']?.toString() ??
+                        '';
 
                     Color avatarColor = AppColors.primary;
                     if (avatarColorHex.isNotEmpty) {
@@ -3109,7 +3156,9 @@ void _dismissPopup() {
                     ImageProvider? profileImage;
                     if (profilePhoto != null && profilePhoto.isNotEmpty) {
                       try {
-                        profileImage = MemoryImage(base64Decode(profilePhoto.split(',').last));
+                        profileImage = MemoryImage(
+                          base64Decode(profilePhoto.split(',').last),
+                        );
                       } catch (_) {}
                     }
 
@@ -3125,11 +3174,20 @@ void _dismissPopup() {
                           backgroundColor: avatarColor,
                           backgroundImage: profileImage,
                           child: profileImage == null
-                              ? Text(initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800))
+                              ? Text(
+                                  initials,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                )
                               : null,
                         ),
-                        itemBuilder: (context) =>
-                            _profileMenuItems(employeeName.toString(), roleLabel),
+                        itemBuilder: (context) => _profileMenuItems(
+                          employeeName.toString(),
+                          roleLabel,
+                        ),
                       );
                     }
 
@@ -3148,11 +3206,19 @@ void _dismissPopup() {
                             children: [
                               Text(
                                 employeeName,
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.textDark),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textDark,
+                                ),
                               ),
                               Text(
                                 employeeRole,
-                                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey),
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textGrey,
+                                ),
                               ),
                             ],
                           ),
@@ -3164,13 +3230,20 @@ void _dismissPopup() {
                             child: profileImage == null
                                 ? Text(
                                     initials,
-                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   )
                                 : null,
                           ),
                           const SizedBox(width: 2),
-                          const Icon(Icons.keyboard_arrow_down_rounded,
-                              size: 18, color: AppColors.textGrey),
+                          const Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            size: 18,
+                            color: AppColors.textGrey,
+                          ),
                         ],
                       ),
                     );
@@ -3180,27 +3253,27 @@ void _dismissPopup() {
             ),
           ),
 
- if (_showPopup)
-  Positioned(
-    top: 68,
-    right: 12,
-    child: Material(
-      color: Colors.transparent,
-      child: NotificationRobotScene(
-        controller: _robotController,
-        pulse: _glowController,
-        action: _actionController,
-        event: _robotEvent,
-        message: _latestMessage ?? 'You have a new notification.',
-        maxWidth: MediaQuery.of(context).size.width - 24,
-      ),
-    ),
-  ),
-  ],
+          if (_showPopup)
+            Positioned(
+              top: 68,
+              right: 12,
+              child: Material(
+                color: Colors.transparent,
+                child: NotificationRobotScene(
+                  controller: _robotController,
+                  pulse: _glowController,
+                  action: _actionController,
+                  event: _robotEvent,
+                  message: _latestMessage ?? 'You have a new notification.',
+                  maxWidth: MediaQuery.of(context).size.width - 24,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
- 
+
   String _generateInitials(String name) {
     if (name.isEmpty) return '?';
     final parts = name.trim().split(' ');
@@ -3261,8 +3334,5 @@ class _HighlightPart {
   final int start;
   final int end;
 
-  _HighlightPart({
-    required this.start,
-    required this.end,
-  });
+  _HighlightPart({required this.start, required this.end});
 }

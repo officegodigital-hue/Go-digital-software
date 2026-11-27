@@ -21,6 +21,7 @@ import 'package:godigital_portal/core/constants/app_colors.dart';
 import 'package:godigital_portal/core/widgets/metric_card.dart';
 import 'package:godigital_portal/services/auth_service.dart';
 import 'package:godigital_portal/widgets/alerts_section.dart';
+import 'package:godigital_portal/widgets/employee_performance.dart';
 import 'package:godigital_portal/widgets/productivity_card.dart';
 import '../../services/api_config.dart';
 import 'dashboard_work_tables.dart';
@@ -277,6 +278,7 @@ padding: EdgeInsets.fromLTRB(mobile ? 12 : 22, mobile ? 12 : 16, mobile ? 12 : 2
         Wrap(spacing: 8, runSpacing: 6, children: [
           _heroChip(Icons.verified_rounded, const Color(0xFF4ADE80), role),
           _heroChip(Icons.timer_rounded, const Color(0xFF93C5FD), 'ACTIVE TIME: $totalWorkingTimeFormatted'),
+          const EmployeePerformanceButton(),
         ]),
         const SizedBox(height: 8),
         Text(

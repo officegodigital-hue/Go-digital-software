@@ -52,6 +52,69 @@ function reportPeriod(body) {
   };
 }
 
+// Sections that are not real client platforms, so they never appear as a
+// per-platform deliverable on the client's month card.
+const NON_PLATFORM_KEYS = new Set([
+  'LOCAL_SEO',
+  'CREATIVE_SHOWCASE',
+  'CREATIVES_PUBLISHED',
+  'NEXT_MONTH_PLAN',
+]);
+
+// The platform keys a report submission covers, normalised to UPPER_SNAKE so
+// they align with the frontend provider keys (INSTAGRAM, FACEBOOK,
+// GOOGLE_BUSINESS_PROFILE, META_ADS, ...).
+function platformKeysFromPayload(body) {
+  const raw = Array.isArray(body?.selectedProviders)
+    ? body.selectedProviders
+    : Array.isArray(body?.providers)
+      ? body.providers.map((p) => (p && typeof p === 'object' ? p.provider : p))
+      : [];
+  const keys = [];
+  const seen = new Set();
+  for (const value of raw) {
+    const key = String(value || '').trim().toUpperCase().replace(/\s+/g, '_');
+    if (!key || NON_PLATFORM_KEYS.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key.slice(0, 64));
+  }
+  return keys;
+}
+
+// Upsert the per-platform status for a client + month. Best-effort: a failure
+// here never fails the submission / approval it is attached to.
+async function setPlatformStatuses({
+  company,
+  month,
+  year,
+  platforms,
+  status,
+  submissionId = null,
+  userId = null,
+  submittedByName = null,
+}) {
+  if (!Array.isArray(platforms) || !platforms.length) return;
+  try {
+    for (const platform of platforms) {
+      await db.query(
+        `INSERT INTO report_platform_status
+           (company_name, report_month, report_year, platform_key, status,
+            submission_id, submitted_by_user_id, submitted_by_name)
+         VALUES (?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE
+           status = VALUES(status),
+           submission_id = VALUES(submission_id),
+           submitted_by_user_id = VALUES(submitted_by_user_id),
+           submitted_by_name = VALUES(submitted_by_name),
+           updated_at = CURRENT_TIMESTAMP`,
+        [company, month, year, platform, status, submissionId, userId, submittedByName],
+      );
+    }
+  } catch (error) {
+    console.error('setPlatformStatuses failed:', error.message);
+  }
+}
+
 function applyPreviewOverrides(payload) {
   const snapshots = Array.isArray(payload?.snapshots) ? payload.snapshots : [];
   for (const snapshot of snapshots) {
@@ -498,6 +561,19 @@ async function submitReportForApproval(req, res) {
        VALUES (?,?,?,?, 'pending', ?, ?)`,
       [company, month, year, Buffer.from(JSON.stringify(body)), req.user?.id || null, submitterName],
     );
+    // Mark every platform this report covers as 'pending' (submitted, awaiting
+    // approval). A client's other assigned platforms stay unset, so the UI
+    // shows them as still-pending deliverables for the month.
+    await setPlatformStatuses({
+      company,
+      month,
+      year,
+      platforms: platformKeysFromPayload(body),
+      status: 'pending',
+      submissionId: result.insertId,
+      userId: req.user?.id || null,
+      submittedByName: submitterName,
+    });
     // Notify every active admin that a report is awaiting approval.
     try {
       const [candidates] = await db.query(
@@ -543,6 +619,41 @@ async function listSubmissions(req, res) {
   } catch (error) {
     console.error('listSubmissions error:', error.message);
     return res.status(500).json({ success: false, message: 'Unable to load report submissions.' });
+  }
+}
+
+// Per-platform submission status for a client (optionally one month). Drives
+// the month card's per-platform "Pending / In review / Completed" breakdown and
+// its "Completed" ribbon. Employees are limited to clients they can access.
+async function listPlatformStatus(req, res) {
+  try {
+    const company = String(req.query.company || '').trim();
+    if (!company) return res.json({ success: true, statuses: [] });
+    if (isEmployee(req.user) && !(await canAccessReportClient(db, req.user, company))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have a Task Manager assignment for this client.',
+      });
+    }
+    const params = [company];
+    let sql = `SELECT company_name, report_month, report_year, platform_key, status,
+               submitted_by_name, updated_at
+               FROM report_platform_status WHERE company_name = ?`;
+    if (req.query.month && req.query.year) {
+      sql += ' AND report_month = ? AND report_year = ?';
+      params.push(Number(req.query.month), Number(req.query.year));
+    }
+    sql += ' ORDER BY report_year DESC, report_month DESC, platform_key';
+    const [rows] = await db.query(sql, params);
+    return res.json({ success: true, statuses: rows });
+  } catch (error) {
+    // A missing table (server not yet restarted after deploy) is not an error
+    // for the caller — there is simply no per-platform status yet.
+    if (/doesn't exist|no such table/i.test(error.message || '')) {
+      return res.json({ success: true, statuses: [] });
+    }
+    console.error('listPlatformStatus error:', error.message);
+    return res.status(500).json({ success: false, message: 'Unable to load platform status.' });
   }
 }
 
@@ -663,6 +774,27 @@ async function reviewSubmission(req, res, decision) {
       'UPDATE report_submissions SET status = ?, reviewed_by_user_id = ?, reviewed_by_name = ?, review_note = ?, reviewed_at = NOW() WHERE id = ?',
       [decision, req.user?.id || null, reviewerName, note || null, req.params.id],
     );
+    // Carry the decision down to every platform this report covered, so the
+    // client's month card can mark those platforms approved / rejected while
+    // any not-yet-submitted platforms stay pending. A platform is "Completed"
+    // only once its latest decision is 'approved'.
+    try {
+      const submittedBody = rows[0].payload
+        ? JSON.parse(rows[0].payload.toString('utf8'))
+        : {};
+      await setPlatformStatuses({
+        company: rows[0].company_name,
+        month: Number(rows[0].report_month),
+        year: Number(rows[0].report_year),
+        platforms: platformKeysFromPayload(submittedBody),
+        status: decision,
+        submissionId: Number(req.params.id) || null,
+        userId: rows[0].submitted_by_user_id || null,
+        submittedByName: rows[0].submitted_by_name || null,
+      });
+    } catch (platformError) {
+      console.error('Platform status update failed:', platformError.message);
+    }
     // Every decision saves a PDF of the report to the client's history, so
     // there is always a record of exactly what was approved/rejected.
     try {
@@ -714,6 +846,7 @@ module.exports = {
   downloadFullReportPpt,
   submitReportForApproval,
   listSubmissions,
+  listPlatformStatus,
   latestSubmissionStatus,
   previewSubmission,
   previewReport,

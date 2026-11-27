@@ -383,74 +383,16 @@ async function updateDayPlannerWorkingHours(employeeName) {
 
 async function updateDayPlannerDeliverables(taskListId) {
   try {
-
-    const [[task]] = await db.query(`
-      SELECT
-        employee_name,
-        client_name,
-        employee_role
-      FROM task_list
-      WHERE id = ?
-    `,[taskListId]);
-
-    if (!task) return;
-
-    // இதுல task_list table ல இருந்து latest deliverables
-    const [[deliverable]] = await db.query(`
-      SELECT
-        complete_deliverables_1,
-        balanced_deliverables_1,
-        complete_deliverables_2,
-        balanced_deliverables_2,
-        complete_deliverables_3,
-        balanced_deliverables_3,
-        complete_deliverables_4,
-        balanced_deliverables_4,
-        complete_deliverables_5,
-        balanced_deliverables_5,
-        complete_deliverables_6,
-        balanced_deliverables_6
-      FROM task_list
-      WHERE id = ?
-    `,[taskListId]);
-
-    await db.query(`
-      UPDATE day_plan_rows
-      SET
-        complete_deliverables_1=?,
-        balanced_deliverables_1=?,
-        complete_deliverables_2=?,
-        balanced_deliverables_2=?,
-        complete_deliverables_3=?,
-        balanced_deliverables_3=?,
-        complete_deliverables_4=?,
-        balanced_deliverables_4=?,
-        complete_deliverables_5=?,
-        balanced_deliverables_5=?,
-        complete_deliverables_6=?,
-        balanced_deliverables_6=?
-      WHERE employee_name=?
-      AND client_name=?
-      AND plan_date=CURDATE()
-    `,[
-      deliverable.complete_deliverables_1,
-      deliverable.balanced_deliverables_1,
-      deliverable.complete_deliverables_2,
-      deliverable.balanced_deliverables_2,
-      deliverable.complete_deliverables_3,
-      deliverable.balanced_deliverables_3,
-      deliverable.complete_deliverables_4,
-      deliverable.balanced_deliverables_4,
-      deliverable.complete_deliverables_5,
-      deliverable.balanced_deliverables_5,
-      deliverable.complete_deliverables_6,
-      deliverable.balanced_deliverables_6,
-      task.employee_name,
-      task.client_name
-    ]);
-
-  } catch(err){
-    console.error(err);
+    // Deliverable progress is stored in day_plan_rows, not task_list. Reuse
+    // the canonical item-to-planner synchronizer instead of querying legacy
+    // task_list.complete_deliverables_* columns that do not exist.
+    const [items] = await db.query(
+      'SELECT id FROM time_tracking_task_items WHERE task_list_id = ?',
+      [taskListId],
+    );
+    await Promise.all(items.map((item) => syncDayPlanForItem(item.id)));
+  } catch (err) {
+    console.error('updateDayPlannerDeliverables:', err.message);
   }
 }
 

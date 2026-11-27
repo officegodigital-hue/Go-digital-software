@@ -15,6 +15,7 @@ const {
   getReportTemplate,
   submitReportForApproval,
   listSubmissions,
+  listPlatformStatus,
   latestSubmissionStatus,
   previewSubmission,
   previewReport,
@@ -117,6 +118,7 @@ router.put('/report-export/template', (req, res) => {
 // 6. Approval workflow (employee submits, admin reviews, download gated)
 router.post('/report-export/submit', submitReportForApproval);
 router.get('/report-export/submissions', listSubmissions);
+router.get('/report-export/platform-status', listPlatformStatus);
 router.get('/report-export/submissions/status', latestSubmissionStatus);
 router.get('/report-export/submissions/:id/preview.pdf', previewSubmission);
 router.post('/report-export/submissions/:id/approve', approveSubmission);

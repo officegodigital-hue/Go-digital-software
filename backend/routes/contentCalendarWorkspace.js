@@ -48,6 +48,24 @@ function numericId(value) {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
+// Calendar rows created before employee IDs were standardised can retain a
+// legacy ID while storing the correct preparer's name.  Permit the recorded
+// handler by ID first, then by a normalized full-name match.
+function isPreparedBy(row, employeeId, employeeName) {
+  const ownerId = numericId(row?.cc_prepared_by_id);
+  if (ownerId && employeeId && ownerId === employeeId) return true;
+  const ownerName = String(row?.cc_prepared_by_name || '')
+    .trim()
+    .toLocaleLowerCase();
+  const currentName = String(employeeName || '').trim().toLocaleLowerCase();
+  return Boolean(ownerName && currentName && ownerName === currentName);
+}
+
+function hasPreparedOwner(row) {
+  return Boolean(numericId(row?.cc_prepared_by_id) ||
+    String(row?.cc_prepared_by_name || '').trim());
+}
+
 function normalizedRole(value) {
   return String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
@@ -376,7 +394,10 @@ async function syncAssignedTasksToCalendar(clientName) {
       if (source.task.count === 0) continue;
       const groupKey = sourceKey(source.assignment.id, source.role.role, source.taskIndex);
       const excluded = excludedRows.get(groupKey) || new Set();
-      const rowCount = Math.max(taskList?.count || 0, source.task.count);
+      // The count in Task Assign is authoritative.  Using the historical
+      // task-list count here meant reducing a count could never remove rows,
+      // while increasing it could leave old rows out of sync.
+      const rowCount = source.task.count;
       const sourceRowCount = rowCount + excluded.size;
       const assignedToId = employeeIds.get(normalizeTaskName(source.employeeName)) ?? null;
       for (let rowNumber = 1; rowNumber <= sourceRowCount; rowNumber += 1) {
@@ -695,7 +716,16 @@ async function rowsForClient(clientName) {
      LEFT JOIN task_list tl_task ON tl_task.id = tti.task_list_id
      LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
      WHERE LOWER(TRIM(cc.client_name)) = LOWER(TRIM(?))
-       AND (cc.source_assignment_id IS NULL OR cc.source_active = 1 OR cc.cc_reassigned = 1)
+       -- Keep every generated serial row visible once it has been assigned or
+       -- has any task lifecycle record.  Reducing an unstarted count still
+       -- hides only the unused rows; rows 1…N never disappear after start,
+       -- hold, completion, or approval.
+       AND (cc.source_assignment_id IS NULL
+            OR cc.source_active = 1
+            OR cc.cc_reassigned = 1
+            OR cc.cc_handoff_at IS NOT NULL
+            OR tti.status IS NOT NULL
+            OR mr.manager_action IS NOT NULL)
      ORDER BY cc.s_no ASC, cc.id ASC`,
     [clientName],
   );
@@ -833,7 +863,7 @@ async function changeCalendarStatus(req, res, nextStatus) {
       await connection.rollback();
       return res.status(401).json({ success: false, message: 'Your employee account could not be verified' });
     }
-    if (row.cc_prepared_by_id && Number(row.cc_prepared_by_id) !== employeeId) {
+    if (hasPreparedOwner(row) && !isPreparedBy(row, employeeId, employeeName)) {
       await connection.rollback();
       return res.status(403).json({
         success: false,
@@ -845,7 +875,7 @@ async function changeCalendarStatus(req, res, nextStatus) {
       return res.status(409).json({ success: false, message: `Cannot start a row with status ${status}` });
     }
     if (nextStatus !== 'IN PROGRESS' &&
-        (status !== 'IN PROGRESS' || Number(row.cc_prepared_by_id) !== employeeId)) {
+        (status !== 'IN PROGRESS' || !isPreparedBy(row, employeeId, employeeName))) {
       await connection.rollback();
       return res.status(409).json({ success: false, message: 'Only the owning handler can hold or complete an in-progress row' });
     }
@@ -982,9 +1012,7 @@ async function changeCalendarSheetStatus(req, res, nextStatus) {
     }
     if (
       rows.some(
-        (row) =>
-          row.cc_prepared_by_id &&
-          Number(row.cc_prepared_by_id) !== employeeId,
+        (row) => hasPreparedOwner(row) && !isPreparedBy(row, employeeId, employeeName),
       )
     ) {
       await connection.rollback();
@@ -1373,7 +1401,9 @@ async function shareSheetRoute(req, res) {
       await connection.rollback();
       return res.status(409).json({ success: false, message: 'Complete every row before sharing this sheet' });
     }
-    if (rows.some((row) => Number(row.cc_prepared_by_id) !== Number(req.user.id))) {
+    const handlerId = numericId(req.user.id);
+    const handlerName = String(req.user.fullName || '').trim();
+    if (rows.some((row) => !isPreparedBy(row, handlerId, handlerName))) {
       await connection.rollback();
       return res.status(403).json({ success: false, message: 'Only the handler who prepared every row can share this sheet' });
     }
@@ -1629,7 +1659,13 @@ async function reassignRowRoute(req, res) {
       await connection.rollback();
       return res.status(404).json({ success: false, message: 'Calendar row not found' });
     }
-    if (!row.cc_handoff_at || !numericId(row.task_item_id)) {
+    // Sheet rows receive cc_handoff_at when shared. Rows created through
+    // "Add content" are assigned directly and therefore have no handoff
+    // timestamp, even though task_item_id proves they are already assigned.
+    const hasTrackingAssignment = Boolean(numericId(row.task_item_id));
+    const isDirectCalendarAssignment = !numericId(row.source_assignment_id) &&
+      hasTrackingAssignment;
+    if ((!row.cc_handoff_at && !isDirectCalendarAssignment) || !hasTrackingAssignment) {
       await connection.rollback();
       return res.status(409).json({ success: false, message: 'This row has not been assigned yet — use Assign All or Emergency assign' });
     }

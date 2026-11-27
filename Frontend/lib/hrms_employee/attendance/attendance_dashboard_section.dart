@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import '../../widgets/employee_performance.dart';
 import 'package:godigital_portal/services/authenticated_http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -736,6 +737,8 @@ class _AttendanceDashboardSectionState extends State<AttendanceDashboardSection>
           '${employee['staff_id']}  •  ${DateFormat('EEEE, d MMM yyyy').format(today)}',
           style: const TextStyle(color: employeeMuted, fontSize: 13),
         ),
+        const SizedBox(height: 8),
+        const EmployeePerformanceButton(onDarkBackground: false),
         const SizedBox(height: 16),
         if (_error != null) ...[
           Text('Attendance may be out of date. $_error'),

@@ -17,6 +17,9 @@ const { additionalMeetingSeconds } = require('../lib/meetingWorkTime');
 const { touchedOn, localDay, syncDayPlanStatus } = require('../lib/dayPlanSync');
 const { ensureWorkspaceTaskSchemaOnce } = require('../lib/ensureWorkspaceTaskSchema');
 const { ensureEventsTable } = require('../lib/assignmentEvents');
+const { authenticateToken } = require('./auth');
+const { attendanceByEmployee, optionalRows, taskManagerAdminPages, trackedSeconds } = require('../lib/performanceWork');
+const { validDate } = require('../lib/employmentDates');
 
 // Make sure the nested-row / review columns exist before any query runs.
 router.use(async (req, res, next) => {
@@ -1674,7 +1677,8 @@ async function employeeSheets(employee, client = null, { includeStartable = fals
             source_row_number, submit_date, cc_status, cc_duration_secs, cc_started_at,
             cc_hold_reason, cc_last_activity_at, cc_handoff_at, assigned_to_name, is_emergency
      FROM content_calendar
-     WHERE source_assignment_id IS NOT NULL AND source_active = 1
+     WHERE ((source_assignment_id IS NOT NULL AND source_active = 1)
+            OR source_assignment_id IS NULL)
        AND ((cc_prepared_by_id = ? OR LOWER(TRIM(cc_prepared_by_name)) = LOWER(TRIM(?))) ${startableSql})
        ${clientSql}
      ORDER BY client_name, source_assignment_id, source_role, source_task_index, source_row_number`,
@@ -2255,9 +2259,13 @@ async function dayWork(employee, day) {
     const intervals = workIntervals(raw, now);
     let secs = 0;
     for (const [a, b] of intervals) {
-      if (a >= from && a < to) {
-        countedIntervals.push([a.getTime(), Math.min(b, end)]);
-        secs += Math.max(Math.floor((Math.min(b, end) - a) / 1000), 0);
+      // A held/completed task must retain the time worked today, including a
+      // session that began before midnight and was held today.
+      const intervalStart = new Date(Math.max(a.getTime(), from.getTime()));
+      const intervalEnd = new Date(Math.min(b.getTime(), end.getTime()));
+      if (intervalEnd > intervalStart) {
+        countedIntervals.push([intervalStart.getTime(), intervalEnd.getTime()]);
+        secs += Math.floor((intervalEnd - intervalStart) / 1000);
       }
     }
     const events = [raw.start_time, raw.complete_time];
@@ -2281,9 +2289,18 @@ async function dayWork(employee, day) {
     const started = s.session_started_at ? new Date(s.session_started_at) : null;
     const runningToday = s.running && day === today && started && started >= from;
     const stale = s.running && day === today && started && started < from;
-    const actedToday = inDay(s.last_activity_at, from, to) || (started && started >= from && started < to);
+    const activityToday = inDay(s.last_activity_at, from, to);
+    const actedToday = activityToday || (started && started >= from && started < to);
     if (!actedToday && !stale && !runningToday) continue;
-    const secs = runningToday ? Math.max(Math.floor((now - started) / 1000), 0) : 0;
+    // Calendar rows bank their timer when they are held, completed, or
+    // handed off. Those saved seconds still belong to today when the action
+    // occurred today; previously they appeared only in Total Time.
+    const savedTodaySecs = !runningToday && activityToday
+      ? Math.max(Number(s.banked_secs) || 0, 0)
+      : 0;
+    const secs = runningToday
+      ? Math.max(Math.floor((now - started) / 1000), 0)
+      : savedTodaySecs;
     if (runningToday) countedIntervals.push([started.getTime(), now.getTime()]);
     totalSecs += secs;
     items.push({
@@ -2352,6 +2369,10 @@ router.get('/running', async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
+// The Day Planner's admin reporting uses the same live-time calculation as
+// the employee top bar and Live Tracking page.
+router.dayWork = dayWork;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Task deadline rules (compliance) + Admin Employee Workspace
@@ -2929,19 +2950,18 @@ router.get('/day-plan/rows', async (req, res) => {
 //    and restarted to count again.
 //  · Tasks in the period = tasks due in the period + tasks started, held,
 //    restarted, completed or reviewed in the period.
-//  · Available time = working days (Mon–Sat, up to today) × WORK_DAY_HOURS (8).
-//  · Score = Completion 35 · Productive time 20 · On-time 20 · Approval 15 ·
-//    Day Planner 10. A part with no data is left out and the rest re-weighted.
+//  · Available time is net clocked attendance. Only applicable factors are scored.
 // ═════════════════════════════════════════════════════════════════════════════
-const WORK_DAY_SECS = Math.round((Number(process.env.WORK_DAY_HOURS) || 8) * 3600);
 const MAX_SESSION_SECS = Math.round((Number(process.env.MAX_SESSION_HOURS) || 10) * 3600);
 const PERF_CACHE_MS = 20000;
 const perfCache = new Map();
+const pendingPerformance = new Map();
 
 const SCORE_WEIGHTS = [
   { key: 'completion', label: 'Task completion', weight: 35 },
   { key: 'productivity', label: 'Productive time', weight: 20 },
-  { key: 'onTime', label: 'On-time delivery', weight: 20 },
+  { key: 'onTime', label: 'On-time delivery', weight: 12 },
+  { key: 'taskTiming', label: 'Time against task estimate', weight: 8 },
   { key: 'approval', label: 'Manager approval', weight: 15 },
   { key: 'planner', label: 'Day Planner', weight: 10 },
 ];
@@ -2977,11 +2997,13 @@ function perfRange(q) {
     toDay = dateKey(q.toDate) || today;
   }
   if (toDay < fromDay) [fromDay, toDay] = [toDay, fromDay];
+  if (!validDate(fromDay) || !validDate(toDay)) return null;
   const from = appBounds(fromDay).from;
   const to = appBounds(toDay).to;
-  // Calendar days of the range (max 92) and working days (Mon–Sat, ≤ today).
+  if (!Number.isFinite(+from) || !Number.isFinite(+to) || (to - from) / 86400000 > 366) return null;
+  // Calendar days of the selected range in office time.
   const days = [];
-  for (let t = from.getTime(); t < to.getTime() && days.length < 92; t += 86400000) {
+  for (let t = from.getTime(); t < to.getTime(); t += 86400000) {
     days.push(appDay(new Date(t + 3600000)));
   }
   const workDays = days.filter((d) => {
@@ -3011,7 +3033,7 @@ function sessionsInRange(sessions, from, to, now) {
   for (const [a, b] of sessions) {
     const s = a > from ? a : from;
     const e = b < end ? b : end;
-    if (e > s) out.push({ day: appDay(s), secs: Math.floor((e - s) / 1000) });
+    if (e > s) out.push({ day: appDay(s), secs: Math.floor((e - s) / 1000), start: +s, end: +e });
   }
   return out;
 }
@@ -3021,19 +3043,44 @@ async function buildPerformance(range) {
   const cacheKey = `${range.fromDay}|${range.toDay}`;
   const hit = perfCache.get(cacheKey);
   if (hit && Date.now() - hit.at < PERF_CACHE_MS) return hit.data;
+  if (pendingPerformance.has(cacheKey)) return pendingPerformance.get(cacheKey);
+  const request = queryPerformance(range);
+  pendingPerformance.set(cacheKey, request);
+  try {
+    const data = await request;
+    perfCache.set(cacheKey, { at: Date.now(), data });
+    if (perfCache.size > 30) perfCache.delete(perfCache.keys().next().value);
+    return data;
+  } finally {
+    pendingPerformance.delete(cacheKey);
+  }
+}
 
+async function queryPerformance(range) {
   const now = new Date();
   const { from, to, fromDay, toDay } = range;
-  const inRange = (v) => v && new Date(v) >= from && new Date(v) < to;
+  const inRange = (v) => v && new Date(v) >= from && new Date(v) < to && new Date(v) <= now;
 
   // ── 1. Employees ──
   const [users] = await db.query(
-    `SELECT id, full_name, initials, staff_id, role, user_type, is_main_admin
-     FROM employee_users WHERE is_active = 1 ORDER BY full_name`,
+    `SELECT u.id, u.full_name, u.initials, u.staff_id, u.role, u.user_type, u.is_main_admin, u.is_active
+     FROM employee_users u
+     WHERE u.is_active = 1 OR EXISTS (
+       SELECT 1 FROM employee_employment_periods p WHERE p.employee_user_id = u.id
+       AND p.started_on <= ? AND (p.ended_on IS NULL OR p.ended_on >= ?)
+     ) ORDER BY u.full_name`, [toDay, fromDay],
   );
   const byId = new Map(users.map((u) => [Number(u.id), u]));
-  const byKey = new Map(users.map((u) => [personKey(u.full_name), u]));
-  const userFor = (id, name) => byId.get(Number(id)) || byKey.get(personKey(name)) || null;
+  const byKey = new Map();
+  for (const user of users) {
+    const key = personKey(user.full_name);
+    byKey.set(key, byKey.has(key) ? null : user);
+  }
+  const userFor = (id, name) => id ? byId.get(Number(id)) : byKey.get(personKey(name));
+  const [attendance, adminPages] = await Promise.all([
+    attendanceByEmployee(db, fromDay, toDay, now, APP_TZ_MIN),
+    taskManagerAdminPages(db, users),
+  ]);
 
   // ── 2. Active clients + assignments (who is named on what) ──
   const active = await activeClientSet();
@@ -3062,25 +3109,33 @@ async function buildPerformance(range) {
             tl.employee_id AS tl_employee_id, tl.task_assignment_id AS tl_assignment_id,
             tl.additional_task_id AS tl_additional, tl.submission_date AS tl_submission_date,
             ta.deadline AS ta_deadline, ta.maintenance_date AS ta_maintenance,
-            mr.manager_action, mr.manager_comment, mr.reviewed_at
+            tt.timing AS expected_timing,
+            mr.manager_action, mr.reviewed_at
      FROM time_tracking_task_items tti
      JOIN task_list tl ON tl.id = tti.task_list_id
      LEFT JOIN task_assignments ta ON ta.id = tl.task_assignment_id
+     LEFT JOIN task_timings tt ON tt.id = tl.task_timing_id
      LEFT JOIN manager_review mr ON mr.tracking_item_id = tti.id
      WHERE tti.start_time IS NULL
         OR (tti.start_time < ? AND (tti.complete_time IS NULL OR tti.complete_time >= ?
             OR mr.reviewed_at >= ?))`,
     [to, from, from],
   );
+  const [taskTimings] = await db.query('SELECT task_name, timing FROM task_timings ORDER BY id DESC');
+  const timingByName = new Map(taskTimings.map((timing) => [norm(timing.task_name), timing.timing]));
 
   const people = new Map(); // userId → accumulator
   const acc = (u) => {
-    if (!people.has(u.id)) people.set(u.id, { user: u, tasks: [], planner: new Map() });
+    if (!people.has(u.id)) people.set(u.id, {
+      user: u, tasks: [], planner: new Map(),
+      attendance: attendance.get(Number(u.id)) || new Map(),
+      adminPages: adminPages.get(Number(u.id)) || new Set(),
+    });
     return people.get(u.id);
   };
 
   for (const raw of taskRows) {
-    if (!active.has(norm(raw.client_name))) continue;
+    if (!raw.tl_additional && !raw.start_time && !raw.complete_time && !active.has(norm(raw.client_name))) continue;
     const u = userFor(raw.tl_employee_id, raw.employee_name);
     if (!u) continue;
     // Same visibility as Employee Workspace → My Tasks.
@@ -3093,9 +3148,9 @@ async function buildPerformance(range) {
       if (!(direct === true || handed)) continue;
     }
 
-    const due = dueKey(raw);
+    const due = dateKey(raw.submit_date) || dueKey(raw);
     const state = rowState(raw);
-    const sessions = cappedSessions(raw, now);
+    const sessions = cappedSessions({ ...raw, complete_time: raw.complete_time || raw.reject_time }, now);
     const worked = sessionsInRange(sessions, from, to, now);
     const events = [];
     const push = (v, type) => { if (inRange(v)) events.push({ at: new Date(v), type }); };
@@ -3105,7 +3160,7 @@ async function buildPerformance(range) {
       push(raw[`restart_time_${i}`], 'TASK_RESTARTED');
     }
     push(raw.complete_time, 'TASK_COMPLETED');
-    const review = upper(raw.review_status);
+    const review = upper(raw.manager_action || raw.review_status);
     if (['APPROVED', 'REWORK', 'REJECTED'].includes(review)) push(raw.reviewed_at, `MANAGER_${review}`);
 
     const dueIn = due && due >= fromDay && due <= toDay;
@@ -3121,7 +3176,11 @@ async function buildPerformance(range) {
       state,
       due,
       completedAt,
-      review: ['APPROVED', 'REWORK', 'REJECTED'].includes(review) ? review : null,
+      expectedMinutes: timingToMinutes(raw.expected_timing || timingByName.get(norm(raw.deliverables))),
+      actualSeconds: Number(raw.duration_secs) > 0 ? Number(raw.duration_secs)
+        : sessions.reduce((sum, [a, b]) => sum + Math.floor((b - a) / 1000), 0),
+      storedTiming: raw.performance,
+      review: inRange(raw.reviewed_at) && ['APPROVED', 'REWORK', 'REJECTED'].includes(review) ? review : null,
       worked,
       events,
       staleRunning: state === 'IN PROGRESS' && sessions.length > 0 &&
@@ -3144,7 +3203,7 @@ async function buildPerformance(range) {
   );
   const ccByUser = new Map();
   for (const r of ccRows) {
-    if (!active.has(norm(r.client_name))) continue;
+    if (!r.cc_last_activity_at && !r.cc_handoff_at && !active.has(norm(r.client_name))) continue;
     const u = userFor(r.cc_prepared_by_id, r.cc_prepared_by_name);
     if (!u) continue;
     if (!ccByUser.has(u.id)) ccByUser.set(u.id, { u, rows: [] });
@@ -3167,14 +3226,11 @@ async function buildPerformance(range) {
       const events = [];
       if (inRange(handedAt)) events.push({ at: handedAt, type: 'TASK_COMPLETED' });
       const lastAct = sheet.last_activity_at ? new Date(sheet.last_activity_at) : null;
-      // Time: the running session (cut at its day end) + banked time on the
-      // day of the last activity (the calendar keeps no per-session history).
+      // A banked total spans multiple sessions and has no per-day history.
+      // Only the running session has dates that can be attributed to a shift.
       const worked = [];
       if (sheet.running && sheet.session_started_at) {
         worked.push(...sessionsInRange(cappedSessions({ start_time: sheet.session_started_at }, now), from, to, now));
-      }
-      if (inRange(lastAct) && Number(sheet.banked_secs) > 0) {
-        worked.push({ day: appDay(lastAct), secs: Number(sheet.banked_secs) });
       }
       const dueIn = due && due >= fromDay && due <= toDay;
       if (!dueIn && !events.length && !worked.length && !inRange(lastAct)) continue;
@@ -3191,8 +3247,93 @@ async function buildPerformance(range) {
         completedAt: handedAt,
         review: null,
         worked,
+        missingSessionHistory: Number(sheet.banked_secs) > 0 && (inRange(lastAct) || inRange(handedAt)),
         events,
         staleRunning: false,
+      });
+    }
+  }
+
+  // Tech Planner mirrors are bookkeeping; use the original task and its sessions.
+  const techRows = await optionalRows(db, `SELECT t.id, t.assigned_to_id, t.assigned_to_name, t.title, t.status,
+      t.task_date, t.first_start_at, t.completed_at, t.reviewed_at, t.review_result,
+      p.name AS project, s.started_at, s.ended_at, s.end_reason
+    FROM tech_tasks t JOIN tech_projects p ON p.id = t.project_id
+    LEFT JOIN tech_task_sessions s ON s.task_id = t.id AND s.started_at < ?
+      AND (s.started_at >= ? OR s.ended_at >= ? OR s.ended_at IS NULL
+        OR (t.completed_at >= ? AND t.completed_at < ?))
+    WHERE t.task_date BETWEEN ? AND ? OR t.completed_at >= ? OR t.reviewed_at >= ? OR s.task_id IS NOT NULL`,
+    [to, from, from, from, to, fromDay, toDay, from, from]);
+  const techTasks = new Map();
+  for (const row of techRows) {
+    const user = userFor(row.assigned_to_id, row.assigned_to_name);
+    if (!user) continue;
+    const state = row.status === 'CORRECTION' ? 'REWORK' : row.status === 'ADDED' ? 'IDLE' : row.status;
+    const sessions = cappedSessions({ start_time: row.started_at, complete_time: row.ended_at }, now);
+    let task = techTasks.get(row.id);
+    if (!task) {
+      const review = row.review_result === 'CORRECTION' ? 'REWORK' : row.review_result;
+      const events = [
+        [row.first_start_at, 'TASK_STARTED'],
+        [row.completed_at, 'TASK_COMPLETED'],
+        [row.reviewed_at, review && `MANAGER_${review}`],
+      ].filter(([at, type]) => type && inRange(at)).map(([at, type]) => ({ at: new Date(at), type }));
+      task = {
+        user, kind: 'TECH', client: row.project, deliverable: row.title, rowLabel: '',
+        state, due: dateKey(row.task_date), completedAt: row.completed_at ? new Date(row.completed_at) : null,
+        review: inRange(row.reviewed_at) ? review : null, events, worked: [], actualSeconds: 0, staleRunning: false,
+      };
+      techTasks.set(row.id, task);
+    }
+    task.worked.push(...sessionsInRange(sessions, from, to, now));
+    task.actualSeconds += sessions.reduce((total, [start, end]) => total + Math.floor((end - start) / 1000), 0);
+    if (inRange(row.started_at) && +new Date(row.started_at) !== +new Date(row.first_start_at)) {
+      task.events.push({ at: new Date(row.started_at), type: 'TASK_RESTARTED' });
+    }
+    if (inRange(row.ended_at) && norm(row.end_reason) !== 'completed') {
+      task.events.push({ at: new Date(row.ended_at), type: 'TASK_HELD' });
+    }
+    if (row.started_at && !row.ended_at && state === 'IN PROGRESS') {
+      task.staleRunning = Boolean(sessions.length && sessions[0][1] < now);
+    }
+  }
+  for (const task of techTasks.values()) {
+    if ((task.due >= fromDay && task.due <= toDay) || task.worked.length || task.events.length) {
+      acc(task.user).tasks.push(task);
+    }
+  }
+
+  const adminSources = [
+    { kind: 'INVOICE', page: '/invoice', title: 'Invoice created', sql:
+      'SELECT id, created_by, created_at, client_name FROM invoices WHERE linked_quotation_id IS NULL AND created_at >= ? AND created_at < ?' },
+    { kind: 'QUOTATION', page: '/quotations', title: 'Quotation created', sql:
+      'SELECT id, created_by, created_at, client_name FROM quotations WHERE created_at >= ? AND created_at < ?' },
+    { kind: 'ONBOARDING', page: '/client-history', title: 'Client onboarding record created', sql:
+      'SELECT id, created_by, created_at, company_name AS client_name FROM clients WHERE created_at >= ? AND created_at < ?' },
+  ];
+  const hasAdminPage = (page) => [...adminPages.values()].some((pages) => pages.has(page));
+  if (hasAdminPage('/client-history') && (await optionalRows(db,
+    "SHOW COLUMNS FROM clients WHERE Field IN ('onboarding_completed_by', 'onboarding_completed_at')", [])).length === 2) {
+    adminSources.push({ kind: 'ONBOARDING', page: '/client-history', completion: true, title: 'Client onboarding completed', sql:
+      `SELECT id, onboarding_completed_by AS created_by, onboarding_completed_at AS created_at, company_name AS client_name
+       FROM clients WHERE onboarding_completed_at >= ? AND onboarding_completed_at < ?` });
+  }
+  const sourceRows = await Promise.all(adminSources.map((source) =>
+    hasAdminPage(source.page) ? optionalRows(db, source.sql, [from, to]) : []));
+  const completionRows = sourceRows[adminSources.findIndex((source) => source.completion)] || [];
+  const completedOnboarding = new Set(completionRows.map((row) =>
+    `${row.id}|${row.created_by}|${appDay(new Date(row.created_at))}`));
+  for (const [i, source] of adminSources.entries()) {
+    for (const row of sourceRows[i]) {
+      const user = byId.get(Number(row.created_by));
+      if (!user || !adminPages.get(Number(user.id))?.has(source.page) || !inRange(row.created_at)) continue;
+      const completedAt = new Date(row.created_at);
+      if (source.kind === 'ONBOARDING' && !source.completion &&
+        completedOnboarding.has(`${row.id}|${row.created_by}|${appDay(completedAt)}`)) continue;
+      acc(user).tasks.push({
+        kind: source.kind, client: row.client_name || 'Unassigned', deliverable: source.title,
+        rowLabel: `#${row.id}`, state: 'COMPLETED', due: null, completedAt, review: null, worked: [],
+        events: [{ at: completedAt, type: 'TASK_COMPLETED' }], staleRunning: false,
       });
     }
   }
@@ -3220,13 +3361,10 @@ async function buildPerformance(range) {
   // ── 6. Employees shown: every non-admin + anyone with work in the period ──
   for (const u of users) {
     const isAdmin = String(u.user_type || '').toLowerCase() === 'admin' || Number(u.is_main_admin) === 1;
-    if (!isAdmin) acc(u);
+    if (!isAdmin || adminPages.get(Number(u.id))?.size || attendance.get(Number(u.id))?.size) acc(u);
   }
 
-  const data = [...people.values()].map((p) => summarise(p, range, now));
-  perfCache.set(cacheKey, { at: Date.now(), data });
-  if (perfCache.size > 30) perfCache.delete(perfCache.keys().next().value);
-  return data;
+  return [...people.values()].map((p) => summarise(p, range, now));
 }
 
 function groupOf(state) {
@@ -3235,6 +3373,7 @@ function groupOf(state) {
     case 'APPROVED':
     case 'SHARED':
     case 'COMPLETED':
+    case 'ARCHIVED':
       return 'completed';
     case 'IN PROGRESS':
       return 'processing';
@@ -3256,41 +3395,98 @@ const STATUS_LABEL = {
   'IN REVIEW': 'Completed · in review',
   APPROVED: 'Approved',
   COMPLETED: 'Completed',
+  ARCHIVED: 'Archived',
   SHARED: 'Shared with team',
 };
 
-function summarise({ user, tasks, planner }, range, now) {
-  const { workDays, days, today } = range;
+function timingToMinutes(timing) {
+  const [amount, unit = ''] = String(timing || '').trim().toLowerCase().split(/\s+/);
+  const multiplier = unit.startsWith('min') ? 1
+    : /^(hour|hr)/.test(unit) ? 60 : unit.startsWith('day') ? 1440 : 0;
+  return (parseInt(amount, 10) || 0) * multiplier;
+}
+
+const WORK_SOURCE = {
+  TASK: 'Employee Workspace',
+  TECH: 'Tech Workspace',
+  CONTENT_CALENDAR: 'Content Calendar',
+  INVOICE: 'Invoices',
+  QUOTATION: 'Quotations',
+  ONBOARDING: 'Client Onboarding',
+};
+const ADMIN_WORK = new Set(['INVOICE', 'QUOTATION', 'ONBOARDING']);
+const ADMIN_WORK_PAGES = ['/invoice', '/quotations', '/client-history'];
+
+function summarise({ user, tasks, planner, attendance, adminPages }, range, now) {
+  const { days, today, from, to, toDay } = range;
+  const workDays = days.filter((day) => attendance.get(day)?.workedSecs != null || planner.has(day));
+  const dueCutoff = toDay < today ? toDay : today;
   const counts = { completed: 0, processing: 0, onHold: 0, pending: 0, rejected: 0 };
-  let workedSecs = 0;
   let onTime = 0;
   let late = 0;
+  let early = 0;
+  let delivered = 0;
+  let overdue = 0;
+  let completedTimed = 0;
+  let completedTimedSecs = 0;
+  const timingCounts = { 'BEFORE IN': 0, ACHIEVED: 0, 'DELAY OUT': 0 };
+  const sources = new Map();
   const review = { approved: 0, rework: 0, rejected: 0, pendingReview: 0 };
-  const perDay = new Map(days.map((d) => [d, { secs: 0, completed: 0, started: 0 }]));
+  const perDay = new Map(days.map((d) => [d, { worked: [], completed: 0, started: 0 }]));
   const clients = new Map();
   const timeline = [];
 
   for (const t of tasks) {
-    const g = groupOf(t.state);
+    const completedInRange = t.completedAt >= from && t.completedAt < to && t.completedAt <= now;
+    const previouslyDelivered = groupOf(t.state) === 'completed' && (!t.completedAt || t.completedAt < from);
+    const state = t.completedAt && (t.completedAt >= to || t.completedAt > now) && groupOf(t.state) === 'completed'
+      ? (t.worked.length ? 'IN PROGRESS' : 'IDLE') : t.state;
+    const g = groupOf(state);
     counts[g] += 1;
     const secs = t.worked.reduce((s, w) => s + w.secs, 0);
-    workedSecs += secs;
-    for (const w of t.worked) if (perDay.has(w.day)) perDay.get(w.day).secs += w.secs;
+    for (const w of t.worked) perDay.get(w.day)?.worked.push(w);
     for (const e of t.events) {
       const d = perDay.get(appDay(e.at));
       if (d && e.type === 'TASK_COMPLETED') d.completed += 1;
       if (d && e.type === 'TASK_STARTED') d.started += 1;
     }
 
+    if (completedInRange) delivered += 1;
+    const isOverdue = !completedInRange && !previouslyDelivered && t.due &&
+      (t.due < dueCutoff || (t.due === dueCutoff && dueCutoff < today));
+    if (isOverdue) overdue += 1;
     let timing = '—';
-    if (g === 'completed' && t.completedAt) {
+    let durationRating;
+    let completionSecs = null;
+    if (completedInRange) {
       const doneDay = appDay(t.completedAt);
       if (t.due) {
-        if (doneDay <= t.due) { onTime += 1; timing = 'On time'; } else { late += 1; timing = 'Late'; }
+        if (doneDay < t.due) { early += 1; timing = 'Before deadline'; }
+        else if (doneDay === t.due) { onTime += 1; timing = 'On deadline'; }
+        else { late += 1; timing = 'After deadline'; }
       } else timing = 'Done';
-    } else if (t.due) {
-      timing = t.due < today ? 'Overdue' : t.due === today ? 'Due today' : 'Upcoming';
+      const actual = t.actualSeconds || secs;
+      if (actual > 0) {
+        completionSecs = actual;
+        completedTimed += 1;
+        completedTimedSecs += actual;
+      }
+      durationRating = upper(t.storedTiming);
+      if (!Object.hasOwn(timingCounts, durationRating) && t.expectedMinutes > 0 && actual > 0) {
+        const minutes = Math.floor(actual / 60);
+        durationRating = minutes < t.expectedMinutes ? 'BEFORE IN' : minutes === t.expectedMinutes ? 'ACHIEVED' : 'DELAY OUT';
+      }
+      if (Object.hasOwn(timingCounts, durationRating)) timingCounts[durationRating] += 1;
+    } else if (isOverdue) {
+      timing = 'Overdue';
+    } else if (!previouslyDelivered && t.due) {
+      timing = t.due === today ? 'Due today' : 'Upcoming';
     }
+    const source = sources.get(t.kind) || { label: WORK_SOURCE[t.kind], total: 0, completed: 0, trackedSecs: 0 };
+    source.total += 1;
+    source.completed += Number(completedInRange);
+    source.trackedSecs += secs;
+    sources.set(t.kind, source);
 
     if (t.review === 'APPROVED') review.approved += 1;
     else if (t.review === 'REWORK') review.rework += 1;
@@ -3304,16 +3500,18 @@ function summarise({ user, tasks, planner }, range, now) {
       kind: t.kind,
       deliverable: t.deliverable,
       rowLabel: t.rowLabel,
-      roleName: t.kind === 'CONTENT_CALENDAR' ? 'Content Calendar' : 'Task',
-      status: t.state,
+      roleName: WORK_SOURCE[t.kind],
+      status: state,
       statusGroup: g,
-      statusLabel: STATUS_LABEL[t.state] || t.state,
+      statusLabel: STATUS_LABEL[state] || state,
       duration: fmtSecs(secs),
       secs,
+      completionDuration: completionSecs == null ? null : fmtSecs(completionSecs),
       due: t.due || null,
-      completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+      completedAt: t.completedAt && t.completedAt < to && t.completedAt <= now ? t.completedAt.toISOString() : null,
       timing,
-      performance: timing,
+      performance: { 'BEFORE IN': 'Before In', ACHIEVED: 'Achieved', 'DELAY OUT': 'Delay Out' }[durationRating] || '—',
+      expectedMinutes: t.expectedMinutes || null,
       reviewStatus: t.review || (t.state === 'IN REVIEW' ? 'Pending' : '-'),
       staleRunning: t.staleRunning,
     });
@@ -3341,34 +3539,58 @@ function summarise({ user, tasks, planner }, range, now) {
   let morning = 0;
   let evening = 0;
   let submittedDays = 0;
+  let expectedPlannerDays = 0;
   const plannerDays = workDays.map((d) => {
     const rec = planner.get(d) || { morning: false, evening: false };
     if (rec.morning) morning += 1;
     if (rec.evening) evening += 1;
     if (rec.morning || rec.evening) submittedDays += 1;
+    if (d < today || attendance.get(d)?.checkOut || rec.morning || rec.evening) expectedPlannerDays += 1;
     if (rec.at) timeline.push({ date: rec.at.toISOString(), type: 'PLANNER_SUBMITTED', label: `Day Planner submitted (${d})` });
     return { date: d, morningSubmitted: rec.morning, eveningSubmitted: rec.evening };
   });
 
   const total = tasks.length;
-  const availableSecs = workDays.length * WORK_DAY_SECS;
-  const productivityPct = Math.min(100, pct(workedSecs, availableSecs));
-  const completedWithDue = onTime + late;
+  const availableSecs = [...attendance.values()].reduce((sum, day) => sum + (day.workedSecs || 0), 0);
+  let clockedTrackedSecs = 0;
+  let workedSecs = 0;
+  for (const [date, day] of perDay) {
+    const shift = attendance.get(date);
+    day.secs = trackedSeconds(day.worked, shift);
+    workedSecs += day.secs;
+    if (shift?.workedSecs != null) clockedTrackedSecs += day.secs;
+  }
+  const productivityPct = pct(clockedTrackedSecs, availableSecs);
+  const completedWithDue = early + onTime + late;
+  const ratedTasks = Object.values(timingCounts).reduce((sum, count) => sum + count, 0);
   const reviewed = review.approved + review.rework + review.rejected;
+  const onlyUntimedAdminWork = ADMIN_WORK_PAGES.some((page) => adminPages.has(page)) &&
+    tasks.every((t) => ADMIN_WORK.has(t.kind));
+  const missingSessionHistory = tasks.some((task) => task.missingSessionHistory);
+  if (onlyUntimedAdminWork && !planner.size) expectedPlannerDays = 0;
 
   const values = {
-    completion: total ? pct(counts.completed, total) : null,
-    productivity: availableSecs ? productivityPct : null,
-    onTime: completedWithDue ? pct(onTime, completedWithDue) : null,
+    completion: delivered + overdue ? pct(delivered, delivered + overdue) : null,
+    productivity: availableSecs > 0 && !onlyUntimedAdminWork && !missingSessionHistory ? productivityPct : null,
+    onTime: completedWithDue ? pct(early + onTime, completedWithDue) : null,
+    taskTiming: ratedTasks ? pct(timingCounts['BEFORE IN'] + timingCounts.ACHIEVED, ratedTasks) : null,
     approval: reviewed ? pct(review.approved, reviewed) : null,
-    planner: workDays.length ? pct(submittedDays, workDays.length) : null,
+    planner: expectedPlannerDays ? pct(submittedDays, expectedPlannerDays) : null,
   };
-  const hasActivity = total > 0 || workedSecs > 0;
+  const hasActivity = Object.values(values).some((value) => value !== null);
   const usable = SCORE_WEIGHTS.filter((w) => values[w.key] !== null);
   const weightSum = usable.reduce((s, w) => s + w.weight, 0);
   const score = hasActivity && weightSum
     ? Math.round(usable.reduce((s, w) => s + values[w.key] * w.weight, 0) / weightSum)
     : 0;
+  const guidance = {
+    completion: [`${delivered} delivered and ${overdue} overdue`, 'Finish overdue tasks first and keep their status up to date.'],
+    productivity: [`${fmtSecs(clockedTrackedSecs)} tracked during ${fmtSecs(availableSecs)} of attendance`, 'Start the workspace timer when work begins, pause it during breaks, and stop it when work ends.'],
+    onTime: [`${early + onTime} of ${completedWithDue} deliveries met their deadline`, 'Prioritize the nearest deadlines and flag blockers early.'],
+    taskTiming: [`${timingCounts['BEFORE IN']} Before In, ${timingCounts.ACHIEVED} Achieved, ${timingCounts['DELAY OUT']} Delay Out`, 'Review tasks that exceeded their estimate and raise recurring blockers or inaccurate estimates.'],
+    approval: [`${review.approved} approved and ${review.rework + review.rejected} returned or rejected`, 'Check the manager’s feedback and verify the deliverable before submitting it.'],
+    planner: [`${submittedDays} of ${expectedPlannerDays} eligible days have a submitted plan`, 'Submit your Day Planner on each working day.'],
+  };
   const parts = SCORE_WEIGHTS.map((w) => ({
     key: w.key,
     label: w.label,
@@ -3376,6 +3598,9 @@ function summarise({ user, tasks, planner }, range, now) {
     valuePct: values[w.key],
     points: values[w.key] === null || !weightSum ? null
       : Math.round((values[w.key] * w.weight) / weightSum * 10) / 10,
+    pointsLost: values[w.key] === null ? null : Math.round((100 - values[w.key]) * w.weight / weightSum * 10) / 10,
+    evidence: guidance[w.key][0],
+    improvement: values[w.key] !== null && values[w.key] < 100 ? guidance[w.key][1] : null,
   }));
 
   const activeDays = [...perDay.values()].filter((d) => d.secs > 0).length;
@@ -3410,6 +3635,7 @@ function summarise({ user, tasks, planner }, range, now) {
       role: user.role || '',
       staffId: user.staff_id || '',
       initials: user.initials || initialsOf(user.full_name),
+      employmentStatus: Number(user.is_active) ? 'Active' : 'Inactive',
     },
     running,
     staleRunning: tasks.filter((t) => t.staleRunning).length,
@@ -3423,31 +3649,36 @@ function summarise({ user, tasks, planner }, range, now) {
       onHoldPct: pct(counts.onHold, total),
       pendingPct: pct(counts.pending, total),
       rejectedPct: pct(counts.rejected, total),
-      onTime,
+      early,
+      onTime: early + onTime,
       late,
-      overdue: tasks.filter((t) => groupOf(t.state) !== 'completed' && t.due && t.due < today).length,
+      overdue,
+      beforeIn: timingCounts['BEFORE IN'],
+      achieved: timingCounts.ACHIEVED,
+      delayOut: timingCounts['DELAY OUT'],
     },
     workingHours: {
       totalSecs: workedSecs,
       availableSecs,
-      idleSecs: Math.max(0, availableSecs - workedSecs),
+      productiveSecs: clockedTrackedSecs,
+      idleSecs: Math.max(0, availableSecs - clockedTrackedSecs),
       total: fmtSecs(workedSecs),
-      productive: fmtSecs(workedSecs),
+      productive: fmtSecs(clockedTrackedSecs),
       available: fmtSecs(availableSecs),
-      idle: fmtSecs(Math.max(0, availableSecs - workedSecs)),
+      idle: fmtSecs(Math.max(0, availableSecs - clockedTrackedSecs)),
       workingDays: workDays.length,
       activeDays,
-      dayHours: WORK_DAY_SECS / 3600,
       avgDaily: fmtSecs(activeDays ? workedSecs / activeDays : 0),
-      avgTask: fmtSecs(counts.completed ? workedSecs / counts.completed : 0),
-      productivityPct,
+      avgTask: fmtSecs(completedTimed ? completedTimedSecs / completedTimed : 0),
+      productivityPct: values.productivity,
+      missingSessionHistory,
       efficiencyPct: values.onTime ?? 0,
     },
     managerReview: { ...review, reviewed, approvalRatePct: values.approval ?? 0 },
     dayPlanner: {
-      workingDays: workDays.length,
+      workingDays: expectedPlannerDays,
       submittedDays,
-      missedDays: Math.max(0, workDays.length - submittedDays),
+      missedDays: Math.max(0, expectedPlannerDays - submittedDays),
       morningSubmittedCount: morning,
       eveningSubmittedCount: evening,
       consistencyPct: values.planner ?? 0,
@@ -3457,10 +3688,16 @@ function summarise({ user, tasks, planner }, range, now) {
       date,
       workedSecs: d.secs,
       worked: fmtSecs(d.secs),
+      attendanceSecs: attendance.get(date)?.workedSecs ?? null,
+      attendance: attendance.get(date)?.workedSecs == null ? null : fmtSecs(attendance.get(date).workedSecs),
       completed: d.completed,
       started: d.started,
-      dayPerformancePct: Math.min(100, pct(d.secs, WORK_DAY_SECS)),
+      dayPerformancePct: attendance.get(date)?.workedSecs ? pct(d.secs, attendance.get(date).workedSecs) : null,
     })),
+    attendance: [...attendance.values()].map(({ date, checkIn, checkOut, live, workedSecs: seconds }) => ({
+      date, checkIn, checkOut, live, worked: seconds == null ? null : fmtSecs(seconds), workedSecs: seconds,
+    })).sort((a, b) => b.date.localeCompare(a.date)),
+    sources: [...sources.values()].map((source) => ({ ...source, tracked: fmtSecs(source.trackedSecs) })),
     clients: clientList,
     timeline: timeline.slice(0, 80),
   };
@@ -3481,31 +3718,67 @@ function overviewRow(p) {
     pending: p.summary.pending,
     rejected: p.summary.rejected,
     overdue: p.summary.overdue,
+    early: p.summary.early,
+    onTime: p.summary.onTime,
+    late: p.summary.late,
+    beforeIn: p.summary.beforeIn,
+    achieved: p.summary.achieved,
+    delayOut: p.summary.delayOut,
     completedPct: p.summary.completedPct,
     processingPct: p.summary.processingPct,
     onHoldPct: p.summary.onHoldPct,
     pendingPct: p.summary.pendingPct,
     rejectedPct: p.summary.rejectedPct,
-    workingSecs: p.workingHours.totalSecs,
-    workingHours: p.workingHours.total,
+    workingSecs: p.workingHours.availableSecs,
+    workingHours: p.workingHours.available,
+    trackedSecs: p.workingHours.totalSecs,
     productivityPct: p.workingHours.productivityPct,
     onTimePct: p.workingHours.efficiencyPct,
     approvalRatePct: p.managerReview.approvalRatePct,
+    plannerSubmittedDays: p.dayPlanner.submittedDays,
+    expectedDays: p.dayPlanner.workingDays,
     plannerPct: p.dayPlanner.consistencyPct,
   };
 }
 
-router.get('/performance/overview', async (req, res) => {
+const performance = express.Router();
+performance.use(authenticateToken);
+async function requirePerformanceAccess(req, res, next) {
+  try {
+    const [[account]] = await db.query(
+      'SELECT id, role, user_type, is_main_admin FROM employee_users WHERE id = ?', [req.user.id],
+    );
+    const pages = await taskManagerAdminPages(db, account ? [account] : []);
+    if (Number(account?.is_main_admin) === 1 || pages.get(Number(req.user.id))?.has('/performance')) return next();
+    return res.status(403).json({ success: false, message: 'Performance page access is required' });
+  } catch (err) {
+    console.error('Performance access check failed:', err.message);
+    return res.status(500).json({ success: false, message: 'Unable to verify performance access' });
+  }
+}
+
+const invalidPerformanceRange = (res) => res.status(400).json({ success: false, message: 'Select a valid performance range of up to 366 days' });
+const responseRange = (range) => ({
+  from: range.fromDay,
+  to: range.toDay,
+  fromDate: range.fromDay,
+  toDate: range.toDay,
+  mode: range.fromDay === range.toDay ? 'daily' : 'monthly',
+  workingDays: range.workDays.length,
+});
+
+performance.get('/overview', requirePerformanceAccess, async (req, res) => {
   try {
     const range = perfRange(req.query);
+    if (!range) return invalidPerformanceRange(res);
     const people = await buildPerformance(range);
     const employees = people.map(overviewRow);
     const sum = (k) => employees.reduce((s, e) => s + (Number(e[k]) || 0), 0);
-    const activeOnes = employees.filter((e) => e.totalTasks > 0 || e.workingSecs > 0);
+    const activeOnes = employees.filter((e) => e.performanceGrade !== 'No Activity');
     return res.json({
       success: true,
       data: {
-        range: { from: range.fromDay, to: range.toDay, workingDays: range.workDays.length },
+        range: responseRange(range),
         weights: SCORE_WEIGHTS,
         team: {
           employees: employees.length,
@@ -3528,23 +3801,71 @@ router.get('/performance/overview', async (req, res) => {
   }
 });
 
-router.get('/performance/detail', async (req, res) => {
+performance.get('/detail', requirePerformanceAccess, async (req, res) => {
+  const id = Number(req.query.employeeId);
   const name = String(req.query.employeeName || req.query.employee || '').trim();
-  if (!name) return res.status(400).json({ success: false, message: 'employeeName is required' });
+  if (!id && !name) return res.status(400).json({ success: false, message: 'employeeId or employeeName is required' });
   try {
     const range = perfRange(req.query);
+    if (!range) return invalidPerformanceRange(res);
     const people = await buildPerformance(range);
-    const p = people.find((x) => personKey(x.employee.fullName) === personKey(name));
-    if (!p) return res.status(404).json({ success: false, message: `No employee named ${name}` });
+    const matches = people.filter((x) => id ? Number(x.employee.id) === id : personKey(x.employee.fullName) === personKey(name));
+    if (matches.length > 1) return res.status(409).json({ success: false, message: 'Multiple employees match that name. Use employeeId.' });
+    const [p] = matches;
+    if (!p) return res.status(404).json({ success: false, message: 'Employee not found' });
     return res.json({
       success: true,
-      data: { ...p, range: { from: range.fromDay, to: range.toDay, workingDays: range.workDays.length }, weights: SCORE_WEIGHTS },
+      data: { ...p, range: responseRange(range), weights: SCORE_WEIGHTS },
     });
   } catch (err) {
     console.error('GET /workspace-tasks/performance/detail ERROR:', err.message);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
+performance.get('/me', async (req, res) => {
+  try {
+    const range = perfRange(req.query);
+    if (!range) return invalidPerformanceRange(res);
+    const people = await buildPerformance(range);
+    const person = people.find((entry) => Number(entry.employee.id) === Number(req.user.id));
+    let comparison = null;
+    if (range.fromDay === range.toDay && person && person.performance.grade !== 'No Activity') {
+      const previousDay = appDay(new Date(range.from.getTime() - 1));
+      const previous = (await buildPerformance(perfRange({ date: previousDay })))
+        .find((entry) => Number(entry.employee.id) === Number(req.user.id));
+      if (previous && previous.performance.grade !== 'No Activity') {
+        const previousParts = new Map(previous.performance.parts.map((part) => [part.key, part]));
+        const changed = person.performance.parts.filter((part) => part.valuePct !== null &&
+          previousParts.get(part.key)?.valuePct != null && part.valuePct < previousParts.get(part.key).valuePct)
+          .sort((a, b) => b.pointsLost - a.pointsLost);
+        comparison = {
+          date: previousDay,
+          score: previous.performance.score,
+          change: person.performance.score - previous.performance.score,
+          lowerFactors: changed.map((part) => part.label),
+        };
+      }
+    }
+    return res.json({
+      success: true,
+      data: {
+        performance: person?.performance || { score: 0, grade: 'No Activity', parts: [] },
+        workingHours: person?.workingHours || {},
+        attendance: person?.attendance || [],
+        sources: person?.sources || [],
+        comparison,
+        range: responseRange(range),
+      },
+    });
+  } catch (err) {
+    console.error('GET /performance/me ERROR:', err.message);
+    return res.status(500).json({ success: false, message: 'Unable to load your performance' });
+  }
+});
+
+router.use('/performance', performance);
+router.performance = performance;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // Page / Ads Handler — "Add Additional Task" from Employee Workspace

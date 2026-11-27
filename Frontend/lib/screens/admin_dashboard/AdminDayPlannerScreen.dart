@@ -33,11 +33,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
 
   DateTime selectedDate = DateTime.now();
   String dateFilterMode = 'Today';
-  
+
   String searchQuery = '';
   String? selectedRoleFilter;
   String? selectedStatusFilter;
-  String? selectedAttendanceFilter; // 🟢 Attendance filter (All, Present, Absent)
+  String?
+  selectedAttendanceFilter; // 🟢 Attendance filter (All, Present, Absent)
   bool isAscendingOrder = true;
 
   String? selectedEmployee;
@@ -74,7 +75,8 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   void _initSocketListener() {
     socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setAuthFn(authenticateSocket)
+      io.OptionBuilder()
+          .setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
@@ -123,7 +125,8 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
 
   Future<void> _loadEmployeesAndSubmissions() async {
     setState(() => isLoading = true);
-    String formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
+    String formattedDate =
+        "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
 
     try {
       final subRes = await http.get(
@@ -133,8 +136,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       if (subRes.statusCode == 200) {
         final subBody = jsonDecode(subRes.body);
         setState(() {
-          employeesList = List<Map<String, dynamic>>.from(subBody['employees'] ?? []);
-          submissionStatusList = List<Map<String, dynamic>>.from(subBody['submissions'] ?? []);
+          employeesList = List<Map<String, dynamic>>.from(
+            subBody['employees'] ?? [],
+          );
+          submissionStatusList = List<Map<String, dynamic>>.from(
+            subBody['submissions'] ?? [],
+          );
           isLoading = false;
         });
       } else {
@@ -148,47 +155,79 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
 
   Future<void> _fetchEmployeeDayPlan(String empName) async {
     setState(() => isLoading = true);
-    
+
     try {
+      final formattedDate =
+          "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
       String url = '';
       if (dateFilterMode == 'Today') {
-        String formattedDate = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
-        url = '$_baseUrl/day-planner/today/${Uri.encodeComponent(empName)}?date=$formattedDate';
+        url =
+            '$_baseUrl/day-planner/today/${Uri.encodeComponent(empName)}?date=$formattedDate';
       } else {
-        String formattedMonth = "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}";
-        url = '$_baseUrl/day-planner/month-history/${Uri.encodeComponent(empName)}?month=$formattedMonth';
+        String formattedMonth =
+            "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}";
+        url =
+            '$_baseUrl/day-planner/month-history/${Uri.encodeComponent(empName)}?month=$formattedMonth';
       }
 
-      final response = await http.get(Uri.parse(url));
+      final responses = await Future.wait([
+        http.get(Uri.parse(url)),
+        // Keep the planner detail in sync with Live Tracking and the employee
+        // top bar. This includes a Content Calendar handler's active time.
+        http.get(
+          Uri.parse('$_baseUrl/workspace-tasks/live-all').replace(
+            queryParameters: {'employee': empName, 'date': formattedDate},
+          ),
+        ),
+      ]);
+      final response = responses[0];
+      final liveResponse = responses[1];
+      var liveWorkingSecs = 0;
+      if (liveResponse.statusCode == 200) {
+        final liveBody = jsonDecode(liveResponse.body);
+        liveWorkingSecs = (liveBody['totalSecs'] as num?)?.toInt() ?? 0;
+      }
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        final List<dynamic> data = decoded is List ? decoded : (decoded['data'] ?? []);
+        final List<dynamic> data = decoded is List
+            ? decoded
+            : (decoded['data'] ?? []);
 
         setState(() {
           selectedEmployee = empName;
-          dayPlanRows = data.map((item) => {
-            'id': item['id'],
-            'date': item['plan_date_str'] ?? item['date'] ?? '',
-            'client': item['client_name'] ?? item['client'] ?? '',
-            'maintenance_date': item['maintenance_date'] ?? '',
-            'ads': item['ads'] ?? '',
-            'today_leads': item['today_leads'] ?? '',
-            'today_report': item['today_report'] ?? '',
-            'deliverables_1': item['deliverables_1'] ?? '',
-            'complete_deliverables_1': item['complete_deliverables_1'] ?? '',
-            'balanced_deliverables_1': item['balanced_deliverables_1'] ?? '',
-            'deliverables_2': item['deliverables_2'] ?? '',
-            'complete_deliverables_2': item['complete_deliverables_2'] ?? '',
-            'balanced_deliverables_2': item['balanced_deliverables_2'] ?? '',
-            'deliverables_3': item['deliverables_3'] ?? '',
-            'complete_deliverables_3': item['complete_deliverables_3'] ?? '',
-            'balanced_deliverables_3': item['balanced_deliverables_3'] ?? '',
-            'today_plan': item['today_plan'] ?? '',
-            'status': item['status'] ?? '',
-            'remarks': item['remarks'] ?? '',
-            'total_working_secs': item['total_working_secs'] ?? 0,
-          }).toList();
+          dayPlanRows = data
+              .map(
+                (item) => {
+                  'id': item['id'],
+                  'date': item['plan_date_str'] ?? item['date'] ?? '',
+                  'client': item['client_name'] ?? item['client'] ?? '',
+                  'maintenance_date': item['maintenance_date'] ?? '',
+                  'ads': item['ads'] ?? '',
+                  'today_leads': item['today_leads'] ?? '',
+                  'today_report': item['today_report'] ?? '',
+                  'deliverables_1': item['deliverables_1'] ?? '',
+                  'complete_deliverables_1':
+                      item['complete_deliverables_1'] ?? '',
+                  'balanced_deliverables_1':
+                      item['balanced_deliverables_1'] ?? '',
+                  'deliverables_2': item['deliverables_2'] ?? '',
+                  'complete_deliverables_2':
+                      item['complete_deliverables_2'] ?? '',
+                  'balanced_deliverables_2':
+                      item['balanced_deliverables_2'] ?? '',
+                  'deliverables_3': item['deliverables_3'] ?? '',
+                  'complete_deliverables_3':
+                      item['complete_deliverables_3'] ?? '',
+                  'balanced_deliverables_3':
+                      item['balanced_deliverables_3'] ?? '',
+                  'today_plan': item['today_plan'] ?? '',
+                  'status': item['status'] ?? '',
+                  'remarks': item['remarks'] ?? '',
+                  'total_working_secs': liveWorkingSecs,
+                },
+              )
+              .toList();
           isLoading = false;
         });
       } else {
@@ -212,20 +251,24 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
           'senderName': senderName,
           'recipientName': empName,
           'message': jsonEncode({
-            'preview': '$senderName sent you a reminder to submit your Day Planner.',
+            'preview':
+                '$senderName sent you a reminder to submit your Day Planner.',
             'payload': {
               'type': 'DAY_PLANNER_REMINDER',
               'sender': senderName,
               'recipient': empName,
-              'content': 'Please submit your Day Planner for today.'
-            }
+              'content': 'Please submit your Day Planner for today.',
+            },
           }),
         }),
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (!mounted) return;
-        _showSnack('✅ Reminder notification sent to $empName successfully!', success: true);
+        _showSnack(
+          '✅ Reminder notification sent to $empName successfully!',
+          success: true,
+        );
       } else {
         if (!mounted) return;
         _showSnack('❌ Failed to send notification. Try again.');
@@ -242,13 +285,28 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       SnackBar(
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(18),
-        backgroundColor: success ? const Color(0xFF0F9D73) : const Color(0xFFDC2626),
+        backgroundColor: success
+            ? const Color(0xFF0F9D73)
+            : const Color(0xFFDC2626),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         content: Row(
           children: [
-            Icon(success ? Icons.check_circle_rounded : Icons.error_outline_rounded, color: Colors.white),
+            Icon(
+              success
+                  ? Icons.check_circle_rounded
+                  : Icons.error_outline_rounded,
+              color: Colors.white,
+            ),
             const SizedBox(width: 10),
-            Expanded(child: Text(msg, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+            Expanded(
+              child: Text(
+                msg,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -256,7 +314,11 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   }
 
   String _getInitials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((e) => e.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return '?';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
@@ -296,8 +358,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                   return SizedBox(
                     height: 580,
                     child: isLoading
-                        ? const Center(child: CircularProgressIndicator(color: _primary))
-                        : (isMobile ? _buildEmployeeMobileCardList() : _buildEmployeeStatusTable()),
+                        ? const Center(
+                            child: CircularProgressIndicator(color: _primary),
+                          )
+                        : (isMobile
+                              ? _buildEmployeeMobileCardList()
+                              : _buildEmployeeStatusTable()),
                   );
                 },
               ),
@@ -310,8 +376,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                   return SizedBox(
                     height: 600,
                     child: isLoading
-                        ? const Center(child: CircularProgressIndicator(color: _primary))
-                        : (isMobile ? _buildMobilePlannerCardList(dayPlanRows) : _buildGroupedSheetGrids(dayPlanRows)),
+                        ? const Center(
+                            child: CircularProgressIndicator(color: _primary),
+                          )
+                        : (isMobile
+                              ? _buildMobilePlannerCardList(dayPlanRows)
+                              : _buildGroupedSheetGrids(dayPlanRows)),
                   );
                 },
               ),
@@ -334,7 +404,11 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
         ),
         borderRadius: BorderRadius.circular(isMobile ? 18 : 24),
         boxShadow: [
-          BoxShadow(color: _primary.withValues(alpha: 0.25), blurRadius: 24, offset: const Offset(0, 10)),
+          BoxShadow(
+            color: _primary.withValues(alpha: 0.25),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
         ],
       ),
       child: Wrap(
@@ -351,9 +425,15 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.20),
+                  ),
                 ),
-                child: Icon(Icons.calendar_month_rounded, size: isMobile ? 24 : 28, color: Colors.white),
+                child: Icon(
+                  Icons.calendar_month_rounded,
+                  size: isMobile ? 24 : 28,
+                  color: Colors.white,
+                ),
               ),
               const SizedBox(width: 14),
               Flexible(
@@ -410,14 +490,25 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                     }
                   },
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     child: Row(
                       children: [
-                        const Icon(Icons.calendar_today_rounded, size: 15, color: Colors.white),
+                        const Icon(
+                          Icons.calendar_today_rounded,
+                          size: 15,
+                          color: Colors.white,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           "${selectedDate.day}/${selectedDate.month}/${selectedDate.year}",
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
                         ),
                       ],
                     ),
@@ -426,21 +517,30 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                 GestureDetector(
                   onTap: () {
                     setState(() {
-                      dateFilterMode = dateFilterMode == 'Today' ? 'This Month' : 'Today';
+                      dateFilterMode = dateFilterMode == 'Today'
+                          ? 'This Month'
+                          : 'Today';
                     });
                     if (selectedEmployee != null) {
                       _fetchEmployeeDayPlan(selectedEmployee!);
                     }
                   },
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
                       dateFilterMode,
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: _primary),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        color: _primary,
+                      ),
                     ),
                   ),
                 ),
@@ -455,21 +555,53 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   // 🟢 Top 5 Cards Layout (Total Workforce, Today Present, Absent, Completed Submission, Pending Submission)
   Widget _buildStats(bool isMobile) {
     int totalCount = employeesList.length;
-    int presentCount = employeesList.where((emp) => (emp['attendanceStatus'] ?? '').toString() == 'Present').length;
+    int presentCount = employeesList
+        .where((emp) => (emp['attendanceStatus'] ?? '').toString() == 'Present')
+        .length;
     int absentCount = totalCount - presentCount;
     int submittedCount = employeesList.where((emp) {
       final name = (emp['fullName'] ?? '').toString();
-      return submissionStatusList.any((s) => (s['employeeName'] ?? '').toString().toLowerCase() == name.toLowerCase() && s['submitted'] == true);
+      return submissionStatusList.any(
+        (s) =>
+            (s['employeeName'] ?? '').toString().toLowerCase() ==
+                name.toLowerCase() &&
+            s['submitted'] == true,
+      );
     }).length;
     int pendingCount = totalCount - submittedCount;
     if (pendingCount < 0) pendingCount = 0;
 
     final stats = [
-      {'label': 'Total Workforce', 'value': '$totalCount', 'icon': Icons.groups_rounded, 'color': _primary},
-      {'label': 'Today Present', 'value': '$presentCount', 'icon': Icons.check_circle_rounded, 'color': const Color(0xFF10B981)},
-      {'label': 'Absent', 'value': '$absentCount', 'icon': Icons.cancel_rounded, 'color': const Color(0xFFDC2626)},
-      {'label': 'Completed', 'value': '$submittedCount', 'icon': Icons.verified_user_rounded, 'color': const Color(0xFF0284C7)},
-      {'label': 'Pending', 'value': '$pendingCount', 'icon': Icons.pending_actions_rounded, 'color': const Color(0xFFD97706)},
+      {
+        'label': 'Total Workforce',
+        'value': '$totalCount',
+        'icon': Icons.groups_rounded,
+        'color': _primary,
+      },
+      {
+        'label': 'Today Present',
+        'value': '$presentCount',
+        'icon': Icons.check_circle_rounded,
+        'color': const Color(0xFF10B981),
+      },
+      {
+        'label': 'Absent',
+        'value': '$absentCount',
+        'icon': Icons.cancel_rounded,
+        'color': const Color(0xFFDC2626),
+      },
+      {
+        'label': 'Completed',
+        'value': '$submittedCount',
+        'icon': Icons.verified_user_rounded,
+        'color': const Color(0xFF0284C7),
+      },
+      {
+        'label': 'Pending',
+        'value': '$pendingCount',
+        'icon': Icons.pending_actions_rounded,
+        'color': const Color(0xFFD97706),
+      },
     ];
 
     return GridView.builder(
@@ -498,8 +630,15 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
               Container(
                 width: isMobile ? 32 : 38,
                 height: isMobile ? 32 : 38,
-                decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(10)),
-                child: Icon(stat['icon'] as IconData, color: color, size: isMobile ? 16 : 20),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  stat['icon'] as IconData,
+                  color: color,
+                  size: isMobile ? 16 : 20,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -507,9 +646,25 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(stat['value'] as String, style: TextStyle(fontSize: isMobile ? 16 : 20, fontWeight: FontWeight.w900, color: _ink)),
+                    Text(
+                      stat['value'] as String,
+                      style: TextStyle(
+                        fontSize: isMobile ? 16 : 20,
+                        fontWeight: FontWeight.w900,
+                        color: _ink,
+                      ),
+                    ),
                     const SizedBox(height: 1),
-                    Text(stat['label'] as String, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: isMobile ? 9 : 10, color: _muted, fontWeight: FontWeight.w600)),
+                    Text(
+                      stat['label'] as String,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: isMobile ? 9 : 10,
+                        color: _muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -521,24 +676,42 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   }
 
   Widget _buildEmployeeStatusTable() {
-    final List<String> availableRoles = employeesList.map((emp) => (emp['role'] ?? 'Staff').toString()).toSet().toList()..sort();
-    
+    final List<String> availableRoles =
+        employeesList
+            .map((emp) => (emp['role'] ?? 'Staff').toString())
+            .toSet()
+            .toList()
+          ..sort();
+
     final filteredEmployees = employeesList.where((emp) {
       final name = (emp['fullName'] ?? '').toString();
       final role = (emp['role'] ?? 'Staff').toString();
       final attendanceStatus = (emp['attendanceStatus'] ?? 'Absent').toString();
-      final matchesSearch = name.toLowerCase().contains(searchQuery.toLowerCase());
-      final bool hasSubmitted = submissionStatusList.any((s) => (s['employeeName'] ?? '').toString().toLowerCase() == name.toLowerCase() && s['submitted'] == true);
+      final matchesSearch = name.toLowerCase().contains(
+        searchQuery.toLowerCase(),
+      );
+      final bool hasSubmitted = submissionStatusList.any(
+        (s) =>
+            (s['employeeName'] ?? '').toString().toLowerCase() ==
+                name.toLowerCase() &&
+            s['submitted'] == true,
+      );
 
-      bool matchesRole = (selectedRoleFilter == null || selectedRoleFilter == 'All Roles' || role == selectedRoleFilter);
+      bool matchesRole =
+          (selectedRoleFilter == null ||
+          selectedRoleFilter == 'All Roles' ||
+          role == selectedRoleFilter);
       bool matchesStatus = true;
       if (selectedStatusFilter == 'Submitted') matchesStatus = hasSubmitted;
       if (selectedStatusFilter == 'Pending') matchesStatus = !hasSubmitted;
 
       // 🟢 Attendance dropdown filter logic (All, Present, Absent)
       bool matchesAttendance = true;
-      if (selectedAttendanceFilter != null && selectedAttendanceFilter != 'All') {
-        matchesAttendance = attendanceStatus.toLowerCase() == selectedAttendanceFilter!.toLowerCase();
+      if (selectedAttendanceFilter != null &&
+          selectedAttendanceFilter != 'All') {
+        matchesAttendance =
+            attendanceStatus.toLowerCase() ==
+            selectedAttendanceFilter!.toLowerCase();
       }
 
       return matchesSearch && matchesRole && matchesStatus && matchesAttendance;
@@ -551,26 +724,59 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     });
 
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: _border)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _border),
+      ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            decoration: const BoxDecoration(color: _surface, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+            decoration: const BoxDecoration(
+              color: _surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
             child: Row(
               children: [
                 // 🟢 S.No Column Header
-                const SizedBox(width: 45, child: Text("S.NO", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _muted, letterSpacing: 0.7))),
+                const SizedBox(
+                  width: 45,
+                  child: Text(
+                    "S.NO",
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      color: _muted,
+                      letterSpacing: 0.7,
+                    ),
+                  ),
+                ),
                 Expanded(
                   flex: 3,
                   child: InkWell(
-                    onTap: () => setState(() => isAscendingOrder = !isAscendingOrder),
+                    onTap: () =>
+                        setState(() => isAscendingOrder = !isAscendingOrder),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text("EMPLOYEE NAME", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _muted, letterSpacing: 0.7)),
+                        const Text(
+                          "EMPLOYEE NAME",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            color: _muted,
+                            letterSpacing: 0.7,
+                          ),
+                        ),
                         const SizedBox(width: 4),
-                        Icon(isAscendingOrder ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded, size: 18, color: _primary),
+                        Icon(
+                          isAscendingOrder
+                              ? Icons.arrow_drop_up_rounded
+                              : Icons.arrow_drop_down_rounded,
+                          size: 18,
+                          color: _primary,
+                        ),
                       ],
                     ),
                   ),
@@ -579,12 +785,37 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                   flex: 2,
                   child: PopupMenuButton<String>(
                     initialValue: selectedRoleFilter ?? 'All Roles',
-                    onSelected: (val) => setState(() => selectedRoleFilter = val == 'All Roles' ? null : val),
+                    onSelected: (val) => setState(
+                      () =>
+                          selectedRoleFilter = val == 'All Roles' ? null : val,
+                    ),
                     itemBuilder: (context) => [
-                      const PopupMenuItem(value: 'All Roles', child: Text('All Roles', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                      ...availableRoles.map((r) => PopupMenuItem(value: r, child: Text(r, style: TextStyle(fontSize: 12)))),
+                      const PopupMenuItem(
+                        value: 'All Roles',
+                        child: Text(
+                          'All Roles',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      ...availableRoles.map(
+                        (r) => PopupMenuItem(
+                          value: r,
+                          child: Text(r, style: TextStyle(fontSize: 12)),
+                        ),
+                      ),
                     ],
-                    child: Text(selectedRoleFilter ?? "ROLE ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: selectedRoleFilter != null ? _primary : _muted, letterSpacing: 0.7)),
+                    child: Text(
+                      selectedRoleFilter ?? "ROLE ▾",
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: selectedRoleFilter != null ? _primary : _muted,
+                        letterSpacing: 0.7,
+                      ),
+                    ),
                   ),
                 ),
                 // 🟢 Attendance Dropdown Filter in Table Header
@@ -592,16 +823,56 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                   flex: 2,
                   child: PopupMenuButton<String>(
                     initialValue: selectedAttendanceFilter ?? 'All',
-                    onSelected: (val) => setState(() => selectedAttendanceFilter = val),
+                    onSelected: (val) =>
+                        setState(() => selectedAttendanceFilter = val),
                     itemBuilder: (context) => [
-                      const PopupMenuItem(value: 'All', child: Text('Attendance', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                      const PopupMenuItem(value: 'Present', child: Text('Present', style: TextStyle(fontSize: 12, color: Color(0xFF10B981)))),
-                      const PopupMenuItem(value: 'Absent', child: Text('Absent', style: TextStyle(fontSize: 12, color: Color(0xFFDC2626)))),
+                      const PopupMenuItem(
+                        value: 'All',
+                        child: Text(
+                          'Attendance',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'Present',
+                        child: Text(
+                          'Present',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'Absent',
+                        child: Text(
+                          'Absent',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFDC2626),
+                          ),
+                        ),
+                      ),
                     ],
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(selectedAttendanceFilter ?? "ATTENDANCE ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: (selectedAttendanceFilter != null && selectedAttendanceFilter != 'All') ? _primary : _muted, letterSpacing: 0.7)),
+                        Text(
+                          selectedAttendanceFilter ?? "ATTENDANCE ▾",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            color:
+                                (selectedAttendanceFilter != null &&
+                                    selectedAttendanceFilter != 'All')
+                                ? _primary
+                                : _muted,
+                            letterSpacing: 0.7,
+                          ),
+                        ),
                         // const Icon(Icons.arrow_drop_down, size: 16, color: _muted),
                       ],
                     ),
@@ -611,24 +882,79 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                   flex: 2,
                   child: PopupMenuButton<String>(
                     initialValue: selectedStatusFilter ?? 'All Status',
-                    onSelected: (val) => setState(() => selectedStatusFilter = val == 'All Status' ? null : val),
+                    onSelected: (val) => setState(
+                      () => selectedStatusFilter = val == 'All Status'
+                          ? null
+                          : val,
+                    ),
                     itemBuilder: (context) => [
-                      const PopupMenuItem(value: 'All Status', child: Text('All Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                      const PopupMenuItem(value: 'Submitted', child: Text('Submitted', style: TextStyle(fontSize: 12, color: Color(0xFF10B981)))),
-                      const PopupMenuItem(value: 'Pending', child: Text('Pending', style: TextStyle(fontSize: 12, color: Color(0xFFDC2626)))),
+                      const PopupMenuItem(
+                        value: 'All Status',
+                        child: Text(
+                          'All Status',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'Submitted',
+                        child: Text(
+                          'Submitted',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'Pending',
+                        child: Text(
+                          'Pending',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFDC2626),
+                          ),
+                        ),
+                      ),
                     ],
-                    child: Text(selectedStatusFilter ?? "STATUS ▾", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: selectedStatusFilter != null ? _primary : _muted, letterSpacing: 0.7)),
+                    child: Text(
+                      selectedStatusFilter ?? "STATUS ▾",
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: selectedStatusFilter != null ? _primary : _muted,
+                        letterSpacing: 0.7,
+                      ),
+                    ),
                   ),
                 ),
                 const Expanded(
                   flex: 2,
-                  child: Text("WORKING HOURS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _muted, letterSpacing: 0.7)),
+                  child: Text(
+                    "WORKING HOURS",
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                      color: _muted,
+                      letterSpacing: 0.7,
+                    ),
+                  ),
                 ),
                 const Expanded(
                   flex: 2,
                   child: Align(
                     alignment: Alignment.centerRight,
-                    child: Text("ACTIONS", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: _muted, letterSpacing: 0.7)),
+                    child: Text(
+                      "ACTIONS",
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: _muted,
+                        letterSpacing: 0.7,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -637,35 +963,69 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
           const Divider(height: 1, color: _border),
           Expanded(
             child: filteredEmployees.isEmpty
-                ? const Center(child: Text("No employees found matching filter criteria.", style: TextStyle(color: _muted, fontWeight: FontWeight.w600)))
+                ? const Center(
+                    child: Text(
+                      "No employees found matching filter criteria.",
+                      style: TextStyle(
+                        color: _muted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  )
                 : ListView.separated(
                     itemCount: filteredEmployees.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1, color: _border),
+                    separatorBuilder: (_, _) =>
+                        const Divider(height: 1, color: _border),
                     itemBuilder: (context, index) {
                       final emp = filteredEmployees[index];
                       final empName = emp['fullName'] ?? 'Employee';
                       final empRole = emp['role'] ?? 'Staff';
-                      final String attendanceStatus = emp['attendanceStatus'] ?? 'Absent';
+                      final String attendanceStatus =
+                          emp['attendanceStatus'] ?? 'Absent';
                       final bool isPresent = attendanceStatus == 'Present';
-                      
+
                       final submission = submissionStatusList.firstWhere(
-                        (s) => (s['employeeName'] ?? '').toString().toLowerCase() == empName.toLowerCase(),
+                        (s) =>
+                            (s['employeeName'] ?? '')
+                                .toString()
+                                .toLowerCase() ==
+                            empName.toLowerCase(),
                         orElse: () => {},
                       );
                       final bool hasSubmitted = submission['submitted'] == true;
+                      final submissionPeriod =
+                          (submission['submitted_period'] ?? 'Day Planner')
+                              .toString();
 
-                      final workingSecs = submission['total_working_secs'] ?? 
-                        submission['working_secs'] ?? 
-                        submission['totalWorkingSecs'] ?? 
-                        submission['totalSeconds'] ?? 0;
+                      final workingSecs =
+                          submission['total_working_secs'] ??
+                          submission['working_secs'] ??
+                          submission['totalWorkingSecs'] ??
+                          submission['totalSeconds'] ??
+                          0;
 
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        color: index.isEven ? Colors.white : const Color(0xFFFBFCFE),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
+                        ),
+                        color: index.isEven
+                            ? Colors.white
+                            : const Color(0xFFFBFCFE),
                         child: Row(
                           children: [
                             // 🟢 S.No cell data
-                            SizedBox(width: 45, child: Text('${index + 1}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _muted))),
+                            SizedBox(
+                              width: 45,
+                              child: Text(
+                                '${index + 1}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: _muted,
+                                ),
+                              ),
+                            ),
                             Expanded(
                               flex: 3,
                               child: Row(
@@ -673,45 +1033,125 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                   Container(
                                     width: 38,
                                     height: 38,
-                                    decoration: const BoxDecoration(gradient: LinearGradient(colors: [_primary, Color(0xFF2879EE)]), shape: BoxShape.circle),
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [_primary, Color(0xFF2879EE)],
+                                      ),
+                                      shape: BoxShape.circle,
+                                    ),
                                     alignment: Alignment.center,
-                                    child: Text(_getInitials(empName), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900)),
+                                    child: Text(
+                                      _getInitials(empName),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
                                   ),
                                   const SizedBox(width: 12),
-                                  Expanded(child: Text(empName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: _ink), overflow: TextOverflow.ellipsis)),
+                                  Expanded(
+                                    child: Text(
+                                      empName,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                        color: _ink,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
-                            Expanded(flex: 2, child: Text(empRole, style: const TextStyle(fontSize: 12, color: _muted, fontWeight: FontWeight.w600))),
+                            Expanded(
+                              flex: 2,
+                              child: Text(
+                                empRole,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: _muted,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                             Expanded(
                               flex: 2,
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: isPresent ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: isPresent ? const Color(0xFF10B981).withValues(alpha: 0.3) : const Color(0xFFDC2626).withValues(alpha: 0.3)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isPresent
+                                        ? const Color(0xFFF0FDF4)
+                                        : const Color(0xFFFEF2F2),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: isPresent
+                                          ? const Color(
+                                              0xFF10B981,
+                                            ).withValues(alpha: 0.3)
+                                          : const Color(
+                                              0xFFDC2626,
+                                            ).withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        isPresent
+                                            ? Icons.check_circle_rounded
+                                            : Icons.cancel_rounded,
+                                        size: 12,
+                                        color: isPresent
+                                            ? const Color(0xFF10B981)
+                                            : const Color(0xFFDC2626),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        attendanceStatus,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: isPresent
+                                              ? const Color(0xFF16A34A)
+                                              : const Color(0xFFDC2626),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(isPresent ? Icons.check_circle_rounded : Icons.cancel_rounded, size: 12, color: isPresent ? const Color(0xFF10B981) : const Color(0xFFDC2626)),
-                                    const SizedBox(width: 4),
-                                    Text(attendanceStatus, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: isPresent ? const Color(0xFF16A34A) : const Color(0xFFDC2626))),
-                                  ],
-                                ),
-                              ),
                               ),
                             ),
                             Expanded(
                               flex: 2,
                               child: Row(
                                 children: [
-                                  Container(width: 8, height: 8, decoration: BoxDecoration(color: hasSubmitted ? const Color(0xFF10B981) : const Color(0xFFDC2626), shape: BoxShape.circle)),
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: hasSubmitted
+                                          ? const Color(0xFF10B981)
+                                          : const Color(0xFFDC2626),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
                                   const SizedBox(width: 8),
-                                  Text(hasSubmitted ? 'Submitted' : 'Pending', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: hasSubmitted ? const Color(0xFF10B981) : const Color(0xFFDC2626))),
+                                  Text(
+                                    hasSubmitted ? submissionPeriod : 'Pending',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: hasSubmitted
+                                          ? const Color(0xFF10B981)
+                                          : const Color(0xFFDC2626),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -719,18 +1159,41 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                               flex: 2,
                               child: hasSubmitted
                                   ? Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(color: _primaryLight, borderRadius: BorderRadius.circular(6)),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: _primaryLight,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          const Icon(Icons.access_time_rounded, size: 12, color: _primary),
+                                          const Icon(
+                                            Icons.access_time_rounded,
+                                            size: 12,
+                                            color: _primary,
+                                          ),
                                           const SizedBox(width: 4),
-                                          Text(_formatWorkingTime(workingSecs), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: _primaryDark)),
+                                          Text(
+                                            _formatWorkingTime(workingSecs),
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w900,
+                                              color: _primaryDark,
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     )
-                                  : const Text('—', style: TextStyle(color: _muted, fontWeight: FontWeight.bold)),
+                                  : const Text(
+                                      '—',
+                                      style: TextStyle(
+                                        color: _muted,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
                             ),
                             Expanded(
                               flex: 2,
@@ -739,17 +1202,61 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                 children: [
                                   if (!hasSubmitted) ...[
                                     ElevatedButton.icon(
-                                      onPressed: () => _sendNotificationToEmployee(empName),
-                                      icon: const Icon(Icons.notifications_active_rounded, size: 13, color: Colors.white),
-                                      label: const Text("Notify", style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
-                                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD97706), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0),
+                                      onPressed: () =>
+                                          _sendNotificationToEmployee(empName),
+                                      icon: const Icon(
+                                        Icons.notifications_active_rounded,
+                                        size: 13,
+                                        color: Colors.white,
+                                      ),
+                                      label: const Text(
+                                        "Notify",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(
+                                          0xFFD97706,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 8,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        elevation: 0,
+                                      ),
                                     ),
                                     const SizedBox(width: 8),
                                   ],
                                   ElevatedButton(
-                                    onPressed: () => _fetchEmployeeDayPlan(empName),
-                                    style: ElevatedButton.styleFrom(backgroundColor: _primaryLight, foregroundColor: _primary, elevation: 0, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                                    child: const Text("View Planner", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                    onPressed: () =>
+                                        _fetchEmployeeDayPlan(empName),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _primaryLight,
+                                      foregroundColor: _primary,
+                                      elevation: 0,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 9,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      "View Planner",
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
@@ -766,35 +1273,60 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   }
 
   Widget _buildEmployeeMobileCardList() {
-    final List<String> availableRoles = employeesList.map((emp) => (emp['role'] ?? 'Staff').toString()).toSet().toList()..sort();
-    
+    final List<String> availableRoles =
+        employeesList
+            .map((emp) => (emp['role'] ?? 'Staff').toString())
+            .toSet()
+            .toList()
+          ..sort();
+
     final filteredEmployees = employeesList.where((emp) {
       final name = (emp['fullName'] ?? '').toString();
       final role = (emp['role'] ?? 'Staff').toString();
       final attendanceStatus = (emp['attendanceStatus'] ?? 'Absent').toString();
-      final matchesSearch = name.toLowerCase().contains(searchQuery.toLowerCase());
-      final bool hasSubmitted = submissionStatusList.any((s) => (s['employeeName'] ?? '').toString().toLowerCase() == name.toLowerCase() && s['submitted'] == true);
+      final matchesSearch = name.toLowerCase().contains(
+        searchQuery.toLowerCase(),
+      );
+      final bool hasSubmitted = submissionStatusList.any(
+        (s) =>
+            (s['employeeName'] ?? '').toString().toLowerCase() ==
+                name.toLowerCase() &&
+            s['submitted'] == true,
+      );
 
-      bool matchesRole = (selectedRoleFilter == null || selectedRoleFilter == 'All Roles' || role == selectedRoleFilter);
+      bool matchesRole =
+          (selectedRoleFilter == null ||
+          selectedRoleFilter == 'All Roles' ||
+          role == selectedRoleFilter);
       bool matchesStatus = true;
       if (selectedStatusFilter == 'Submitted') matchesStatus = hasSubmitted;
       if (selectedStatusFilter == 'Pending') matchesStatus = !hasSubmitted;
 
       bool matchesAttendance = true;
-      if (selectedAttendanceFilter != null && selectedAttendanceFilter != 'All') {
-        matchesAttendance = attendanceStatus.toLowerCase() == selectedAttendanceFilter!.toLowerCase();
+      if (selectedAttendanceFilter != null &&
+          selectedAttendanceFilter != 'All') {
+        matchesAttendance =
+            attendanceStatus.toLowerCase() ==
+            selectedAttendanceFilter!.toLowerCase();
       }
 
       return matchesSearch && matchesRole && matchesStatus && matchesAttendance;
     }).toList();
 
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: _border)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _border),
+      ),
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: const BoxDecoration(color: _surface, borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+            decoration: const BoxDecoration(
+              color: _surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+            ),
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -802,41 +1334,156 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
               children: [
                 PopupMenuButton<String>(
                   initialValue: selectedRoleFilter ?? 'All Roles',
-                  onSelected: (val) => setState(() => selectedRoleFilter = val == 'All Roles' ? null : val),
+                  onSelected: (val) => setState(
+                    () => selectedRoleFilter = val == 'All Roles' ? null : val,
+                  ),
                   itemBuilder: (context) => [
-                    const PopupMenuItem(value: 'All Roles', child: Text('All Roles', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    ...availableRoles.map((r) => PopupMenuItem(value: r, child: Text(r, style: TextStyle(fontSize: 12)))),
+                    const PopupMenuItem(
+                      value: 'All Roles',
+                      child: Text(
+                        'All Roles',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    ...availableRoles.map(
+                      (r) => PopupMenuItem(
+                        value: r,
+                        child: Text(r, style: TextStyle(fontSize: 12)),
+                      ),
+                    ),
                   ],
-                  child: Chip(label: Text(selectedRoleFilter ?? 'Role ▾', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), backgroundColor: Colors.white),
+                  child: Chip(
+                    label: Text(
+                      selectedRoleFilter ?? 'Role ▾',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    backgroundColor: Colors.white,
+                  ),
                 ),
                 PopupMenuButton<String>(
                   initialValue: selectedAttendanceFilter ?? 'All Attendance',
-                  onSelected: (val) => setState(() => selectedAttendanceFilter = val),
+                  onSelected: (val) =>
+                      setState(() => selectedAttendanceFilter = val),
                   itemBuilder: (context) => [
-                    const PopupMenuItem(value: 'All', child: Text('All Attendance', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    const PopupMenuItem(value: 'Present', child: Text('Present', style: TextStyle(fontSize: 12, color: Color(0xFF10B981)))),
-                    const PopupMenuItem(value: 'Absent', child: Text('Absent', style: TextStyle(fontSize: 12, color: Color(0xFFDC2626)))),
+                    const PopupMenuItem(
+                      value: 'All',
+                      child: Text(
+                        'All Attendance',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'Present',
+                      child: Text(
+                        'Present',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF10B981),
+                        ),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'Absent',
+                      child: Text(
+                        'Absent',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFFDC2626),
+                        ),
+                      ),
+                    ),
                   ],
-                  child: Chip(label: Text(selectedAttendanceFilter ?? 'Attendance ▾', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), backgroundColor: Colors.white),
+                  child: Chip(
+                    label: Text(
+                      selectedAttendanceFilter ?? 'Attendance ▾',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    backgroundColor: Colors.white,
+                  ),
                 ),
                 PopupMenuButton<String>(
                   initialValue: selectedStatusFilter ?? 'All Status',
-                  onSelected: (val) => setState(() => selectedStatusFilter = val == 'All Status' ? null : val),
+                  onSelected: (val) => setState(
+                    () =>
+                        selectedStatusFilter = val == 'All Status' ? null : val,
+                  ),
                   itemBuilder: (context) => [
-                    const PopupMenuItem(value: 'All Status', child: Text('All Status', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    const PopupMenuItem(value: 'Submitted', child: Text('Submitted', style: TextStyle(fontSize: 12, color: Color(0xFF10B981)))),
-                    const PopupMenuItem(value: 'Pending', child: Text('Pending', style: TextStyle(fontSize: 12, color: Color(0xFFDC2626)))),
+                    const PopupMenuItem(
+                      value: 'All Status',
+                      child: Text(
+                        'All Status',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'Submitted',
+                      child: Text(
+                        'Submitted',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF10B981),
+                        ),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'Pending',
+                      child: Text(
+                        'Pending',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFFDC2626),
+                        ),
+                      ),
+                    ),
                   ],
-                  child: Chip(label: Text(selectedStatusFilter ?? 'Status ▾', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)), backgroundColor: Colors.white),
+                  child: Chip(
+                    label: Text(
+                      selectedStatusFilter ?? 'Status ▾',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    backgroundColor: Colors.white,
+                  ),
                 ),
-                IconButton(icon: Icon(isAscendingOrder ? Icons.arrow_upward : Icons.arrow_downward, size: 18), onPressed: () => setState(() => isAscendingOrder = !isAscendingOrder)),
+                IconButton(
+                  icon: Icon(
+                    isAscendingOrder
+                        ? Icons.arrow_upward
+                        : Icons.arrow_downward,
+                    size: 18,
+                  ),
+                  onPressed: () =>
+                      setState(() => isAscendingOrder = !isAscendingOrder),
+                ),
               ],
             ),
           ),
           const Divider(height: 1, color: _border),
           Expanded(
             child: filteredEmployees.isEmpty
-                ? const Center(child: Text("No employees found.", style: TextStyle(color: _muted)))
+                ? const Center(
+                    child: Text(
+                      "No employees found.",
+                      style: TextStyle(color: _muted),
+                    ),
+                  )
                 : ListView.builder(
                     itemCount: filteredEmployees.length,
                     padding: const EdgeInsets.all(10),
@@ -844,51 +1491,131 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                       final emp = filteredEmployees[index];
                       final empName = emp['fullName'] ?? 'Employee';
                       final empRole = emp['role'] ?? 'Staff';
-                      final String attendanceStatus = emp['attendanceStatus'] ?? 'Absent';
+                      final String attendanceStatus =
+                          emp['attendanceStatus'] ?? 'Absent';
                       final bool isPresent = attendanceStatus == 'Present';
-                      final bool hasSubmitted = submissionStatusList.any((s) => (s['employeeName'] ?? '').toString().toLowerCase() == empName.toLowerCase() && s['submitted'] == true);
+                      final bool hasSubmitted = submissionStatusList.any(
+                        (s) =>
+                            (s['employeeName'] ?? '')
+                                    .toString()
+                                    .toLowerCase() ==
+                                empName.toLowerCase() &&
+                            s['submitted'] == true,
+                      );
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 12),
                         padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: _border)),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: _border),
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                Text('${index + 1}. ', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _muted)),
+                                Text(
+                                  '${index + 1}. ',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: _muted,
+                                  ),
+                                ),
                                 CircleAvatar(
                                   radius: 16,
                                   backgroundColor: _primaryLight,
-                                  child: Text(_getInitials(empName), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: _primary)),
+                                  child: Text(
+                                    _getInitials(empName),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      color: _primary,
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text(empName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: _ink)),
+                                      Text(
+                                        empName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                          color: _ink,
+                                        ),
+                                      ),
                                       const SizedBox(height: 2),
-                                      Text(empRole, style: const TextStyle(fontSize: 11, color: _muted)),
+                                      Text(
+                                        empRole,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: _muted,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: isPresent ? const Color(0xFFF0FDF4) : const Color(0xFFFEF2F2),
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(color: isPresent ? const Color(0xFF10B981).withValues(alpha: 0.3) : const Color(0xFFDC2626).withValues(alpha: 0.3)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
                                   ),
-                                  child: Text(attendanceStatus, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: isPresent ? const Color(0xFF16A34A) : const Color(0xFFDC2626))),
+                                  decoration: BoxDecoration(
+                                    color: isPresent
+                                        ? const Color(0xFFF0FDF4)
+                                        : const Color(0xFFFEF2F2),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: isPresent
+                                          ? const Color(
+                                              0xFF10B981,
+                                            ).withValues(alpha: 0.3)
+                                          : const Color(
+                                              0xFFDC2626,
+                                            ).withValues(alpha: 0.3),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    attendanceStatus,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: isPresent
+                                          ? const Color(0xFF16A34A)
+                                          : const Color(0xFFDC2626),
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 Row(
                                   children: [
-                                    Container(width: 8, height: 8, decoration: BoxDecoration(color: hasSubmitted ? const Color(0xFF10B981) : const Color(0xFFDC2626), shape: BoxShape.circle)),
+                                    Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        color: hasSubmitted
+                                            ? const Color(0xFF10B981)
+                                            : const Color(0xFFDC2626),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
                                     const SizedBox(width: 6),
-                                    Text(hasSubmitted ? 'Submitted' : 'Pending', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: hasSubmitted ? const Color(0xFF10B981) : const Color(0xFFDC2626))),
+                                    Text(
+                                      hasSubmitted ? 'Submitted' : 'Pending',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                        color: hasSubmitted
+                                            ? const Color(0xFF10B981)
+                                            : const Color(0xFFDC2626),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ],
@@ -901,17 +1628,57 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                               children: [
                                 if (!hasSubmitted) ...[
                                   ElevatedButton.icon(
-                                    onPressed: () => _sendNotificationToEmployee(empName),
-                                    icon: const Icon(Icons.notifications_active_rounded, size: 12, color: Colors.white),
-                                    label: const Text("Notify", style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
-                                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD97706), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), elevation: 0),
+                                    onPressed: () =>
+                                        _sendNotificationToEmployee(empName),
+                                    icon: const Icon(
+                                      Icons.notifications_active_rounded,
+                                      size: 12,
+                                      color: Colors.white,
+                                    ),
+                                    label: const Text(
+                                      "Notify",
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFFD97706),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      elevation: 0,
+                                    ),
                                   ),
                                   const SizedBox(width: 8),
                                 ],
                                 ElevatedButton(
-                                  onPressed: () => _fetchEmployeeDayPlan(empName),
-                                  style: ElevatedButton.styleFrom(backgroundColor: _primaryLight, foregroundColor: _primary, elevation: 0, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                                  child: const Text("View Planner", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                                  onPressed: () =>
+                                      _fetchEmployeeDayPlan(empName),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _primaryLight,
+                                    foregroundColor: _primary,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    "View Planner",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
@@ -929,7 +1696,11 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   Widget _buildSelectedEmployeeHeader() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: _border)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -937,25 +1708,63 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: _primaryLight, borderRadius: BorderRadius.circular(10)),
-                child: const Icon(Icons.person_outline_rounded, color: _primary, size: 20),
+                decoration: BoxDecoration(
+                  color: _primaryLight,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.person_outline_rounded,
+                  color: _primary,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 12),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Employee Planner: $selectedEmployee", style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _ink)),
+                  Text(
+                    "Employee Planner: $selectedEmployee",
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                      color: _ink,
+                    ),
+                  ),
                   const SizedBox(height: 2),
-                  Text("Viewing mode: $dateFilterMode", style: const TextStyle(fontSize: 11, color: _muted, fontWeight: FontWeight.w600)),
+                  Text(
+                    "Viewing mode: $dateFilterMode",
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: _muted,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ],
           ),
           ElevatedButton.icon(
             onPressed: () => setState(() => selectedEmployee = null),
-            icon: const Icon(Icons.arrow_back_rounded, size: 16, color: Colors.white),
-            label: const Text('Back', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-            style: ElevatedButton.styleFrom(backgroundColor: _primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), elevation: 0),
+            icon: const Icon(
+              Icons.arrow_back_rounded,
+              size: 16,
+              color: Colors.white,
+            ),
+            label: const Text(
+              'Back',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              elevation: 0,
+            ),
           ),
         ],
       ),
@@ -965,9 +1774,20 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
   Widget _buildMobilePlannerCardList(List<Map<String, dynamic>> rows) {
     if (rows.isEmpty) {
       return Container(
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: _border)),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
         alignment: Alignment.center,
-        child: Text('No day plan entries found ($dateFilterMode).', style: const TextStyle(color: _muted, fontSize: 13, fontWeight: FontWeight.w600)),
+        child: Text(
+          'No day plan entries found ($dateFilterMode).',
+          style: const TextStyle(
+            color: _muted,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       );
     }
 
@@ -997,7 +1817,16 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
             borderRadius: BorderRadius.circular(18),
             border: Border.all(color: _border),
             boxShadow: [
-              BoxShadow(color: const Color.fromARGB(255, 17, 67, 158).withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4)),
+              BoxShadow(
+                color: const Color.fromARGB(
+                  255,
+                  17,
+                  67,
+                  158,
+                ).withValues(alpha: 0.02),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
             ],
           ),
           child: Column(
@@ -1009,7 +1838,11 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                   Expanded(
                     child: Text(
                       clientName,
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _ink),
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                        color: _ink,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1019,22 +1852,38 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
               const SizedBox(height: 12),
               const Divider(height: 1, color: _border),
               const SizedBox(height: 12),
-              _mobileDetailRow(Icons.calendar_today_rounded, "Maintenance Date", maintDate),
+              _mobileDetailRow(
+                Icons.calendar_today_rounded,
+                "Maintenance Date",
+                maintDate,
+              ),
               if (ads.isNotEmpty && ads != '-') ...[
                 const SizedBox(height: 6),
                 _mobileDetailRow(Icons.campaign_outlined, "Ads", ads),
               ],
               if (leads.isNotEmpty && leads != '-') ...[
                 const SizedBox(height: 6),
-                _mobileDetailRow(Icons.trending_up_rounded, "Today Leads", leads),
+                _mobileDetailRow(
+                  Icons.trending_up_rounded,
+                  "Today Leads",
+                  leads,
+                ),
               ],
               if (report.isNotEmpty && report != '-') ...[
                 const SizedBox(height: 6),
-                _mobileDetailRow(Icons.assessment_outlined, "Today Report", report),
+                _mobileDetailRow(
+                  Icons.assessment_outlined,
+                  "Today Report",
+                  report,
+                ),
               ],
               if (deliv1.isNotEmpty && deliv1 != '-') ...[
                 const SizedBox(height: 6),
-                _mobileDetailRow(Icons.inventory_2_outlined, "Deliverables 1", "$deliv1 (Comp: $comp1 | Bal: $bal1)"),
+                _mobileDetailRow(
+                  Icons.inventory_2_outlined,
+                  "Deliverables 1",
+                  "$deliv1 (Comp: $comp1 | Bal: $bal1)",
+                ),
               ],
               const SizedBox(height: 6),
               _mobileDetailRow(Icons.notes_rounded, "Today Plan", plan),
@@ -1048,22 +1897,42 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("Total Tracked Time:", style: TextStyle(fontSize: 11, color: _muted, fontWeight: FontWeight.w600)),
+                  const Text(
+                    "Total Tracked Time:",
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _muted,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: _primaryLight,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: _primary.withValues(alpha: 0.2)),
+                      border: Border.all(
+                        color: _primary.withValues(alpha: 0.2),
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.access_time_rounded, size: 14, color: _primary),
+                        const Icon(
+                          Icons.access_time_rounded,
+                          size: 14,
+                          color: _primary,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           workingTime,
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: _primaryDark),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            color: _primaryDark,
+                          ),
                         ),
                       ],
                     ),
@@ -1083,24 +1952,36 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       children: [
         Icon(icon, size: 14, color: _muted),
         const SizedBox(width: 8),
-        Text("$label: ", style: const TextStyle(fontSize: 12, color: _muted, fontWeight: FontWeight.w700)),
+        Text(
+          "$label: ",
+          style: const TextStyle(
+            fontSize: 12,
+            color: _muted,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 12, color: _ink, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 12,
+              color: _ink,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
     );
   }
-  
+
   Widget _buildGroupedSheetGrids(List<Map<String, dynamic>> rows) {
     final hasAds = _hasColumn(rows, 'ads');
     final hasLeads = _hasColumn(rows, 'today_leads');
     final hasReport = _hasColumn(rows, 'today_report');
     final hasRemarks = _hasColumn(rows, 'remarks');
 
-    double tableWidth = 140 +
+    double tableWidth =
+        140 +
         (hasAds ? 140 : 0) +
         (hasLeads ? 110 : 0) +
         (hasReport ? 110 : 0) +
@@ -1114,9 +1995,20 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
 
     if (rows.isEmpty) {
       return Container(
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: _border)),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
         alignment: Alignment.center,
-        child: Text('No day plan entries found for this employee ($dateFilterMode).', style: const TextStyle(color: _muted, fontSize: 13, fontWeight: FontWeight.w600)),
+        child: Text(
+          'No day plan entries found for this employee ($dateFilterMode).',
+          style: const TextStyle(
+            color: _muted,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       );
     }
 
@@ -1129,7 +2021,11 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     final sortedKeys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
     return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: _border)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _border),
+      ),
       child: Scrollbar(
         thumbVisibility: true,
         child: ListView.builder(
@@ -1137,11 +2033,19 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
           itemBuilder: (context, groupIndex) {
             String dateKey = sortedKeys[groupIndex];
             List<Map<String, dynamic>> dateRows = grouped[dateKey]!;
-            
+
             String dayName = '';
             try {
               DateTime parsed = DateTime.parse(dateKey);
-              const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+              const days = [
+                'Monday',
+                'Tuesday',
+                'Wednesday',
+                'Thursday',
+                'Friday',
+                'Saturday',
+                'Sunday',
+              ];
               dayName = ' (${days[parsed.weekday - 1]})';
             } catch (_) {}
 
@@ -1151,10 +2055,17 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(colors: [_primaryDark, _primary]),
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                      gradient: LinearGradient(
+                        colors: [_primaryDark, _primary],
+                      ),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(16),
+                      ),
                     ),
                     child: Wrap(
                       alignment: WrapAlignment.spaceBetween,
@@ -1164,24 +2075,48 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.calendar_today_rounded, size: 16, color: Colors.white70),
+                            const Icon(
+                              Icons.calendar_today_rounded,
+                              size: 16,
+                              color: Colors.white70,
+                            ),
                             const SizedBox(width: 8),
-                            Text('Date: $dateKey$dayName', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13)),
+                            Text(
+                              'Date: $dateKey$dayName',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
+                            ),
                           ],
                         ),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.timer_outlined, size: 16, color: Colors.white70),
+                            const Icon(
+                              Icons.timer_outlined,
+                              size: 16,
+                              color: Colors.white70,
+                            ),
                             const SizedBox(width: 6),
-                            Text('Day Working Time: ${_formatWorkingTime(dateRows.isNotEmpty ? dateRows.first['total_working_secs'] : 0)}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text(
+                              'Day Working Time: ${_formatWorkingTime(dateRows.isNotEmpty ? dateRows.first['total_working_secs'] : 0)}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
                           ],
                         ),
                       ],
                     ),
                   ),
                   ClipRRect(
-                    borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+                    borderRadius: const BorderRadius.vertical(
+                      bottom: Radius.circular(16),
+                    ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.max,
@@ -1195,9 +2130,19 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                               Container(
                                 height: 44,
                                 color: const Color(0xFF1E293B),
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
                                 alignment: Alignment.centerLeft,
-                                child: const Text('CLIENT NAME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
+                                child: const Text(
+                                  'CLIENT NAME',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
                               ),
                               ...dateRows.map((row) => _clientCell(row)),
                             ],
@@ -1208,12 +2153,20 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                           child: Listener(
                             onPointerSignal: (pointerSignal) {
                               if (pointerSignal is PointerScrollEvent) {
-                                final double delta = pointerSignal.scrollDelta.dy;
-                                if (delta != 0 && _horizontalController.hasClients) {
-                                  final newOffset = (_horizontalController.offset + delta).clamp(
-                                    _horizontalController.position.minScrollExtent,
-                                    _horizontalController.position.maxScrollExtent,
-                                  );
+                                final double delta =
+                                    pointerSignal.scrollDelta.dy;
+                                if (delta != 0 &&
+                                    _horizontalController.hasClients) {
+                                  final newOffset =
+                                      (_horizontalController.offset + delta)
+                                          .clamp(
+                                            _horizontalController
+                                                .position
+                                                .minScrollExtent,
+                                            _horizontalController
+                                                .position
+                                                .maxScrollExtent,
+                                          );
                                   _horizontalController.jumpTo(newOffset);
                                 }
                               }
@@ -1232,17 +2185,54 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                       height: 44,
                                       child: Row(
                                         children: [
-                                          const _HeaderCell(width: 140, label: 'MAINTENANCE DATE'),
-                                          if (hasAds) const _HeaderCell(width: 140, label: 'ADS'),
-                                          if (hasLeads) const _HeaderCell(width: 110, label: 'TODAY LEADS'),
-                                          if (hasReport) const _HeaderCell(width: 110, label: 'TODAY REPORT'),
-                                          const _HeaderCell(width: 150, label: 'DELIVERABLES 1'),
-                                          const _HeaderCell(width: 150, label: 'COMPLETE 1'),
-                                          const _HeaderCell(width: 150, label: 'BALANCED 1'),
-                                          const _HeaderCell(width: 180, label: 'TODAY PLAN'),
-                                          if (hasRemarks) const _HeaderCell(width: 180, label: 'REMARKS'),
-                                          const _HeaderCell(width: 130, label: 'STATUS'),
-                                          const _HeaderCell(width: 150, label: 'WORKING HOURS'),
+                                          const _HeaderCell(
+                                            width: 140,
+                                            label: 'MAINTENANCE DATE',
+                                          ),
+                                          if (hasAds)
+                                            const _HeaderCell(
+                                              width: 140,
+                                              label: 'ADS',
+                                            ),
+                                          if (hasLeads)
+                                            const _HeaderCell(
+                                              width: 110,
+                                              label: 'TODAY LEADS',
+                                            ),
+                                          if (hasReport)
+                                            const _HeaderCell(
+                                              width: 110,
+                                              label: 'TODAY REPORT',
+                                            ),
+                                          const _HeaderCell(
+                                            width: 150,
+                                            label: 'DELIVERABLES 1',
+                                          ),
+                                          const _HeaderCell(
+                                            width: 150,
+                                            label: 'COMPLETE 1',
+                                          ),
+                                          const _HeaderCell(
+                                            width: 150,
+                                            label: 'BALANCED 1',
+                                          ),
+                                          const _HeaderCell(
+                                            width: 180,
+                                            label: 'TODAY PLAN',
+                                          ),
+                                          if (hasRemarks)
+                                            const _HeaderCell(
+                                              width: 180,
+                                              label: 'REMARKS',
+                                            ),
+                                          const _HeaderCell(
+                                            width: 130,
+                                            label: 'STATUS',
+                                          ),
+                                          const _HeaderCell(
+                                            width: 150,
+                                            label: 'WORKING HOURS',
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -1250,7 +2240,13 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
                                     ...dateRows.map(
                                       (row) => SizedBox(
                                         width: tableWidth,
-                                        child: _buildDataRow(row, hasAds, hasLeads, hasReport, hasRemarks),
+                                        child: _buildDataRow(
+                                          row,
+                                          hasAds,
+                                          hasLeads,
+                                          hasReport,
+                                          hasRemarks,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -1276,11 +2272,18 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
     return Container(
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: const BoxDecoration(color: _surface, border: Border(bottom: BorderSide(color: _border))),
+      decoration: const BoxDecoration(
+        color: _surface,
+        border: Border(bottom: BorderSide(color: _border)),
+      ),
       alignment: Alignment.centerLeft,
       child: Text(
         current.isEmpty ? '—' : current,
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink),
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          color: _ink,
+        ),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -1317,11 +2320,20 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       width: width,
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: const BoxDecoration(border: Border(right: BorderSide(color: _border), bottom: BorderSide(color: _border))),
+      decoration: const BoxDecoration(
+        border: Border(
+          right: BorderSide(color: _border),
+          bottom: BorderSide(color: _border),
+        ),
+      ),
       alignment: Alignment.centerLeft,
       child: Text(
         value.isEmpty ? '—' : value,
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: value.isEmpty ? const Color(0xFFCBD5E1) : _ink),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: value.isEmpty ? const Color(0xFFCBD5E1) : _ink,
+        ),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),
@@ -1357,12 +2369,29 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       width: width,
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: const BoxDecoration(border: Border(right: BorderSide(color: _border), bottom: BorderSide(color: _border))),
+      decoration: const BoxDecoration(
+        border: Border(
+          right: BorderSide(color: _border),
+          bottom: BorderSide(color: _border),
+        ),
+      ),
       alignment: Alignment.center,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(6), border: Border.all(color: textColor.withValues(alpha: 0.25))),
-        child: Text(status.toUpperCase(), style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.3)),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: textColor.withValues(alpha: 0.25)),
+        ),
+        child: Text(
+          status.toUpperCase(),
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+            color: textColor,
+            letterSpacing: 0.3,
+          ),
+        ),
       ),
     );
   }
@@ -1373,7 +2402,12 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
       width: width,
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: const BoxDecoration(border: Border(right: BorderSide(color: _border), bottom: BorderSide(color: _border))),
+      decoration: const BoxDecoration(
+        border: Border(
+          right: BorderSide(color: _border),
+          bottom: BorderSide(color: _border),
+        ),
+      ),
       alignment: Alignment.center,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1389,7 +2423,11 @@ class _AdminDayPlannerScreenState extends State<AdminDayPlannerScreen> {
             const SizedBox(width: 5),
             Text(
               formattedTime,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: _primaryDark),
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: _primaryDark,
+              ),
             ),
           ],
         ),
@@ -1409,11 +2447,19 @@ class _HeaderCell extends StatelessWidget {
       width: width,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: const BoxDecoration(color: Color(0xFFF8FAFC), border: Border(right: BorderSide(color: Color(0xFFE2E8F0)))),
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8FAFC),
+          border: Border(right: BorderSide(color: Color(0xFFE2E8F0))),
+        ),
         alignment: Alignment.centerLeft,
         child: Text(
           label,
-          style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Color(0xFF475569), letterSpacing: 0.4),
+          style: const TextStyle(
+            fontSize: 9.5,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF475569),
+            letterSpacing: 0.4,
+          ),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),

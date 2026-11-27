@@ -98,6 +98,18 @@ class ShowShortcutsHelpIntent extends Intent {
   const ShowShortcutsHelpIntent();
 }
 
+class NavigateBackIntent extends Intent {
+  const NavigateBackIntent();
+}
+
+class NextAppFocusIntent extends Intent {
+  const NextAppFocusIntent();
+}
+
+class PreviousAppFocusIntent extends Intent {
+  const PreviousAppFocusIntent();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App-wide wrapper
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,6 +147,18 @@ class AppShortcuts extends StatelessWidget {
             const ShowShortcutsHelpIntent(),
         const SingleActivator(LogicalKeyboardKey.slash, meta: true):
             const ShowShortcutsHelpIntent(),
+        // Back to the previous page (or close the active dialog).
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, alt: true):
+            const NavigateBackIntent(),
+        // Arrow keys traverse controls when a text field is not active.
+        const SingleActivator(LogicalKeyboardKey.arrowDown):
+            const NextAppFocusIntent(),
+        const SingleActivator(LogicalKeyboardKey.arrowRight):
+            const NextAppFocusIntent(),
+        const SingleActivator(LogicalKeyboardKey.arrowUp):
+            const PreviousAppFocusIntent(),
+        const SingleActivator(LogicalKeyboardKey.arrowLeft):
+            const PreviousAppFocusIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
@@ -154,6 +178,32 @@ class AppShortcuts extends StatelessWidget {
             onInvoke: (_) {
               final ctx = navigatorKey.currentContext ?? context;
               showKeyboardShortcutsHelp(ctx);
+              return null;
+            },
+          ),
+          NavigateBackIntent: CallbackAction<NavigateBackIntent>(
+            onInvoke: (_) {
+              navigatorKey.currentState?.maybePop();
+              return null;
+            },
+          ),
+          NextAppFocusIntent: CallbackAction<NextAppFocusIntent>(
+            onInvoke: (_) {
+              if (!_focusedFieldIsEditable()) {
+                FocusScope.of(
+                  navigatorKey.currentContext ?? context,
+                ).nextFocus();
+              }
+              return null;
+            },
+          ),
+          PreviousAppFocusIntent: CallbackAction<PreviousAppFocusIntent>(
+            onInvoke: (_) {
+              if (!_focusedFieldIsEditable()) {
+                FocusScope.of(
+                  navigatorKey.currentContext ?? context,
+                ).previousFocus();
+              }
               return null;
             },
           ),
@@ -277,7 +327,8 @@ class _KeyboardSubmitState extends State<KeyboardSubmit> {
     return Shortcuts(
       shortcuts: <ShortcutActivator, Intent>{
         if (widget.onSubmit != null) ...{
-          const SingleActivator(LogicalKeyboardKey.enter): const _SubmitIntent(),
+          const SingleActivator(LogicalKeyboardKey.enter):
+              const _SubmitIntent(),
           const SingleActivator(LogicalKeyboardKey.numpadEnter):
               const _SubmitIntent(),
         },
@@ -329,6 +380,15 @@ bool _focusedFieldIsMultiline() {
   return maxLines == null || maxLines > 1 || (minLines != null && minLines > 1);
 }
 
+/// Do not turn arrows into navigation while the user is editing text. This
+/// preserves cursor movement in every text field in the application.
+bool _focusedFieldIsEditable() {
+  final ctx = FocusManager.instance.primaryFocus?.context;
+  if (ctx == null) return false;
+  return ctx.widget is EditableText ||
+      ctx.findAncestorWidgetOfExactType<EditableText>() != null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Arrow-key focus group (for sidebars, menus, button rows — NO text fields)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -357,6 +417,127 @@ class ArrowFocusGroup extends StatelessWidget {
           SingleActivator(LogicalKeyboardKey.arrowLeft): PreviousFocusIntent(),
         },
         child: child,
+      ),
+    );
+  }
+}
+
+/// Consistent blue-and-white confirmation dialog for task actions.
+///
+/// Enter confirms, Escape cancels, Left/Right arrows move between buttons,
+/// and Alt+Left uses the app-wide back action. Use this for confirmations
+/// instead of creating a plain [AlertDialog].
+class KeyboardActionDialog extends StatelessWidget {
+  final String title;
+  final String message;
+  final String confirmLabel;
+  final String cancelLabel;
+  final IconData icon;
+  final Color color;
+
+  const KeyboardActionDialog({
+    super.key,
+    required this.title,
+    required this.message,
+    required this.confirmLabel,
+    this.cancelLabel = 'Cancel',
+    this.icon = Icons.check_circle_outline_rounded,
+    this.color = const Color(0xFF0B5ED7),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return KeyboardSubmit(
+      autofocus: true,
+      onSubmit: () => Navigator.pop(context, true),
+      onCancel: () => Navigator.pop(context, false),
+      child: Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 500),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: .10),
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: Icon(icon, color: color, size: 23),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          color: Color(0xFF0F172A),
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    color: Color(0xFF475569),
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Enter to confirm · Esc to cancel · ← / → to change action',
+                  style: TextStyle(
+                    color: Color(0xFF64748B),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ArrowFocusGroup(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(
+                          autofocus: true,
+                          onPressed: () => Navigator.pop(context, false),
+                          child: Text(cancelLabel),
+                        ),
+                        const SizedBox(width: 10),
+                        FilledButton.icon(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: color,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                          ),
+                          icon: const Icon(Icons.check_rounded, size: 17),
+                          label: Text(confirmLabel),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -414,6 +595,8 @@ const List<ShortcutGroup> kKeyboardShortcutGroups = <ShortcutGroup>[
     ShortcutRow(['Ctrl', 'S'], 'Save the current page'),
     ShortcutRow(['Ctrl', 'K'], 'Jump to the top search bar'),
     ShortcutRow(['Esc'], 'Close the open dialog or menu / cancel'),
+    ShortcutRow(['Alt', '←'], 'Return to the previous page / close dialog'),
+    ShortcutRow(['↑', '↓', '←', '→'], 'Move between buttons and cards'),
     ShortcutRow(['F1'], 'Open this keyboard shortcuts help'),
     ShortcutRow(['Ctrl', '/'], 'Open this keyboard shortcuts help'),
   ]),
@@ -426,6 +609,7 @@ const List<ShortcutGroup> kKeyboardShortcutGroups = <ShortcutGroup>[
     ShortcutRow(['Shift', 'Tab'], 'Move to the previous field'),
     ShortcutRow(['Enter'], 'Press the primary button (Save / Add / Confirm)'),
     ShortcutRow(['Space'], 'Toggle the focused checkbox / press the button'),
+    ShortcutRow(['←', '→'], 'Change the focused dialog action'),
     ShortcutRow(['Esc'], 'Cancel and close the dialog'),
   ]),
   ShortcutGroup('Search & lists', <ShortcutRow>[
@@ -487,8 +671,11 @@ class _KeyboardShortcutsDialog extends StatelessWidget {
                       color: Colors.white.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.keyboard_rounded,
-                        color: Colors.white, size: 22),
+                    child: const Icon(
+                      Icons.keyboard_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -549,8 +736,11 @@ class _KeyboardShortcutsDialog extends StatelessWidget {
                     const Divider(height: 24),
                     Row(
                       children: const [
-                        Icon(Icons.lightbulb_outline_rounded,
-                            size: 16, color: _muted),
+                        Icon(
+                          Icons.lightbulb_outline_rounded,
+                          size: 16,
+                          color: _muted,
+                        ),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -587,8 +777,10 @@ class _KeyboardShortcutsDialog extends StatelessWidget {
                   if (i != r.keys.length - 1)
                     const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 1),
-                      child: Text('+',
-                          style: TextStyle(color: _muted, fontSize: 12)),
+                      child: Text(
+                        '+',
+                        style: TextStyle(color: _muted, fontSize: 12),
+                      ),
                     ),
                 ],
               ],

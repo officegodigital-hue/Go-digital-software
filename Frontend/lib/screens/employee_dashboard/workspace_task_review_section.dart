@@ -73,7 +73,8 @@ class WorkspaceTaskReviewSection extends StatefulWidget {
       _WorkspaceTaskReviewSectionState();
 }
 
-class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection> {
+class _WorkspaceTaskReviewSectionState
+    extends State<WorkspaceTaskReviewSection> {
   static const _filters = ['ALL', 'PENDING', 'REWORK', 'APPROVED', 'REJECTED'];
 
   bool _loading = true;
@@ -88,10 +89,10 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
   Timer? _refreshDebounce;
 
   Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (widget.authToken.isNotEmpty)
-          'Authorization': 'Bearer ${widget.authToken}',
-      };
+    'Content-Type': 'application/json',
+    if (widget.authToken.isNotEmpty)
+      'Authorization': 'Bearer ${widget.authToken}',
+  };
 
   @override
   void initState() {
@@ -99,7 +100,8 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
     _load();
     _socket = io.io(
       ApiConfig.socketUrl,
-      io.OptionBuilder().setAuthFn(authenticateSocket)
+      io.OptionBuilder()
+          .setAuthFn(authenticateSocket)
           .setTransports(['websocket'])
           .enableForceNew()
           .disableAutoConnect()
@@ -128,16 +130,17 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
       });
     }
     try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/review').replace(
-        queryParameters: {
-          'employee': widget.employeeName,
-          'client': widget.clientName,
-          'date': widget.submissionDate.length >= 10
-              ? widget.submissionDate.substring(0, 10)
-              : widget.submissionDate,
-          if (widget.adminMode) 'admin': '1',
-        },
-      );
+      final uri = Uri.parse('${ApiConfig.baseUrl}/workspace-tasks/review')
+          .replace(
+            queryParameters: {
+              'employee': widget.employeeName,
+              'client': widget.clientName,
+              'date': widget.submissionDate.length >= 10
+                  ? widget.submissionDate.substring(0, 10)
+                  : widget.submissionDate,
+              if (widget.adminMode) 'admin': '1',
+            },
+          );
       final res = await http.get(uri, headers: _headers);
       if (res.statusCode != 200) {
         throw Exception('Unable to load task review (${res.statusCode})');
@@ -186,13 +189,21 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
           onSubmit: () => Navigator.pop(c, true),
           onCancel: () => Navigator.pop(c, false),
           child: AlertDialog(
-          title: const Text('Move back to pending?'),
-          content: const Text('The previous decision is cleared and the task waits for review again.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Set pending')),
-          ],
-        ),
+            title: const Text('Move back to pending?'),
+            content: const Text(
+              'The previous decision is cleared and the task waits for review again.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('Set pending'),
+              ),
+            ],
+          ),
         ),
       );
       if (ok != true) return;
@@ -203,21 +214,14 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
     } else {
       final ok = await showDialog<bool>(
         context: context,
-        builder: (c) => KeyboardSubmit(
-          autofocus: true,
-          onSubmit: () => Navigator.pop(c, true),
-          onCancel: () => Navigator.pop(c, false),
-          child: AlertDialog(
-          title: const Text('Approve this task?'),
-          content: Text(
-            '${_str(row['deliverable'])} · Row ${_str(row['display_no'])} by '
-            '${_str(row['employee_name'])} will be marked Completed and locked.',
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Approve')),
-          ],
-        ),
+        builder: (c) => KeyboardActionDialog(
+          title: 'Approve this task?',
+          message:
+              '${_str(row['deliverable'])} · Row ${_str(row['display_no'])} by '
+              '${_str(row['employee_name'])} will be marked Completed and locked.',
+          confirmLabel: 'Approve',
+          icon: Icons.verified_rounded,
+          color: const Color(0xFF0B5ED7),
         ),
       );
       if (ok != true) return;
@@ -254,7 +258,9 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to save the review. Check your connection.')),
+          const SnackBar(
+            content: Text('Unable to save the review. Check your connection.'),
+          ),
         );
       }
     } finally {
@@ -271,41 +277,44 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
       builder: (c) => KeyboardSubmit(
         onCancel: () => Navigator.pop(c),
         child: StatefulBuilder(
-        builder: (c, setD) => AlertDialog(
-          title: Text(action == 'REWORK' ? 'Request rework' : 'Reject task'),
-          content: SizedBox(
-            width: 420,
-            child: TextField(
-              controller: controller,
-              autofocus: true,
-              minLines: 3,
-              maxLines: 6,
-              decoration: InputDecoration(
-                labelText: 'Comment *',
-                hintText: action == 'REWORK'
-                    ? 'What should ${_str(row['employee_name'])} change?'
-                    : 'Why is this rejected?',
-                errorText: error,
-                border: const OutlineInputBorder(),
+          builder: (c, setD) => AlertDialog(
+            title: Text(action == 'REWORK' ? 'Request rework' : 'Reject task'),
+            content: SizedBox(
+              width: 420,
+              child: TextField(
+                controller: controller,
+                autofocus: true,
+                minLines: 3,
+                maxLines: 6,
+                decoration: InputDecoration(
+                  labelText: 'Comment *',
+                  hintText: action == 'REWORK'
+                      ? 'What should ${_str(row['employee_name'])} change?'
+                      : 'Why is this rejected?',
+                  errorText: error,
+                  border: const OutlineInputBorder(),
+                ),
               ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final v = controller.text.trim();
+                  if (v.isEmpty) {
+                    setD(() => error = 'Comment is required');
+                    return;
+                  }
+                  Navigator.pop(c, v);
+                },
+                child: Text(action == 'REWORK' ? 'Send rework' : 'Reject'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
-            FilledButton(
-              onPressed: () {
-                final v = controller.text.trim();
-                if (v.isEmpty) {
-                  setD(() => error = 'Comment is required');
-                  return;
-                }
-                Navigator.pop(c, v);
-              },
-              child: Text(action == 'REWORK' ? 'Send rework' : 'Reject'),
-            ),
-          ],
         ),
-      ),
       ),
     );
     controller.dispose();
@@ -343,7 +352,11 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
         children: [
           const Text(
             'Task review',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _kInk),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: _kInk,
+            ),
           ),
           const SizedBox(height: 4),
           const Text(
@@ -438,26 +451,43 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
   }
 
   String _label(String state) => switch (state) {
-        'ALL' => 'All',
-        'PENDING' => 'Pending review',
-        'REWORK' => 'Rework',
-        'APPROVED' => 'Approved',
-        'REJECTED' => 'Rejected',
-        _ => state,
-      };
+    'ALL' => 'All',
+    'PENDING' => 'Pending review',
+    'REWORK' => 'Rework',
+    'APPROVED' => 'Approved',
+    'REJECTED' => 'Rejected',
+    _ => state,
+  };
 
   Widget _reviewTile(Map<String, dynamic> row) {
     final reviewState = _str(row['review_state']);
-    final reworkRunning = reviewState == 'REWORK' && _str(row['state']) != 'REWORK';
+    final reworkRunning =
+        reviewState == 'REWORK' && _str(row['state']) != 'REWORK';
     final (label, bg, fg, icon) = switch (reviewState) {
-      'APPROVED' => ('Approved · Completed', const Color(0xFFDCFCE7),
-          const Color(0xFF15803D), Icons.verified_rounded),
-      'REWORK' => (reworkRunning ? 'Rework in progress' : 'Rework requested',
-          const Color(0xFFFFEDD5), const Color(0xFFC2410C), Icons.replay_rounded),
-      'REJECTED' => ('Rejected', const Color(0xFFFEE2E2),
-          const Color(0xFFB91C1C), Icons.block_rounded),
-      _ => ('Pending review', const Color(0xFFEDE9FE),
-          const Color(0xFF6D28D9), Icons.hourglass_top_rounded),
+      'APPROVED' => (
+        'Approved · Completed',
+        const Color(0xFFDCFCE7),
+        const Color(0xFF15803D),
+        Icons.verified_rounded,
+      ),
+      'REWORK' => (
+        reworkRunning ? 'Rework in progress' : 'Rework requested',
+        const Color(0xFFFFEDD5),
+        const Color(0xFFC2410C),
+        Icons.replay_rounded,
+      ),
+      'REJECTED' => (
+        'Rejected',
+        const Color(0xFFFEE2E2),
+        const Color(0xFFB91C1C),
+        Icons.block_rounded,
+      ),
+      _ => (
+        'Pending review',
+        const Color(0xFFEDE9FE),
+        const Color(0xFF6D28D9),
+        Icons.hourglass_top_rounded,
+      ),
     };
     final headline = _str(row['hook_headline']);
     final description = _str(row['description_points']);
@@ -477,7 +507,10 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
           Container(
             width: 38,
             height: 38,
-            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(10),
+            ),
             child: Icon(icon, color: fg, size: 20),
           ),
           const SizedBox(width: 12),
@@ -488,12 +521,18 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
                 Text(
                   '${_str(row['deliverable'])} · Row ${_str(row['display_no'])}'
                   '${_showTeam && _str(row['employee_name']).isNotEmpty ? ' · ${_str(row['employee_name'])}' : ''}',
-                  style: const TextStyle(fontWeight: FontWeight.w800, color: _kInk),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: _kInk,
+                  ),
                 ),
                 if (headline.isNotEmpty || description.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
-                    [headline, description].where((s) => s.isNotEmpty).join(' — '),
+                    [
+                      headline,
+                      description,
+                    ].where((s) => s.isNotEmpty).join(' — '),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 12, color: _kBody),
@@ -516,17 +555,37 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _decisionButton(row, 'APPROVED', 'Approve', Icons.check_circle_outline,
-                          const Color(0xFF15803D)),
+                      _decisionButton(
+                        row,
+                        'APPROVED',
+                        'Approve',
+                        Icons.check_circle_outline,
+                        const Color(0xFF15803D),
+                      ),
                       if (reviewState != 'PENDING')
-                        _decisionButton(row, 'PENDING', 'Pending', Icons.hourglass_top_rounded,
-                            const Color(0xFF6D28D9)),
+                        _decisionButton(
+                          row,
+                          'PENDING',
+                          'Pending',
+                          Icons.hourglass_top_rounded,
+                          const Color(0xFF6D28D9),
+                        ),
                       if (reviewState != 'REWORK')
-                        _decisionButton(row, 'REWORK', 'Rework', Icons.replay_rounded,
-                            const Color(0xFFC2410C)),
+                        _decisionButton(
+                          row,
+                          'REWORK',
+                          'Rework',
+                          Icons.replay_rounded,
+                          const Color(0xFFC2410C),
+                        ),
                       if (reviewState != 'REJECTED')
-                        _decisionButton(row, 'REJECTED', 'Reject', Icons.block_rounded,
-                            const Color(0xFFB91C1C)),
+                        _decisionButton(
+                          row,
+                          'REJECTED',
+                          'Reject',
+                          Icons.block_rounded,
+                          const Color(0xFFB91C1C),
+                        ),
                     ],
                   ),
                 ],
@@ -552,10 +611,17 @@ class _WorkspaceTaskReviewSectionState extends State<WorkspaceTaskReviewSection>
           const SizedBox(width: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(20),
+            ),
             child: Text(
               label,
-              style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: fg,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ],
